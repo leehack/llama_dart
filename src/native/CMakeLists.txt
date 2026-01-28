@@ -111,6 +111,7 @@ set(LLAMA_BUILD_COMMON ON CACHE BOOL "Build common" FORCE)
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Build tests" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Build examples" FORCE)
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Build server" FORCE)
+set(LLAMA_HTTPLIB OFF CACHE BOOL "Build httplib" FORCE)
 # Note: Newer llama.cpp versions might use different flags, check upstream if needed
 
 # =============================================================================

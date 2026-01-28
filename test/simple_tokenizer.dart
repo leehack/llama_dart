@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:llamadart/llama_dart.dart';
+import 'package:llamadart/llamadart.dart';
 
 void main() async {
   final service = LlamaService();

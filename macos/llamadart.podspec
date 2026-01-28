@@ -2,14 +2,14 @@
 # To learn more about a Podspec see http://guides.cocoapods.org/syntax/podspec.html
 #
 Pod::Spec.new do |s|
-  s.name             = 'llama_dart'
+  s.name             = 'llamadart'
   s.version          = '0.0.1'
   s.summary          = 'Run Large Language Models using llama.cpp with zero-setup installation'
   s.description      = <<-DESC
 A Dart/Flutter package that enables running Large Language Models (LLMs) using llama.cpp.
 Provides FFI bindings to llama.cpp and embeds native libraries, requiring no additional setup.
                        DESC
-  s.homepage         = 'https://github.com/jhinlee/llama_dart'
+  s.homepage         = 'https://github.com/jhinlee/llamadart'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Jhin Lee' => 'leehack@gmail.com' }
   s.source           = { :path => '.' }
@@ -25,9 +25,9 @@ Provides FFI bindings to llama.cpp and embeds native libraries, requiring no add
     mkdir -p Frameworks
 
     # Define build path (use /tmp to ensure writability in sandboxed environments)
-    BUILD_DIR="/tmp/llama_dart_build_macos"
+    BUILD_DIR="/tmp/llamadart_build_macos"
     
-    echo "llama_dart: Building native libraries in $BUILD_DIR..."
+    echo "llamadart: Building native libraries in $BUILD_DIR..."
     mkdir -p "$BUILD_DIR"
     
     # Go to project root (relative to macos/ directory)
@@ -39,14 +39,14 @@ Provides FFI bindings to llama.cpp and embeds native libraries, requiring no add
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" && \
        cmake --build "$BUILD_DIR" --config Release -j $(sysctl -n hw.ncpu); then
-      echo "llama_dart: Build successful."
+      echo "llamadart: Build successful."
     else
-      echo "llama_dart: Build failed."
+      echo "llamadart: Build failed."
       exit 1
     fi
 
     # Copy all dylibs from CMake build output
-    echo "llama_dart: Copying all libraries to Frameworks..."
+    echo "llamadart: Copying all libraries to Frameworks..."
     if ls "$BUILD_DIR"/bin/*.dylib >/dev/null 2>&1; then
       cp -L "$BUILD_DIR"/bin/*.dylib Frameworks/
     else

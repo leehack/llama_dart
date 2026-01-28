@@ -7,7 +7,7 @@ Future<void> main(List<String> args) async {
   final tempDir = Directory('temp_llama_cpp');
   final destDir = Directory('src/native/llama_cpp');
 
-  print('llama_dart: Vendoring llama.cpp ($targetVersion)...');
+  print('llamadart: Vendoring llama.cpp ($targetVersion)...');
 
   // 1. Clean up old vendor directory
   if (destDir.existsSync()) {
@@ -16,7 +16,7 @@ Future<void> main(List<String> args) async {
   destDir.createSync(recursive: true);
 
   // 2. Get Source using Sparse Checkout
-  print('llama_dart: Cloning $repository (sparse)...');
+  print('llamadart: Cloning $repository (sparse)...');
   if (tempDir.existsSync()) {
     tempDir.deleteSync(recursive: true);
   }
@@ -44,7 +44,7 @@ Future<void> main(List<String> args) async {
   await _runGit(tempDir, ['checkout', 'FETCH_HEAD']);
 
   // 3. Copy essential directories
-  print('llama_dart: Copying source files...');
+  print('llamadart: Copying source files...');
 
   final dirsToCopy = ['ggml', 'src', 'include', 'cmake', 'common', 'vendor'];
   for (final sourceName in dirsToCopy) {
@@ -62,7 +62,7 @@ Future<void> main(List<String> args) async {
       .copy('${destDir.path}/README.upstream.md');
 
   // 4. Clean up the copied folders (tests, examples, build)
-  print('llama_dart: Cleaning up internal tests and examples...');
+  print('llamadart: Cleaning up internal tests and examples...');
   await _deleteMatching(destDir, 'tests');
   await _deleteMatching(destDir, 'examples');
   await _deleteMatching(destDir, 'build');
@@ -75,7 +75,7 @@ Future<void> main(List<String> args) async {
   await _deleteMatching(destDir, 'tools'); // Internal tools
 
   // 4b. Deep Cleanup (Unused Backends & Scripts)
-  print('llama_dart: Performing deep cleanup of unused backends...');
+  print('llamadart: Performing deep cleanup of unused backends...');
   final backendsToRemove = [
     'ggml/src/ggml-cann',
     'ggml/src/ggml-hexagon',
@@ -110,20 +110,20 @@ Future<void> main(List<String> args) async {
 
   // 5. No custom CMakeLists.txt generation!
   // We use the upstream CMakeLists.txt copied in step 3.
-  print('llama_dart: Using upstream CMakeLists.txt (Zero-Overwrite strategy).');
+  print('llamadart: Using upstream CMakeLists.txt (Zero-Overwrite strategy).');
 
   // 6. No patches needed!
   // We rely on src/native/cmake/FindVulkan.cmake and parent CMake flags.
-  print('llama_dart: No source patches applied (using zero-patch strategy).');
+  print('llamadart: No source patches applied (using zero-patch strategy).');
 
   // 7. Final cleanup
   if (tempDir.existsSync()) {
     tempDir.deleteSync(recursive: true);
   }
 
-  print('llama_dart: Vendoring complete. Files are in ${destDir.path}.');
+  print('llamadart: Vendoring complete. Files are in ${destDir.path}.');
   print(
-      'llama_dart: Remember that CMake patches are now handled via src/native/cmake/FindVulkan.cmake.');
+      'llamadart: Remember that CMake patches are now handled via src/native/cmake/FindVulkan.cmake.');
 }
 
 Future<void> _runGit(Directory cwd, List<String> args) async {

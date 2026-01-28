@@ -17,19 +17,19 @@ extern "C" {
 
 // Forward declarations to fix "undeclared identifier" and "no previous
 // prototype"
-EXPORT const char *llama_dart_get_backend_name();
-EXPORT bool llama_dart_gpu_supported();
-EXPORT void llama_dart_init();
-EXPORT int llama_dart_get_device_count();
-EXPORT const char *llama_dart_get_device_name(int index);
-EXPORT const char *llama_dart_get_device_description(int index);
-EXPORT void *llama_dart_get_device_pointer(int index);
-void llama_dart_init_logging();
-void llama_dart_log_callback(ggml_log_level level, const char *text,
+EXPORT const char *llamadart_get_backend_name();
+EXPORT bool llamadart_gpu_supported();
+EXPORT void llamadart_init();
+EXPORT int llamadart_get_device_count();
+EXPORT const char *llamadart_get_device_name(int index);
+EXPORT const char *llamadart_get_device_description(int index);
+EXPORT void *llamadart_get_device_pointer(int index);
+void llamadart_init_logging();
+void llamadart_log_callback(ggml_log_level level, const char *text,
                              void *user_data);
 
 // Custom Logger to filter spam and avoid Dart callback crashes
-void llama_dart_log_callback(ggml_log_level level, const char *text,
+void llamadart_log_callback(ggml_log_level level, const char *text,
                              void *user_data) {
   (void)user_data; // Fix "unused parameter" warning
   if (text == NULL)
@@ -64,22 +64,22 @@ void llama_dart_log_callback(ggml_log_level level, const char *text,
   }
 }
 
-void llama_dart_init_logging() {
-  llama_log_set(llama_dart_log_callback, nullptr);
+void llamadart_init_logging() {
+  llama_log_set(llamadart_log_callback, nullptr);
 }
 
-EXPORT void llama_dart_init() {
+EXPORT void llamadart_init() {
   // Call some dummy functions to ensure the linker doesn't strip the library
   llama_backend_init();
-  llama_dart_init_logging();
+  llamadart_init_logging();
 
   // Force usage to prevent stripping (dlsym lookup issues on some platforms)
-  const char *backend = llama_dart_get_backend_name();
-  bool gpu = llama_dart_gpu_supported();
+  const char *backend = llamadart_get_backend_name();
+  bool gpu = llamadart_gpu_supported();
 
-  fprintf(stderr, "llama_dart_debug: Initializing...\n");
+  fprintf(stderr, "llamadart_debug: Initializing...\n");
 #ifdef __ANDROID__
-#define LOG_TAG "llama_dart_native"
+#define LOG_TAG "llamadart_native"
   __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "Initializing...");
 #ifdef GGML_USE_VULKAN
   __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "GGML_USE_VULKAN is DEFINED");
@@ -92,21 +92,21 @@ EXPORT void llama_dart_init() {
 #endif
 
 #ifdef GGML_USE_VULKAN
-  fprintf(stderr, "llama_dart_debug: GGML_USE_VULKAN is DEFINED\n");
+  fprintf(stderr, "llamadart_debug: GGML_USE_VULKAN is DEFINED\n");
 #else
-  fprintf(stderr, "llama_dart_debug: GGML_USE_VULKAN is NOT DEFINED\n");
+  fprintf(stderr, "llamadart_debug: GGML_USE_VULKAN is NOT DEFINED\n");
 #endif
 
   fprintf(
       stderr,
-      "llama_dart: Initializing with backend %s (GPU support directly: %d)\n",
+      "llamadart: Initializing with backend %s (GPU support directly: %d)\n",
       backend, (int)gpu);
   fprintf(stdout,
-          "llama_dart: Initializing with backend %s (GPU support: %s)\n",
+          "llamadart: Initializing with backend %s (GPU support: %s)\n",
           backend, gpu ? "YES" : "NO");
 }
 
-EXPORT const char *llama_dart_get_backend_name() {
+EXPORT const char *llamadart_get_backend_name() {
 #if defined(GGML_USE_CUDA)
   return "CUDA";
 #elif defined(GGML_USE_METAL)
@@ -118,11 +118,11 @@ EXPORT const char *llama_dart_get_backend_name() {
 #endif
 }
 
-EXPORT bool llama_dart_gpu_supported() { return llama_supports_gpu_offload(); }
+EXPORT bool llamadart_gpu_supported() { return llama_supports_gpu_offload(); }
 
-EXPORT int llama_dart_get_device_count() { return ggml_backend_dev_count(); }
+EXPORT int llamadart_get_device_count() { return ggml_backend_dev_count(); }
 
-EXPORT const char *llama_dart_get_device_name(int index) {
+EXPORT const char *llamadart_get_device_name(int index) {
   if (index < 0 || index >= ggml_backend_dev_count()) {
     return "";
   }
@@ -130,7 +130,7 @@ EXPORT const char *llama_dart_get_device_name(int index) {
   return ggml_backend_dev_name(dev);
 }
 
-EXPORT const char *llama_dart_get_device_description(int index) {
+EXPORT const char *llamadart_get_device_description(int index) {
   if (index < 0 || index >= ggml_backend_dev_count()) {
     return "";
   }
@@ -138,7 +138,7 @@ EXPORT const char *llama_dart_get_device_description(int index) {
   return ggml_backend_dev_description(dev);
 }
 
-EXPORT void *llama_dart_get_device_pointer(int index) {
+EXPORT void *llamadart_get_device_pointer(int index) {
   if (index < 0 || index >= ggml_backend_dev_count()) {
     return nullptr;
   }

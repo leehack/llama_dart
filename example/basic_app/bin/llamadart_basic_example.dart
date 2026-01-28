@@ -1,7 +1,7 @@
 import 'dart:io';
-import 'package:llamadart/llama_dart.dart';
-import 'package:llama_dart_basic_example/model_downloader.dart';
-import 'package:llama_dart_basic_example/inference_test.dart';
+import 'package:llamadart/llamadart.dart';
+import 'package:llamadart_basic_example/model_downloader.dart';
+import 'package:llamadart_basic_example/inference_test.dart';
 
 // TinyLlama is a good balance of size and performance for testing
 const modelUrl =
@@ -9,7 +9,7 @@ const modelUrl =
 const modelFileName = 'tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf';
 
 void main() async {
-  print('🦙 llama_dart Basic Example & Test');
+  print('🦙 llamadart Basic Example & Test');
   print('=' * 50);
 
   try {

@@ -19,7 +19,7 @@ We welcome contributors to help us test on more platforms (especially Windows)!
 | **Android** | arm64-v8a, x86_64 | Vulkan (if supported) | ✅ Tested (CPU, Vulkan) |
 | **Linux** | x86_64 | CUDA / Vulkan | ⚠️ Tested (CPU Verified, Vulkan Untested) |
 | **Windows**| x86_64 | CUDA / Vulkan | ❓ Needs Testing |
-| **Web**| WASM | CPU (WASM) | ✅ Supported |
+| **Web**| WASM | CPU (WASM) | ✅ Tested (WASM) |
 
 ---
 
@@ -51,7 +51,12 @@ The plugin uses CMake to compile the native library automatically.
 #### 🌐 Web
 **Zero-config** by default (uses jsDelivr CDN for `wllama`).
 1.  Import and use `LlamaService`.
-2.  In Flutter, ensure you have `package:web` in your dependencies.
+2.  Enable WASM support in Flutter web:
+    ```bash
+    flutter run -d chrome --wasm
+    # OR build with wasm
+    flutter build web --wasm
+    ```
 
 **Offline / Bundled Usage (Optional):**
 1.  Download assets to your `assets/` directory:

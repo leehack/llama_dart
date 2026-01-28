@@ -1,6 +1,6 @@
 {
-    "name": "llama_dart_chat_example",
-    "short_name": "llama_dart_chat_example",
+    "name": "llamadart_chat_example",
+    "short_name": "llamadart_chat_example",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

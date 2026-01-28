@@ -2,14 +2,14 @@
 # To learn more about a Podspec see http://guides.cocoapods.org/syntax/podspec.html
 #
 Pod::Spec.new do |s|
-  s.name             = 'llama_dart'
+  s.name             = 'llamadart'
   s.version          = '0.0.1'
   s.summary          = 'Run Large Language Models using llama.cpp with zero-setup installation'
   s.description      = <<-DESC
 A Dart/Flutter package that enables running Large Language Models (LLMs) using llama.cpp.
 Provides FFI bindings to llama.cpp and embeds native libraries, requiring no additional setup.
                        DESC
-  s.homepage         = 'https://github.com/jhinlee/llama_dart'
+  s.homepage         = 'https://github.com/jhinlee/llamadart'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Jhin Lee' => 'leehack@gmail.com' }
   s.source           = { :path => '.' }
@@ -21,7 +21,7 @@ Provides FFI bindings to llama.cpp and embeds native libraries, requiring no add
   # Automate the build if the framework is missing
   s.prepare_command = <<-CMD
     if [ ! -d "Frameworks/llama_cpp.xcframework" ]; then
-      echo "llama_dart: Framework not found. Building llama.cpp for iOS..."
+      echo "llamadart: Framework not found. Building llama.cpp for iOS..."
       # Run the build script
       if command -v dart >/dev/null 2>&1; then
         dart ../tool/build_ios.dart
@@ -55,7 +55,7 @@ Provides FFI bindings to llama.cpp and embeds native libraries, requiring no add
 
 
   # Copy the native libraries to the app bundle
-  # s.resource_bundles = {'llama_dart_privacy' => ['Frameworks/*.dylib']}
+  # s.resource_bundles = {'llamadart_privacy' => ['Frameworks/*.dylib']}
 
   # Include Metal shader binary
   # s.resources = ['Resources/default.metallib']

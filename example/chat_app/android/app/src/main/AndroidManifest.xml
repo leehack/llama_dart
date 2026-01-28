@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="llama_dart_chat_example"
+        android:label="llamadart_chat_example"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

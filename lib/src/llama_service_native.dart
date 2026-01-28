@@ -215,7 +215,7 @@ class LlamaService implements LlamaServiceBase {
   Future<void> initFromUrl(String modelUrl, {ModelParams? modelParams}) async {
     final uri = Uri.parse(modelUrl);
     final filename = uri.pathSegments.last;
-    final tempDir = Directory.systemTemp.createTempSync('llama_dart_model_');
+    final tempDir = Directory.systemTemp.createTempSync('llamadart_model_');
     final file = File('${tempDir.path}/$filename');
 
     if (!file.existsSync()) {
@@ -462,7 +462,7 @@ class LlamaService implements LlamaServiceBase {
 
     // Initialize backend and logger (native side)
     final llamaDartInit = llamaLib
-        .lookupFunction<Void Function(), void Function()>('llama_dart_init');
+        .lookupFunction<Void Function(), void Function()>('llamadart_init');
     llamaDartInit();
 
     print("Isolate: Backend initialized.");
@@ -1103,7 +1103,7 @@ class LlamaService implements LlamaServiceBase {
   ) {
     try {
       final getBackendName = llamaLib.lookupFunction<Pointer<Int8> Function(),
-          Pointer<Int8> Function()>('llama_dart_get_backend_name');
+          Pointer<Int8> Function()>('llamadart_get_backend_name');
       final namePtr = getBackendName();
       final name = namePtr.cast<Utf8>().toDartString();
       message.sendPort.send(_BackendInfoResponse(name));
@@ -1116,7 +1116,7 @@ class LlamaService implements LlamaServiceBase {
         try {
           final gpuSupported =
               llamaLib.lookupFunction<Bool Function(), bool Function()>(
-                  'llama_dart_gpu_supported');
+                  'llamadart_gpu_supported');
           if (gpuSupported()) {
             fallback = "Metal";
           }
@@ -1134,7 +1134,7 @@ class LlamaService implements LlamaServiceBase {
     try {
       final gpuSupported =
           llamaLib.lookupFunction<Bool Function(), bool Function()>(
-              'llama_dart_gpu_supported');
+              'llamadart_gpu_supported');
       final support = gpuSupported();
       message.sendPort.send(_GpuSupportResponse(support));
     } catch (e) {

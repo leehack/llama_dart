@@ -26,25 +26,25 @@ LlamaCpp loadLlamaLib() {
     } else {
       // Fallback for Flutter apps
       try {
-        print('llama_dart: Attempting simple open libllama_cpp.dylib');
+        print('llamadart: Attempting simple open libllama_cpp.dylib');
         lib = DynamicLibrary.open('libllama_cpp.dylib');
       } catch (e) {
         try {
           final executableDir = path.dirname(Platform.resolvedExecutable);
           final libPath = path.canonicalize(path.join(
               executableDir, '..', 'Frameworks', 'libllama_cpp.dylib'));
-          print('llama_dart: Attempting absolute bundle path: $libPath');
+          print('llamadart: Attempting absolute bundle path: $libPath');
           lib = DynamicLibrary.open(libPath);
         } catch (_) {
           try {
             final executableDir = path.dirname(Platform.resolvedExecutable);
             final libPath = path.join(executableDir, '..', 'Frameworks',
-                'llama_dart.framework', 'Resources', 'libllama_cpp.dylib');
-            print('llama_dart: Attempting framework resources path: $libPath');
+                'llamadart.framework', 'Resources', 'libllama_cpp.dylib');
+            print('llamadart: Attempting framework resources path: $libPath');
             lib = DynamicLibrary.open(libPath);
           } catch (__) {
             print(
-                'llama_dart: Falling back to process handle (Static Linking)');
+                'llamadart: Falling back to process handle (Static Linking)');
             lib = DynamicLibrary.process();
           }
         }
@@ -73,24 +73,24 @@ LlamaCpp loadLlamaLib() {
   } else if (Platform.isIOS) {
     try {
       print(
-          'llama_dart: Attempting to load from llama_cpp.framework/llama_cpp');
+          'llamadart: Attempting to load from llama_cpp.framework/llama_cpp');
       lib = DynamicLibrary.open('llama_cpp.framework/llama_cpp');
-      print('llama_dart: Loaded successfully.');
+      print('llamadart: Loaded successfully.');
     } catch (e1) {
-      print('llama_dart: Failed to load from framework bundle: $e1');
+      print('llamadart: Failed to load from framework bundle: $e1');
       try {
         // Construct absolute path
         final executableDir = path.dirname(Platform.resolvedExecutable);
         final libPath = path.join(
             executableDir, 'Frameworks/llama_cpp.framework/llama_cpp');
-        print('llama_dart: Attempting load from $libPath');
+        print('llamadart: Attempting load from $libPath');
         lib = DynamicLibrary.open(libPath);
-        print('llama_dart: Loaded successfully from absolute path.');
+        print('llamadart: Loaded successfully from absolute path.');
       } catch (e2) {
-        print('llama_dart: Failed to load absolute path: $e2');
+        print('llamadart: Failed to load absolute path: $e2');
         try {
           print(
-              'llama_dart: Attempting process() fallback (for static linking)');
+              'llamadart: Attempting process() fallback (for static linking)');
           lib = DynamicLibrary.process();
 
           // Verify that we can actually find a symbol.
@@ -100,9 +100,9 @@ LlamaCpp loadLlamaLib() {
                 'This indicates symbols were stripped or not exported. '
                 'Check STRIP_STYLE and -Wl,-export_dynamic in Podspec.');
           }
-          print('llama_dart: Loaded process() and verified symbols.');
+          print('llamadart: Loaded process() and verified symbols.');
         } catch (e3) {
-          print('llama_dart: Failed process() fallback: $e3');
+          print('llamadart: Failed process() fallback: $e3');
           rethrow;
         }
       }
@@ -113,7 +113,7 @@ LlamaCpp loadLlamaLib() {
     try {
       lib = DynamicLibrary.open('libllama_cpp.so');
     } catch (e) {
-      print('llama_dart: Failed to load libllama_cpp.so on Android: $e');
+      print('llamadart: Failed to load libllama_cpp.so on Android: $e');
       rethrow;
     }
   } else {

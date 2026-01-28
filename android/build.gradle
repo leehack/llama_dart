@@ -25,7 +25,7 @@ apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
 android {
-    namespace "com.leehack.llama_dart"
+    namespace "com.leehack.llamadart"
     compileSdkVersion 34
     ndkVersion "29.0.14206865"
 

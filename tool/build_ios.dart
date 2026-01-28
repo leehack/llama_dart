@@ -7,7 +7,7 @@ Future<void> main() async {
   final outputDir = Directory('${projectRoot.path}/ios/Frameworks');
 
   // Build Directories (using /tmp for writability)
-  final baseBuildDir = Directory('/tmp/llama_dart_build_ios');
+  final baseBuildDir = Directory('/tmp/llamadart_build_ios');
   final buildDirDevice = Directory('${baseBuildDir.path}/device');
   final buildDirSimArm64 = Directory('${baseBuildDir.path}/sim-arm64');
   final buildDirSimX86 = Directory('${baseBuildDir.path}/sim-x86');
