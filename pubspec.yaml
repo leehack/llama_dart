@@ -4,6 +4,13 @@ version: 0.0.1
 homepage: https://github.com/leehack/llama_dart
 repository: https://github.com/leehack/llama_dart
 issue_tracker: https://github.com/leehack/llama_dart/issues
+topics:
+  - llama
+  - llm
+  - ai
+  - inference
+  - gguf
+
 
 environment:
   sdk: '>=3.6.0 <4.0.0'
