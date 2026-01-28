@@ -86,14 +86,15 @@ extension type CompletionOptions._(JSObject _) implements JSObject {
   });
 }
 
+/// Sampling configuration for Wllama.
 @JS()
 @anonymous
 extension type WllamaSamplingConfig._(JSObject _) implements JSObject {
   external factory WllamaSamplingConfig._raw({
     double temp,
-    int top_k,
-    double top_p,
-    double repeat_penalty,
+    @JS('top_k') int topK,
+    @JS('top_p') double topP,
+    @JS('repeat_penalty') double repeatPenalty,
   });
 
   /// Creates a sampling configuration with Dart-style usage.
@@ -105,9 +106,9 @@ extension type WllamaSamplingConfig._(JSObject _) implements JSObject {
   }) {
     return WllamaSamplingConfig._raw(
       temp: temp,
-      top_k: topK,
-      top_p: topP,
-      repeat_penalty: repeatPenalty,
+      topK: topK,
+      topP: topP,
+      repeatPenalty: repeatPenalty,
     );
   }
 }
