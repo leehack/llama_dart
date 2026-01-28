@@ -64,5 +64,35 @@ else()
     set(GGML_VULKAN OFF CACHE BOOL "Enable Vulkan backend" FORCE)
 endif()
 
-# Include the central native build logic
-add_subdirectory(../src/native ${CMAKE_CURRENT_BINARY_DIR}/native)
+# =============================================================================
+# Workaround for Android Vulkan Build (Host Toolchain for Shaders)
+# =============================================================================
+if(ANDROID AND GGML_VULKAN AND NOT GGML_VULKAN_SHADERS_GEN_TOOLCHAIN)
+    message(STATUS "llamadart: Generating host toolchain for Vulkan shader compiler (Local Build)...")
+    set(ENV{PATH} "${CMAKE_CURRENT_SOURCE_DIR}:$ENV{PATH}")
+    
+    # Detect host compilers
+    if(NOT CMAKE_MAKE_PROGRAM)
+        find_program(CMAKE_MAKE_PROGRAM NAMES ninja make)
+    endif()
+
+    set(HOST_TOOLCHAIN_FILE "${CMAKE_BINARY_DIR}/android-host-toolchain.cmake")
+    file(WRITE "${HOST_TOOLCHAIN_FILE}" 
+        "set(CMAKE_MAKE_PROGRAM \"${CMAKE_MAKE_PROGRAM}\" CACHE STRING \"make program\" FORCE)\n"
+        "set(CMAKE_SYSTEM_NAME \"${CMAKE_HOST_SYSTEM_NAME}\")\n"
+        "set(Threads_FOUND TRUE)\n"
+        "set(CMAKE_THREAD_LIBS_INIT \"-pthread\")\n"
+        "set(CMAKE_USE_PTHREADS_INIT TRUE)\n"
+    )
+    set(GGML_VULKAN_SHADERS_GEN_TOOLCHAIN "${HOST_TOOLCHAIN_FILE}" CACHE FILEPATH "Host toolchain" FORCE)
+endif()
+
+# Configure llama.cpp flags
+set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared" FORCE)
+set(LLAMA_BUILD_COMMON ON CACHE BOOL "Build common" FORCE)
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Build tests" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Build examples" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Build server" FORCE)
+
+# Include the submodule directly
+add_subdirectory(../src/native/llama_cpp ${CMAKE_CURRENT_BINARY_DIR}/llama_cpp)

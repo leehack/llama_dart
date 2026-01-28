@@ -34,8 +34,13 @@ Provides FFI bindings to llama.cpp and embeds native libraries, requiring no add
     PROJECT_ROOT=$(pwd)/..
     
     # Configure and Build universal binary (arm64 + x86_64)
-    if cmake -S "$PROJECT_ROOT/src/native" -B "$BUILD_DIR" \
+    # We build from src/native/llama_cpp directly
+    if cmake -S "$PROJECT_ROOT/src/native/llama_cpp" -B "$BUILD_DIR" \
         -DBUILD_SHARED_LIBS=ON \
+        -DLLAMA_BUILD_COMMON=ON \
+        -DLLAMA_BUILD_TESTS=OFF \
+        -DLLAMA_BUILD_EXAMPLES=OFF \
+        -DLLAMA_BUILD_SERVER=OFF \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" && \
        cmake --build "$BUILD_DIR" --config Release -j $(sysctl -n hw.ncpu); then
