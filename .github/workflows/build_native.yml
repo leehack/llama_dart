@@ -37,6 +37,30 @@ jobs:
           echo "set(CMAKE_THREAD_LIBS_INIT \"-pthread\")" >> android-host-toolchain.cmake
           echo "set(CMAKE_USE_PTHREADS_INIT TRUE)" >> android-host-toolchain.cmake
 
+      - name: Find NDK Vulkan Paths
+        id: vulkan_paths
+        run: |
+          # Find glslc
+          GLSLC=$(find $ANDROID_NDK_HOME -name glslc | head -n 1)
+          echo "Found glslc: $GLSLC"
+          echo "GLSLC=$GLSLC" >> $GITHUB_ENV
+          
+          # Find libvulkan.so (use aarch64 path, as we need a valid lib path for the variable, even if cross-compiling)
+          # We'll pick API 29 or higher to be safe
+          VULKAN_LIB=$(find $ANDROID_NDK_HOME -name "libvulkan.so" | grep "aarch64" | grep "/29/" | head -n 1)
+          # Fallback if 29 not found
+          if [ -z "$VULKAN_LIB" ]; then
+             VULKAN_LIB=$(find $ANDROID_NDK_HOME -name "libvulkan.so" | grep "aarch64" | head -n 1)
+          fi
+          echo "Found libvulkan: $VULKAN_LIB"
+          echo "VULKAN_LIB=$VULKAN_LIB" >> $GITHUB_ENV
+          
+          # Find includes
+          VULKAN_INC=$(find $ANDROID_NDK_HOME -type f -name "vulkan.h" | grep "include/vulkan" | head -n 1)
+          VULKAN_INC_DIR=$(dirname $(dirname $VULKAN_INC))
+          echo "Found includes: $VULKAN_INC_DIR"
+          echo "VULKAN_INC_DIR=$VULKAN_INC_DIR" >> $GITHUB_ENV
+
       - name: Build with CMake
         run: |
           cmake -S src/native/llama_cpp -B build-android \
@@ -50,6 +74,9 @@ jobs:
             -DLLAMA_BUILD_EXAMPLES=OFF \
             -DLLAMA_BUILD_SERVER=OFF \
             -DGGML_VULKAN=ON \
+            -DVulkan_LIBRARY=$VULKAN_LIB \
+            -DVulkan_INCLUDE_DIR=$VULKAN_INC_DIR \
+            -DVulkan_GLSLC_EXECUTABLE=$GLSLC \
             -DGGML_VULKAN_SHADERS_GEN_TOOLCHAIN=$(pwd)/android-host-toolchain.cmake
           cmake --build build-android --config Release -j $(nproc)
           
