@@ -41,6 +41,38 @@ if [ "$PLATFORM" == "macos" ]; then
     # Copy only the main .dylib files, avoid versioned aliases (e.g. libllama.0.dylib or libllama.0.0.7865.dylib)
     # The pattern excludes any file that has a dot followed immediately by a digit
     find "$BUILD_DIR" -name "*.dylib" ! -name "*.[0-9]*.dylib" -exec cp -L {} "$MAC_FRAMEWORKS_DIR/" \;
+
+    echo "Patching dylib IDs and dependencies..."
+    # 1. Update IDs for all dylibs to be just @rpath/libname.dylib
+    for dylib in "$MAC_FRAMEWORKS_DIR"/*.dylib; do
+        if [ -f "$dylib" ]; then
+            filename=$(basename "$dylib")
+            install_name_tool -id "@rpath/$filename" "$dylib"
+        fi
+    done
+
+    # 2. Update dependencies between dylibs to point to the clean names
+    # This fixes libllama.dylib looking for libggml.0.dylib, etc.
+    for dylib in "$MAC_FRAMEWORKS_DIR"/*.dylib; do
+        if [ -f "$dylib" ]; then
+            # Get list of dependencies
+            deps=$(otool -L "$dylib" | grep "@rpath" | awk '{print $1}')
+            for dep in $deps; do
+                # If dependency has a version number (e.g. @rpath/libggml.0.dylib)
+                if [[ "$dep" =~ \.[0-9]+\.dylib$ ]]; then
+                    # Create clean name (e.g. @rpath/libggml.dylib)
+                    clean_dep=$(echo "$dep" | sed -E 's/\.[0-9]+\.dylib$/.dylib/')
+                    
+                    # If we have the clean file in our frameworks dir, update the linkage
+                    clean_filename=$(basename "$clean_dep")
+                    if [ -f "$MAC_FRAMEWORKS_DIR/$clean_filename" ]; then
+                        install_name_tool -change "$dep" "$clean_dep" "$dylib"
+                        echo "  Updated $dep -> $clean_dep in $(basename "$dylib")"
+                    fi
+                fi
+            done
+        fi
+    done
     
     echo "macOS build complete: $MAC_FRAMEWORKS_DIR"
 
@@ -59,10 +91,11 @@ elif [ "$PLATFORM" == "ios" ]; then
     
     # Copy/Move the result to our expected location
     mkdir -p "$OUTPUT_DIR"
-    rm -rf "$OUTPUT_DIR/llama_cpp.xcframework"
-    cp -r "$LLAMA_CPP_DIR/build-apple/llama.xcframework" "$OUTPUT_DIR/llama_cpp.xcframework"
+    rm -rf "$OUTPUT_DIR/llama.xcframework"
+    # Copy without renaming
+    cp -r "$LLAMA_CPP_DIR/build-apple/llama.xcframework" "$OUTPUT_DIR/llama.xcframework"
     
-    echo "iOS XCFramework update complete: $OUTPUT_DIR/llama_cpp.xcframework"
+    echo "iOS XCFramework update complete: $OUTPUT_DIR/llama.xcframework"
 
 else
     echo "Error: Invalid platform '$PLATFORM'. Use 'macos' or 'ios'."

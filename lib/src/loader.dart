@@ -63,8 +63,7 @@ LlamaCpp loadLlamaLib() {
       }
     }
   } else if (Platform.isLinux) {
-    final arch =
-        Platform.version.contains('aarch64') ||
+    final arch = Platform.version.contains('aarch64') ||
             Platform.version.contains('arm64')
         ? 'arm64'
         : 'x64';
@@ -111,8 +110,8 @@ LlamaCpp loadLlamaLib() {
     }
   } else if (Platform.isIOS) {
     try {
-      print('llamadart: Attempting to load from llama_cpp.framework/llama_cpp');
-      lib = DynamicLibrary.open('llama_cpp.framework/llama_cpp');
+      print('llamadart: Attempting to load from llama.framework/llama');
+      lib = DynamicLibrary.open('llama.framework/llama');
       print('llamadart: Loaded successfully.');
     } catch (e1) {
       print('llamadart: Failed to load from framework bundle: $e1');
@@ -121,7 +120,7 @@ LlamaCpp loadLlamaLib() {
         final executableDir = path.dirname(Platform.resolvedExecutable);
         final libPath = path.join(
           executableDir,
-          'Frameworks/llama_cpp.framework/llama_cpp',
+          'Frameworks/llama.framework/llama',
         );
         print('llamadart: Attempting load from $libPath');
         lib = DynamicLibrary.open(libPath);

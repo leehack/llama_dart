@@ -156,6 +156,8 @@ class ChatProvider extends ChangeNotifier {
       final rawBackend = await _service.getBackendName();
       if (_preferredBackend == GpuBackend.cpu) {
         _activeBackend = "CPU";
+      } else if (_preferredBackend == GpuBackend.blas) {
+        _activeBackend = "CPU (BLAS)";
       } else {
         _activeBackend = rawBackend;
       }

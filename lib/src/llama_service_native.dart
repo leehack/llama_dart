@@ -181,10 +181,7 @@ class LlamaService implements LlamaServiceBase {
 
   /// Initializes the service with the model at [modelPath].
   @override
-  Future<void> init(
-    String modelPath, {
-    ModelParams? modelParams,
-  }) async {
+  Future<void> init(String modelPath, {ModelParams? modelParams}) async {
     if (_isolate == null) {
       final receivePort = ReceivePort();
       _isolate = await Isolate.spawn(_isolateEntry, receivePort.sendPort);
@@ -235,10 +232,7 @@ class LlamaService implements LlamaServiceBase {
 
   /// Generates text based on the [prompt].
   @override
-  Stream<String> generate(
-    String prompt, {
-    GenerationParams? params,
-  }) {
+  Stream<String> generate(String prompt, {GenerationParams? params}) {
     if (!_isReady) throw Exception('Service not initialized');
 
     final controller = StreamController<String>();
@@ -345,13 +339,16 @@ class LlamaService implements LlamaServiceBase {
   }
 
   @override
-  Future<String> applyChatTemplate(List<LlamaChatMessage> messages,
-      {bool addAssistant = true}) async {
+  Future<String> applyChatTemplate(
+    List<LlamaChatMessage> messages, {
+    bool addAssistant = true,
+  }) async {
     if (!_isReady) throw Exception('Service not initialized');
 
     final receivePort = ReceivePort();
     _sendPort!.send(
-        _ApplyTemplateRequest(messages, addAssistant, receivePort.sendPort));
+      _ApplyTemplateRequest(messages, addAssistant, receivePort.sendPort),
+    );
 
     final response = await receivePort.first;
     if (response is _ApplyTemplateResponse) {
@@ -522,13 +519,15 @@ class LlamaService implements LlamaServiceBase {
       final modelParams = llama.llama_model_default_params();
       modelParams.n_gpu_layers = message.modelParams.gpuLayers;
       print(
-          "Isolate: Loading model with n_gpu_layers = ${modelParams.n_gpu_layers}");
+        "Isolate: Loading model with n_gpu_layers = ${modelParams.n_gpu_layers}",
+      );
 
       // --- Backend Selection Logic ---
       Pointer<Pointer<Void>>? devicesPtr;
 
       if (message.modelParams.preferredBackend != GpuBackend.auto) {
-        if (message.modelParams.preferredBackend == GpuBackend.cpu) {
+        if (message.modelParams.preferredBackend == GpuBackend.cpu ||
+            message.modelParams.preferredBackend == GpuBackend.blas) {
           print("Isolate: Forcing CPU only (n_gpu_layers = 0)");
           modelParams.n_gpu_layers = 0;
           // We don't necessarily need to restrict 'devices' for CPU,
@@ -555,6 +554,10 @@ class LlamaService implements LlamaServiceBase {
                 name.toLowerCase().contains("metal")) {
               match = true;
             }
+            if (message.modelParams.preferredBackend == GpuBackend.blas &&
+                name.toLowerCase().contains("blas")) {
+              match = true;
+            }
 
             if (match) {
               foundIndex = i;
@@ -564,12 +567,15 @@ class LlamaService implements LlamaServiceBase {
 
           if (foundIndex != null) {
             print(
-                "Isolate: Selecting device index $foundIndex for ${message.modelParams.preferredBackend}");
+              "Isolate: Selecting device index $foundIndex for ${message.modelParams.preferredBackend}",
+            );
             // specific device selection:
             // Allocate array of pointers: [device_ptr, nullptr]
             // llama_model_params.devices expects a NULL-terminated list.
             devicesPtr = calloc<Pointer<Void>>(2);
-            devicesPtr[0] = NativeHelpers.getDevicePointer(foundIndex);
+            devicesPtr[0] = NativeHelpers.getDevicePointer(
+              foundIndex,
+            ).cast<Void>();
             devicesPtr[1] = nullptr;
 
             // Cast to the expected type (Pointer<ggml_backend_dev_t> -> Pointer<Pointer<ggml_backend_device>>)
@@ -577,7 +583,8 @@ class LlamaService implements LlamaServiceBase {
             modelParams.devices = devicesPtr.cast();
           } else {
             print(
-                "Isolate: Warning - Preferred backend ${message.modelParams.preferredBackend} requested but no matching device found. Falling back to auto.");
+              "Isolate: Warning - Preferred backend ${message.modelParams.preferredBackend} requested but no matching device found. Falling back to auto.",
+            );
           }
         }
       }
@@ -610,7 +617,8 @@ class LlamaService implements LlamaServiceBase {
         // Safety cap for mobile/simulator: 4096
         if (resolvedCtxSize > 4096) {
           print(
-              "Isolate: Capping auto-detected context size to 4096 for stability.");
+            "Isolate: Capping auto-detected context size to 4096 for stability.",
+          );
           resolvedCtxSize = 4096;
         }
       }
@@ -619,9 +627,12 @@ class LlamaService implements LlamaServiceBase {
       ctxParams.n_ubatch = resolvedCtxSize;
 
       print(
-          "Isolate: Context params set (n_ctx=$resolvedCtxSize). Creating context...");
-      final ctxPtr =
-          llama.llama_init_from_model(state.model!.pointer, ctxParams);
+        "Isolate: Context params set (n_ctx=$resolvedCtxSize). Creating context...",
+      );
+      final ctxPtr = llama.llama_init_from_model(
+        state.model!.pointer,
+        ctxParams,
+      );
 
       if (ctxPtr == nullptr) {
         print("Isolate: Failed to create context.");
@@ -632,8 +643,9 @@ class LlamaService implements LlamaServiceBase {
       print("Isolate: Context created.");
 
       // Store params with resolved context size
-      state.lastModelParams =
-          message.modelParams.copyWith(contextSize: resolvedCtxSize);
+      state.lastModelParams = message.modelParams.copyWith(
+        contextSize: resolvedCtxSize,
+      );
 
       // Initialize Sampler
       final samplerChainParams = llama.llama_sampler_chain_default_params();
@@ -715,7 +727,8 @@ class LlamaService implements LlamaServiceBase {
     llama.llama_sampler_chain_add(
       state.sampler!,
       llama.llama_sampler_init_dist(
-          message.params.seed ?? DateTime.now().millisecondsSinceEpoch),
+        message.params.seed ?? DateTime.now().millisecondsSinceEpoch,
+      ),
     );
 
     state.batch = llama.llama_batch_init(ctxParams.n_ctx, 0, 1);
@@ -756,8 +769,11 @@ class LlamaService implements LlamaServiceBase {
       }
 
       if (nTokens > ctxParams.n_ctx) {
-        message.sendPort.send(_ErrorResponse(
-            "Prompt too long ($nTokens tokens) for context size (${ctxParams.n_ctx})"));
+        message.sendPort.send(
+          _ErrorResponse(
+            "Prompt too long ($nTokens tokens) for context size (${ctxParams.n_ctx})",
+          ),
+        );
         return;
       }
 
@@ -1033,7 +1049,8 @@ class LlamaService implements LlamaServiceBase {
         tmplPtr = tmplBuf;
         final templateStr = tmplBuf.cast<Utf8>().toDartString();
         print(
-            "Isolate: Using template from metadata (length: ${templateStr.length})");
+          "Isolate: Using template from metadata (length: ${templateStr.length})",
+        );
       } else {
         print("Isolate: Template metadata NOT found. Using native fallback.");
       }
@@ -1041,7 +1058,8 @@ class LlamaService implements LlamaServiceBase {
       print("Isolate: Applying template to $nMsgs messages:");
       for (int i = 0; i < nMsgs; i++) {
         print(
-            "  [$i] role: ${message.messages[i].role}, content length: ${message.messages[i].content.length}");
+          "  [$i] role: ${message.messages[i].role}, content length: ${message.messages[i].content.length}",
+        );
       }
 
       // First call to get required buffer size
@@ -1056,8 +1074,11 @@ class LlamaService implements LlamaServiceBase {
 
       if (requiredSize < 0) {
         malloc.free(tmplBuf);
-        message.sendPort.send(_ErrorResponse(
-            "Failed to apply chat template (code $requiredSize). Try a different model or check metadata."));
+        message.sendPort.send(
+          _ErrorResponse(
+            "Failed to apply chat template (code $requiredSize). Try a different model or check metadata.",
+          ),
+        );
         return;
       }
 
@@ -1077,7 +1098,8 @@ class LlamaService implements LlamaServiceBase {
       if (actualSize < 0) {
         malloc.free(buf);
         message.sendPort.send(
-            _ErrorResponse("Failed to apply chat template on second call"));
+          _ErrorResponse("Failed to apply chat template on second call"),
+        );
         return;
       }
 
@@ -1100,27 +1122,24 @@ class LlamaService implements LlamaServiceBase {
     _LlamaState state,
   ) {
     try {
-      final getBackendName = llamaLib.lookupFunction<Pointer<Int8> Function(),
-          Pointer<Int8> Function()>('llamadart_get_backend_name');
-      final namePtr = getBackendName();
-      final name = namePtr.cast<Utf8>().toDartString();
-      message.sendPort.send(_BackendInfoResponse(name));
-    } catch (e) {
-      // Fallback logic
-      String fallback = "CPU";
-      // If we are on Apple and llama_supports_gpu_offload() would be true
-      if (Platform.isMacOS || Platform.isIOS) {
-        // Check if we actually have a GPU-enabled library
-        try {
-          final gpuSupported =
-              llamaLib.lookupFunction<Bool Function(), bool Function()>(
-                  'llamadart_gpu_supported');
-          if (gpuSupported()) {
-            fallback = "Metal";
+      String backendName = "CPU";
+      final count = llama.ggml_backend_dev_count();
+      for (int i = 0; i < count; i++) {
+        final dev = llama.ggml_backend_dev_get(i);
+        final namePtr = llama.ggml_backend_dev_name(dev);
+        if (namePtr != nullptr) {
+          final name = namePtr.cast<Utf8>().toDartString();
+          if (name.contains("Metal") ||
+              name.contains("CUDA") ||
+              name.contains("Vulkan")) {
+            backendName = name;
+            break;
           }
-        } catch (_) {}
+        }
       }
-      message.sendPort.send(_BackendInfoResponse(fallback));
+      message.sendPort.send(_BackendInfoResponse(backendName));
+    } catch (e) {
+      message.sendPort.send(_BackendInfoResponse("CPU (Error: $e)"));
     }
   }
 
@@ -1130,16 +1149,10 @@ class LlamaService implements LlamaServiceBase {
     _LlamaState state,
   ) {
     try {
-      final gpuSupported =
-          llamaLib.lookupFunction<Bool Function(), bool Function()>(
-              'llamadart_gpu_supported');
-      final support = gpuSupported();
-      message.sendPort.send(_GpuSupportResponse(support));
+      final supported = llama.llama_supports_gpu_offload();
+      message.sendPort.send(_GpuSupportResponse(supported));
     } catch (e) {
-      // Fallback based on platform
-      bool fallback = false;
-      if (Platform.isMacOS || Platform.isIOS) fallback = true;
-      message.sendPort.send(_GpuSupportResponse(fallback));
+      message.sendPort.send(_GpuSupportResponse(false));
     }
   }
 

@@ -14,7 +14,7 @@ compiler-opts:
   - '-Isrc/native/llama_cpp/ggml/include'
   - '-Isrc/native/llama_cpp/include'
 preamble: |
-  // ignore_for_file: always_specify_types
+  // ignore_for_file: always_specify_types, unused_field
   // ignore_for_file: camel_case_types
   // ignore_for_file: non_constant_identifier_names
 comments:

@@ -20,6 +20,9 @@ enum GpuBackend {
 
   /// Use Apple Metal backend (macOS/iOS only, auto-enabled on Apple platforms).
   metal,
+
+  /// Use BLAS backend (CPU acceleration).
+  blas,
 }
 
 /// Configuration parameters for loading the model.
@@ -138,8 +141,10 @@ abstract class LlamaServiceBase {
   ///
   /// This uses the jinja template stored in the model's metadata (if available)
   /// or a suitable fallback. Returns the formatted prompt.
-  Future<String> applyChatTemplate(List<LlamaChatMessage> messages,
-      {bool addAssistant = true});
+  Future<String> applyChatTemplate(
+    List<LlamaChatMessage> messages, {
+    bool addAssistant = true,
+  });
 
   /// Disposes the service and releases resources.
   void dispose();
