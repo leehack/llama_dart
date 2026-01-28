@@ -4,8 +4,12 @@ output: 'lib/src/generated/llama_bindings.dart'
 headers:
   entry-points:
     - 'src/native/llama_cpp/include/llama.h'
+    - 'src/native/llama_cpp/ggml/include/ggml.h'
+    - 'src/native/llama_cpp/ggml/include/ggml-backend.h'
   include-directives:
     - 'src/native/llama_cpp/include/llama.h'
+    - 'src/native/llama_cpp/ggml/include/ggml.h'
+    - 'src/native/llama_cpp/ggml/include/ggml-backend.h'
 compiler-opts:
   - '-Isrc/native/llama_cpp/ggml/include'
   - '-Isrc/native/llama_cpp/include'

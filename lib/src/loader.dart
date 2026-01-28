@@ -11,11 +11,11 @@ LlamaCpp loadLlamaLib() {
     // For local testing (Dart standalone), look in the build directory
     // This assumes we are running from the project root
     final localBuildPath =
-        path.join(Directory.current.path, 'build/bin/libllama_cpp.dylib');
-    final devBuildPath = path.join(Directory.current.path,
-        '../../src/native/build/bin/libllama_cpp.dylib');
-    final frameworksPath = path.join(
-        Directory.current.path, 'macos/Frameworks/libllama_cpp.dylib');
+        path.join(Directory.current.path, 'build/bin/libllama.dylib');
+    final devBuildPath = path.join(
+        Directory.current.path, '../../src/native/build/bin/libllama.dylib');
+    final frameworksPath =
+        path.join(Directory.current.path, 'macos/Frameworks/libllama.dylib');
 
     if (File(localBuildPath).existsSync()) {
       lib = DynamicLibrary.open(localBuildPath);
@@ -26,25 +26,24 @@ LlamaCpp loadLlamaLib() {
     } else {
       // Fallback for Flutter apps
       try {
-        print('llamadart: Attempting simple open libllama_cpp.dylib');
-        lib = DynamicLibrary.open('libllama_cpp.dylib');
+        print('llamadart: Attempting simple open libllama.dylib');
+        lib = DynamicLibrary.open('libllama.dylib');
       } catch (e) {
         try {
           final executableDir = path.dirname(Platform.resolvedExecutable);
-          final libPath = path.canonicalize(path.join(
-              executableDir, '..', 'Frameworks', 'libllama_cpp.dylib'));
+          final libPath = path.canonicalize(
+              path.join(executableDir, '..', 'Frameworks', 'libllama.dylib'));
           print('llamadart: Attempting absolute bundle path: $libPath');
           lib = DynamicLibrary.open(libPath);
         } catch (_) {
           try {
             final executableDir = path.dirname(Platform.resolvedExecutable);
             final libPath = path.join(executableDir, '..', 'Frameworks',
-                'llamadart.framework', 'Resources', 'libllama_cpp.dylib');
+                'llamadart.framework', 'Resources', 'libllama.dylib');
             print('llamadart: Attempting framework resources path: $libPath');
             lib = DynamicLibrary.open(libPath);
           } catch (__) {
-            print(
-                'llamadart: Falling back to process handle (Static Linking)');
+            print('llamadart: Falling back to process handle (Static Linking)');
             lib = DynamicLibrary.process();
           }
         }
@@ -52,28 +51,27 @@ LlamaCpp loadLlamaLib() {
     }
   } else if (Platform.isLinux) {
     final localBuildPath =
-        path.join(Directory.current.path, 'build/bin/libllama_cpp.so');
+        path.join(Directory.current.path, 'build/bin/libllama.so');
     final devBuildPath = path.join(
-        Directory.current.path, '../../src/native/build/bin/libllama_cpp.so');
+        Directory.current.path, '../../src/native/build/bin/libllama.so');
     if (File(localBuildPath).existsSync()) {
       lib = DynamicLibrary.open(localBuildPath);
     } else if (File(devBuildPath).existsSync()) {
       lib = DynamicLibrary.open(devBuildPath);
     } else {
-      lib = DynamicLibrary.open('libllama_cpp.so');
+      lib = DynamicLibrary.open('libllama.so');
     }
   } else if (Platform.isWindows) {
     final localBuildPath =
-        path.join(Directory.current.path, 'build/bin/llama_cpp.dll');
+        path.join(Directory.current.path, 'build/bin/llama.dll');
     if (File(localBuildPath).existsSync()) {
       lib = DynamicLibrary.open(localBuildPath);
     } else {
-      lib = DynamicLibrary.open('llama_cpp.dll');
+      lib = DynamicLibrary.open('llama.dll');
     }
   } else if (Platform.isIOS) {
     try {
-      print(
-          'llamadart: Attempting to load from llama_cpp.framework/llama_cpp');
+      print('llamadart: Attempting to load from llama_cpp.framework/llama_cpp');
       lib = DynamicLibrary.open('llama_cpp.framework/llama_cpp');
       print('llamadart: Loaded successfully.');
     } catch (e1) {
@@ -111,9 +109,9 @@ LlamaCpp loadLlamaLib() {
     // For Android, we simply open the shared library by name.
     // Flutter will have packaged it into the APK.
     try {
-      lib = DynamicLibrary.open('libllama_cpp.so');
+      lib = DynamicLibrary.open('libllama.so');
     } catch (e) {
-      print('llamadart: Failed to load libllama_cpp.so on Android: $e');
+      print('llamadart: Failed to load libllama.so on Android: $e');
       rethrow;
     }
   } else {

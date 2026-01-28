@@ -1,7 +1,115 @@
 cmake_minimum_required(VERSION 3.10)
 project(llamadart_native LANGUAGES C CXX)
 
-message(STATUS "llamadart: Configuring native build for Android...")
+message(STATUS "llamadart: Configuring PURE native build...")
+
+# Backend Options (can be overridden by parent project)
+option(GGML_CUDA "Enable CUDA backend" OFF)
+option(GGML_VULKAN "Enable Vulkan backend" OFF)
+option(GGML_METAL "Enable Metal backend" OFF) # Usually auto-detected on Apple
+
+# Version info for all platforms
+set(LLAMA_INSTALL_VERSION "0.0.1")
+
+# Standardize output directories (essential for some platforms/frameworks)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+# Global PIC for shared libraries
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# Force llama to be built as a SHARED library so we can load it
+set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared" FORCE)
+
+# =============================================================================
+# GPU Backend Configuration
+# =============================================================================
+
+if(APPLE)
+    set(GGML_METAL ON CACHE BOOL "Enable Metal backend" FORCE)
+    add_compile_definitions(GGML_USE_METAL)
+    message(STATUS "llamadart: Metal backend ENABLED (Apple platform)")
+endif()
+
+# Vulkan
+if(GGML_VULKAN OR CMAKE_SYSTEM_NAME MATCHES "Android")
+    # Android usually implies Vulkan for us
+     if(CMAKE_SYSTEM_NAME MATCHES "Android")
+         set(GGML_VULKAN ON CACHE BOOL "Enable Vulkan backend" FORCE)
+     endif()
+
+    if(GGML_VULKAN)
+         message(STATUS "llamadart: Vulkan backend ENABLED")
+         add_compile_definitions(GGML_USE_VULKAN)
+    endif()
+endif()
+
+# CUDA
+if(GGML_CUDA)
+    message(STATUS "llamadart: CUDA backend ENABLED")
+endif()
+
+# =============================================================================
+# Workaround for Android Vulkan Build (Host Toolchain for Shaders)
+# =============================================================================
+if(ANDROID AND GGML_VULKAN AND NOT GGML_VULKAN_SHADERS_GEN_TOOLCHAIN)
+    message(STATUS "llamadart: Generating host toolchain for Vulkan shader compiler...")
+    set(ENV{PATH} "${CMAKE_CURRENT_SOURCE_DIR}:$ENV{PATH}")
+    
+    # Detect host compilers
+    if(NOT CMAKE_MAKE_PROGRAM)
+        find_program(CMAKE_MAKE_PROGRAM NAMES ninja make)
+    endif()
+
+    set(HOST_TOOLCHAIN_FILE "${CMAKE_BINARY_DIR}/android-host-toolchain.cmake")
+    file(WRITE "${HOST_TOOLCHAIN_FILE}" 
+        "set(CMAKE_MAKE_PROGRAM \"${CMAKE_MAKE_PROGRAM}\" CACHE STRING \"make program\" FORCE)\n"
+        "set(CMAKE_SYSTEM_NAME \"${CMAKE_HOST_SYSTEM_NAME}\")\n"
+        "set(Threads_FOUND TRUE)\n"
+        "set(CMAKE_THREAD_LIBS_INIT \"-pthread\")\n"
+        "set(CMAKE_USE_PTHREADS_INIT TRUE)\n"
+    )
+    set(GGML_VULKAN_SHADERS_GEN_TOOLCHAIN "${HOST_TOOLCHAIN_FILE}" CACHE FILEPATH "Host toolchain" FORCE)
+endif()
+
+# =============================================================================
+# Include llama.cpp
+# =============================================================================
+
+# Configure llama.cpp options to avoid building extras
+set(LLAMA_BUILD_COMMON ON CACHE BOOL "Build common" FORCE)
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Build tests" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Build examples" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Build server" FORCE)
+set(LLAMA_HTTPLIB OFF CACHE BOOL "Build httplib" FORCE)
+
+# Include the submodule
+add_subdirectory(llama_cpp)
+
+# =============================================================================
+# Adaptation for Dart
+# =============================================================================
+
+# The standard build creates 'libllama.so' (or dylib/dll). 
+# We use the default name now.
+# set_target_properties(llama PROPERTIES OUTPUT_NAME "llama_cpp")
+
+# Ensure symbols are exported for Dart FFI (especially on Windows/Android)
+if(WIN32)
+    # On Windows, symbols must be explicitly exported.
+    # llama.cpp uses LLAMA_API macro which usually handles this if LLAMA_SHARED is defined.
+    target_compile_definitions(llama PRIVATE LLAMA_SHARED LLAMA_BUILD)
+else()
+    set_target_properties(llama PROPERTIES LINK_FLAGS "-Wl,-export-dynamic") 
+endif()
+
+# Install the shared library
+include(GNUInstallDirs)
+install(TARGETS llama
+    RUNTIME DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+)
 
 
 

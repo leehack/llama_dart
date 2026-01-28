@@ -460,10 +460,8 @@ class LlamaService implements LlamaServiceBase {
     // Force initialization of the dylib by accessing the global 'llama' instance
     final _ = llama;
 
-    // Initialize backend and logger (native side)
-    final llamaDartInit = llamaLib
-        .lookupFunction<Void Function(), void Function()>('llamadart_init');
-    llamaDartInit();
+    // Initialize backend (native side) - Standard llama.cpp backend init
+    llama.llama_backend_init();
 
     print("Isolate: Backend initialized.");
 
