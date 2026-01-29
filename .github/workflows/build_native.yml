@@ -132,8 +132,6 @@ jobs:
         with:
           key: build-windows-vulkan
 
-      - name: Library Search Path Pre-fix
-        run: mkdir -p windows/lib
 
       - name: Setup Vulkan SDK
         uses: humbletim/setup-vulkan-sdk@v1
