@@ -128,19 +128,13 @@ jobs:
           submodules: recursive
 
 
-      - name: Install Vulkan SDK (Choco)
+      - name: Install Vulkan SDK
         run: |
-          choco install vulkan-sdk -y
-          # Locate installation (usually C:\VulkanSDK\<version>)
-          $sdk = Get-ChildItem -Path "C:\VulkanSDK" -Directory | Sort-Object Name -Descending | Select-Object -First 1
-          if ($sdk) {
-             Write-Host "Found Vulkan SDK at $($sdk.FullName)"
-             Add-Content $env:GITHUB_ENV "VULKAN_SDK=$($sdk.FullName)"
-             Add-Content $env:GITHUB_PATH "$($sdk.FullName)\Bin"
-          } else {
-             Write-Error "Could not find Vulkan SDK in C:\VulkanSDK after choco install"
-             exit 1
-          }
+          $ver = "1.4.313.2"
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/$ver/windows/vulkansdk-windows-X64-$ver.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\$ver"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\$ver\Bin"
 
       - name: Build Windows
         run: .\scripts\build_windows.ps1 vulkan
