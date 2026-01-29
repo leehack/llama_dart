@@ -77,7 +77,7 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    _modelPath = prefs.getString('model_path') ?? _getDefaultModelPath();
+    _modelPath = prefs.getString('model_path');
     _preferredBackend =
         GpuBackend.values[prefs.getInt('preferred_backend') ?? 0];
     _temperature = prefs.getDouble('temperature') ?? 0.7;
@@ -93,20 +93,6 @@ class ChatProvider extends ChangeNotifier {
     }
 
     notifyListeners();
-    // Removed automatic loadModel() call from startup.
-    // await loadModel();
-  }
-
-  String _getDefaultModelPath() {
-    if (kIsWeb || defaultTargetPlatform == TargetPlatform.iOS) {
-      // On Web/iOS Simulator, use a small default URL for convenience
-      return 'https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf?download=true';
-    }
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      return path.join(
-          '/storage/emulated/0/Download', 'gemma-3-1b-it-Q4_K_M.gguf');
-    }
-    return 'models/gemma-3-1b-it-Q4_K_M.gguf';
   }
 
   Future<void> loadModel() async {
@@ -146,7 +132,7 @@ class ChatProvider extends ChangeNotifier {
         }
         await _service.init(_modelPath!,
             modelParams: ModelParams(
-              gpuLayers: _preferredBackend == GpuBackend.cpu ? 0 : 999,
+              gpuLayers: 99,
               preferredBackend: _preferredBackend,
               contextSize: _contextSize,
             ));

@@ -445,6 +445,19 @@ class LlamaService implements LlamaServiceBase {
     return {};
   }
 
+  // --- Native Logging Callback ---
+  static void _logCallback(
+      int level, Pointer<Char> text, Pointer<Void> userData) {
+    if (text == nullptr) return;
+    try {
+      final message = text.cast<Utf8>().toDartString();
+      // Use print which will show up in flutter run logs/logcat
+      print('llama.cpp: ${message.trim()}');
+    } catch (_) {
+      // Ignore conversion errors
+    }
+  }
+
   // --- Isolate Entry Point ---
   static void _isolateEntry(SendPort initialSendPort) {
     final receivePort = ReceivePort();
@@ -457,7 +470,24 @@ class LlamaService implements LlamaServiceBase {
     // Force initialization of the dylib by accessing the global 'llama' instance
     final _ = llama;
 
+    // Register log callback
+    try {
+      final logCallable =
+          Pointer.fromFunction<ggml_log_callbackFunction>(_logCallback);
+      llama.llama_log_set(logCallable, nullptr);
+      print("Isolate: Log callback registered.");
+    } catch (e) {
+      print("Isolate: Failed to register log callback: $e");
+    }
+
     // Initialize backend (native side) - Standard llama.cpp backend init
+    try {
+      llama.ggml_backend_load_all();
+      print("Isolate: Backends loaded.");
+    } catch (e) {
+      print("Isolate: Failed to load backends: $e");
+    }
+
     llama.llama_backend_init();
 
     print("Isolate: Backend initialized.");
@@ -518,6 +548,8 @@ class LlamaService implements LlamaServiceBase {
       final modelPathPtr = message.modelPath.toNativeUtf8();
       final modelParams = llama.llama_model_default_params();
       modelParams.n_gpu_layers = message.modelParams.gpuLayers;
+      modelParams.use_mmap = false; // Disable mmap for now (test)
+
       print(
         "Isolate: Loading model with n_gpu_layers = ${modelParams.n_gpu_layers}",
       );

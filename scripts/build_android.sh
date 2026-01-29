@@ -37,7 +37,8 @@ fi
 
 # 3. Create Host Toolchain for Vulkan Shaders
 OS_NAME=$(uname)
-TOOLCHAIN_FILE="$BUILD_DIR/android-host-toolchain.cmake"
+# Use absolute path for toolchain file to avoid issues with sub-projects
+TOOLCHAIN_FILE="$(pwd)/$BUILD_DIR/android-host-toolchain.cmake"
 mkdir -p "$BUILD_DIR"
 
 echo "set(CMAKE_MAKE_PROGRAM \"$(which make)\" CACHE STRING \"make program\" FORCE)" > "$TOOLCHAIN_FILE"
@@ -55,15 +56,27 @@ fi
 
 # Find libvulkan.so for the target ABI
 # NDK paths use different names than the ABI (e.g. aarch64 for arm64-v8a)
-ARCH_PATTERN=$ABI
-if [ "$ABI" == "arm64-v8a" ]; then ARCH_PATTERN="aarch64"; fi
-if [ "$ABI" == "armeabi-v7a" ]; then ARCH_PATTERN="arm-linux-androideabi"; fi
-if [ "$ABI" == "x86_64" ]; then ARCH_PATTERN="x86_64"; fi
-if [ "$ABI" == "x86" ]; then ARCH_PATTERN="i686"; fi
+if [ "$ABI" == "arm64-v8a" ]; then
+    ARCH_PATH="aarch64-linux-android"
+elif [ "$ABI" == "armeabi-v7a" ]; then
+    ARCH_PATH="arm-linux-androideabi"
+elif [ "$ABI" == "x86_64" ]; then
+    ARCH_PATH="x86_64-linux-android"
+elif [ "$ABI" == "x86" ]; then
+    ARCH_PATH="i686-linux-android"
+else
+    ARCH_PATH="$ABI"
+fi
 
-VULKAN_LIB=$(find "$ANDROID_NDK_HOME" -name "libvulkan.so" | grep "$ARCH_PATTERN" | head -n 1)
+# Look for libvulkan.so in the sysroot libs for the target architecture
+VULKAN_LIB=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path "*/sysroot/usr/lib/$ARCH_PATH/*/libvulkan.so" | head -n 1)
 if [ -z "$VULKAN_LIB" ]; then
-    echo "Error: libvulkan.so not found for ABI $ABI (pattern $ARCH_PATTERN)"
+    # Fallback to broader search if specific structure not found
+    VULKAN_LIB=$(find "$ANDROID_NDK_HOME" -name "libvulkan.so" | grep "/$ARCH_PATH/" | head -n 1)
+fi
+
+if [ -z "$VULKAN_LIB" ]; then
+    echo "Error: libvulkan.so not found for ABI $ABI (path segment $ARCH_PATH)"
     exit 1
 fi
 echo "Found libvulkan: $VULKAN_LIB"
@@ -76,19 +89,21 @@ if [ ! -d "$VULKAN_INC_DIR/vulkan" ]; then
 fi
 
 # 5. Build
-cmake -S src/native/llama_cpp -B "$BUILD_DIR" \
+cmake -S src/native -B "$BUILD_DIR" \
   -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
   -DANDROID_ABI=$ABI \
   -DANDROID_PLATFORM=android-23 \
   -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_SHARED_LIBS=ON \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
   -DLLAMA_BUILD_COMMON=OFF \
   -DLLAMA_BUILD_TESTS=OFF \
   -DLLAMA_BUILD_EXAMPLES=OFF \
   -DLLAMA_BUILD_SERVER=OFF \
   -DLLAMA_BUILD_TOOLS=OFF \
+  -DGGML_OPENMP=OFF \
   -DGGML_VULKAN=ON \
-  -DGGML_BACKEND_DL=ON \
+  -DGGML_BACKEND_DL=OFF \
   -DGGML_CPU_ARM_ARCH=armv8.5-a+fp16+i8mm \
   -DVulkan_LIBRARY="$VULKAN_LIB" \
   -DVulkan_INCLUDE_DIR="$VULKAN_INC_DIR" \

@@ -22,10 +22,12 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    // Auto-open model selection if no model is loaded
+    // Auto-scrolling and generation status listener
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<ChatProvider>();
-      if (!provider.isLoaded) {
+
+      // Auto-open model selection if no model is selected
+      if (provider.modelPath == null) {
         _openModelSelection();
       }
 
