@@ -69,7 +69,7 @@ elif [ "$PLATFORM" == "ios" ]; then
     
     # Run the official script from its directory
     pushd "$LLAMA_CPP_DIR" > /dev/null
-    ./build-xcframework.sh
+    ../../../scripts/build_ios_xcframework.sh
     popd > /dev/null
     
     # Copy/Move the result to our expected location
