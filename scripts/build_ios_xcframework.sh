@@ -23,6 +23,7 @@ COMMON_C_FLAGS="-Wno-macro-redefined -Wno-shorten-64-to-32 -Wno-unused-command-l
 COMMON_CXX_FLAGS="-Wno-macro-redefined -Wno-shorten-64-to-32 -Wno-unused-command-line-argument -g"
 
 COMMON_CMAKE_ARGS=(
+    -DCMAKE_BUILD_TYPE=Release
     -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO
     -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY=""
     -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
@@ -147,12 +148,12 @@ combine_static_libraries() {
     local output_lib="${build_dir}/framework/${framework_name}.framework/${framework_name}"
 
     local libs=(
-        "${base_dir}/${build_dir}/src/${release_dir}/libllama.a"
-        "${base_dir}/${build_dir}/ggml/src/${release_dir}/libggml.a"
-        "${base_dir}/${build_dir}/ggml/src/${release_dir}/libggml-base.a"
-        "${base_dir}/${build_dir}/ggml/src/${release_dir}/libggml-cpu.a"
-        "${base_dir}/${build_dir}/ggml/src/ggml-metal/${release_dir}/libggml-metal.a"
-        "${base_dir}/${build_dir}/ggml/src/ggml-blas/${release_dir}/libggml-blas.a"
+        "${base_dir}/${build_dir}/src/libllama.a"
+        "${base_dir}/${build_dir}/ggml/src/libggml.a"
+        "${base_dir}/${build_dir}/ggml/src/libggml-base.a"
+        "${base_dir}/${build_dir}/ggml/src/libggml-cpu.a"
+        "${base_dir}/${build_dir}/ggml/src/ggml-metal/libggml-metal.a"
+        "${base_dir}/${build_dir}/ggml/src/ggml-blas/libggml-blas.a"
     )
 
     local temp_dir="${base_dir}/${build_dir}/temp"
@@ -210,35 +211,33 @@ combine_static_libraries() {
 # 1. iOS Simulator
 echo "Building for iOS simulator..."
 rm -rf build-ios-sim
-cmake -B build-ios-sim -G Xcode \
+cmake -B build-ios-sim -G Ninja \
     "${COMMON_CMAKE_ARGS[@]}" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=${IOS_MIN_OS_VERSION} \
     -DIOS=ON \
     -DCMAKE_SYSTEM_NAME=iOS \
     -DCMAKE_OSX_SYSROOT=iphonesimulator \
     -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
-    -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=iphonesimulator \
     -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
     -DLLAMA_OPENSSL=OFF \
     -S .
-cmake --build build-ios-sim --config Release -- -quiet
+cmake --build build-ios-sim -j 8
 
 # 2. iOS Device
 echo "Building for iOS devices..."
 rm -rf build-ios-device
-cmake -B build-ios-device -G Xcode \
+cmake -B build-ios-device -G Ninja \
     "${COMMON_CMAKE_ARGS[@]}" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=${IOS_MIN_OS_VERSION} \
     -DCMAKE_SYSTEM_NAME=iOS \
     -DCMAKE_OSX_SYSROOT=iphoneos \
     -DCMAKE_OSX_ARCHITECTURES="arm64" \
-    -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=iphoneos \
     -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
     -DLLAMA_OPENSSL=OFF \
     -S .
-cmake --build build-ios-device --config Release -- -quiet
+cmake --build build-ios-device -j 8
 
 # 3. Package
 echo "Setting up framework structures..."
@@ -246,8 +245,8 @@ setup_framework_structure "build-ios-sim" ${IOS_MIN_OS_VERSION}
 setup_framework_structure "build-ios-device" ${IOS_MIN_OS_VERSION}
 
 echo "Creating dynamic libraries..."
-combine_static_libraries "build-ios-sim" "Release-iphonesimulator" "true"
-combine_static_libraries "build-ios-device" "Release-iphoneos" "false"
+combine_static_libraries "build-ios-sim" "" "true"
+combine_static_libraries "build-ios-device" "" "false"
 
 rm -rf build-apple
 mkdir -p build-apple

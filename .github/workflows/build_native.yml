@@ -60,8 +60,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install ccache
-        run: brew install ccache
+      - name: Install dependencies
+        run: brew install ccache ninja
 
       - name: ccache
         uses: ggml-org/ccache-action@v1.2.16
