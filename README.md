@@ -20,7 +20,7 @@ We welcome contributors to help us test on more platforms (especially Windows)!
 | **iOS** | `arm64` (Device), `x86_64`/`arm64` (Sim) | Metal (Device), CPU (Sim) | ✅ Tested (CPU, Metal) |
 | **Android** | `arm64-v8a`, `x86_64` | Vulkan | ✅ Tested (CPU, Vulkan) |
 | **Linux** | `x86_64` (x64), `arm64` (aarch64) | Vulkan | ✅ Tested (CPU, Vulkan) |
-| **Windows**| `x86_64` | Vulkan | ❓ Needs Testing |
+| **Windows**| `x86_64` | CPU (Vulkan SDK required for GPU) | ✅ CPU Build Available |
 | **Web**| `WASM` | CPU (Wasm via `wllama`) | ✅ Tested (Wasm) |
 
 ---
@@ -97,6 +97,11 @@ The plugin includes pre-optimized `.so` binaries for `arm64-v8a` and `x86_64`.
 - **Architectures**: `arm64-v8a` (most devices) and `x86_64` (emulators).
 - **Vulkan**: GPU acceleration is enabled by default on devices with Vulkan support.
 - **NDK**: Requires Android NDK 26+ installed (usually handled by Android Studio).
+
+### Windows
+- **Pre-built Binaries**: CPU-optimized binaries are included for x86_64.
+- **Vulkan**: GPU acceleration requires the Vulkan SDK and runtime. To build with Vulkan support, install the [Vulkan SDK](https://vulkan.lunarg.com/) and use the build scripts in `scripts/`.
+- **Build Scripts**: Use `build_windows.ps1` (PowerShell) or `build_windows_mingw.sh` (Linux cross-compile) to rebuild binaries. See CONTRIBUTING.md for details.
 
 ---
 

@@ -75,7 +75,30 @@ If you find a bug in `llama.cpp`, the correct path is to contribute the fix to t
 -
 -    **iOS/macOS (XCFramework):**
 -    ```bash
--    ./scripts/build_apple.sh
+-    ./scripts/build_apple.sh ios  # or macos
+-    ```
+-
+-    **Windows (Cross-compile on Linux with MinGW):**
+-    ```bash
+-    # Install MinGW-w64 first:
+-    # sudo apt-get install mingw-w64
+-    
+-    # Build CPU backend
+-    ./scripts/build_windows_mingw.sh cpu
+-    
+-    # Build Vulkan backend (requires Windows Vulkan SDK)
+-    ./scripts/build_windows_mingw.sh vulkan
+-    ```
+-    
+-    **Windows (Native build with PowerShell):**
+-    ```powershell
+-    # Requires Visual Studio 2022 and CMake
+-    
+-    # Build CPU backend
+-    .\scripts\build_windows.ps1 cpu
+-    
+-    # Build Vulkan backend (requires Vulkan SDK)
+-    .\scripts\build_windows.ps1 vulkan
 -    ```
 
 ## Running Translations & Tests
