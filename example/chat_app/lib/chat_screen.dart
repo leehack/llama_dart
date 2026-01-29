@@ -908,7 +908,6 @@ class _ChatScreenState extends State<ChatScreen> {
     for (final device in provider.availableDevices) {
       final d = device.toLowerCase();
       if (d.contains('metal')) backends.add(GpuBackend.metal);
-      if (d.contains('cuda')) backends.add(GpuBackend.cuda);
       if (d.contains('vulkan')) backends.add(GpuBackend.vulkan);
       if (d.contains('blas')) backends.add(GpuBackend.blas);
     }

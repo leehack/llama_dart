@@ -3,7 +3,6 @@ import 'dart:io'
     if (dart.library.js_interop) '../stub/io_stub.dart'; // Stub for web
 import 'package:flutter/services.dart';
 import 'package:llamadart/llamadart.dart';
-import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 

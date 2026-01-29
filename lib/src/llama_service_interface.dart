@@ -6,14 +6,11 @@ import 'dart:async';
 /// If a backend is not compiled in, selection will fall back to the next available.
 enum GpuBackend {
   /// Automatically select the best available backend (recommended).
-  /// Priority: CUDA > Metal > Vulkan > CPU
+  /// Priority: Metal > Vulkan > CPU
   auto,
 
   /// Force CPU-only inference (no GPU acceleration).
   cpu,
-
-  /// Use NVIDIA CUDA backend (requires CUDA toolkit at build time).
-  cuda,
 
   /// Use Vulkan backend (cross-platform GPU support).
   vulkan,

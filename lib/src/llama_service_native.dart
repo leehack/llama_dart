@@ -166,7 +166,7 @@ class LlamaService implements LlamaServiceBase {
   /// [wllamaPath] and [wasmPath] are web-specific and ignored on native platforms.
   LlamaService({String? wllamaPath, String? wasmPath});
 
-  /// Returns a list of available GPU devices and backends (e.g. "CUDA0", "Vulkan0", "Metal").
+  /// Returns a list of available GPU devices and backends (e.g. "Vulkan0", "Metal").
   static Future<List<String>> getAvailableDevices() async {
     try {
       return NativeHelpers.getAvailableDevices();
@@ -574,10 +574,6 @@ class LlamaService implements LlamaServiceBase {
             print("Isolate: Found device $i: $name ($desc)");
 
             bool match = false;
-            if (message.modelParams.preferredBackend == GpuBackend.cuda &&
-                name.toLowerCase().contains("cuda")) {
-              match = true;
-            }
             if (message.modelParams.preferredBackend == GpuBackend.vulkan &&
                 name.toLowerCase().contains("vulkan")) {
               match = true;

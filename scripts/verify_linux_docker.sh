@@ -20,14 +20,14 @@ echo "Validating Linux Build ($BACKEND) with Docker"
 echo "========================================"
 
 # 1. Build the Docker image
-echo "Step 1: Building Docker image (llama_dart_linux_builder)..."
-docker build -t llama_dart_linux_builder -f "$SCRIPT_DIR/Dockerfile.linux" "$SCRIPT_DIR"
+echo "Step 1: Building Docker image (llamadart_linux_builder)..."
+docker build -t llamadart_linux_builder -f "$SCRIPT_DIR/Dockerfile.linux" "$SCRIPT_DIR"
 
 # 2. Run the modular build script inside the container
 echo "Step 2: Running scripts/build_linux.sh $BACKEND in Docker..."
 docker run --rm \
   -v "$PROJECT_ROOT:/app" \
-  llama_dart_linux_builder \
+  llamadart_linux_builder \
   bash -c "cd /app && ./scripts/build_linux.sh $BACKEND clean"
 
 # 3. Verify artifact existence in the host

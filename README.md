@@ -1,11 +1,13 @@
 # llamadart
 
-A Dart/Flutter plugin for `llama.cpp`. Run LLM inference directly in Dart and Flutter applications using GGUF models with hardware acceleration.
+A Dart/Flutter plugin for `llama.cpp`. Run LLM inference directly in Dart and Flutter applications using GGUF models with hardware acceleration (Metal, Vulkan).
 
 ## ⚠️ Status
 **Actively Under Development**.
 The core features are implemented and running. Many more features are in the pipeline, including:
 *   High-level APIs for easier integration.
+*   **Zero-Patch Strategy**: Core `llama.cpp` is kept unmodified for easy updates.
+*   **Web Support**: High-performance LLM inference in the browser via `wllama` (Wasm).
 *   Multi-modality support (Vision/LLaVA).
 
 We welcome contributors to help us test on more platforms (especially Windows)!
@@ -14,12 +16,12 @@ We welcome contributors to help us test on more platforms (especially Windows)!
 
 | Platform | Architecture(s) | GPU Backend | Status |
 |----------|-----------------|-------------|--------|
-| **macOS** | Universal (arm64, x86_64) | Metal | ✅ Tested (CPU, Metal) |
-| **iOS** | arm64 (Device), x86_64/arm64 (Sim) | Metal (Device), CPU (Sim) | ✅ Tested (CPU, Metal) |
-| **Android** | arm64-v8a, x86_64 | Vulkan (if supported) | ✅ Tested (CPU, Vulkan) |
-| **Linux** | x86_64 | CUDA / Vulkan | ⚠️ Tested (CPU Verified, Vulkan Untested) |
-| **Windows**| x86_64 | CUDA / Vulkan | ❓ Needs Testing |
-| **Web**| WASM | CPU (WASM) | ✅ Tested (WASM) |
+| **macOS** | Universal (`arm64`, `x86_64`) | Metal | ✅ Tested (CPU, Metal) |
+| **iOS** | `arm64` (Device), `x86_64`/`arm64` (Sim) | Metal (Device), CPU (Sim) | ✅ Tested (CPU, Metal) |
+| **Android** | `arm64-v8a`, `x86_64` | Vulkan | ✅ Tested (CPU, Vulkan) |
+| **Linux** | `x86_64` (x64), `arm64` (aarch64) | Vulkan | ✅ Tested (CPU, Vulkan) |
+| **Windows**| `x86_64` | Vulkan | ❓ Needs Testing |
+| **Web**| `WASM` | CPU (Wasm via `wllama`) | ✅ Tested (Wasm) |
 
 ---
 
@@ -27,7 +29,7 @@ We welcome contributors to help us test on more platforms (especially Windows)!
 Add `llamadart` to your `pubspec.yaml`:
 ```yaml
 dependencies:
-  llamadart: ^0.1.0
+  llamadart: ^0.2.0
 ```
 
 ### 2. Platform Setup
@@ -40,7 +42,7 @@ The plugin automatically builds `llama.cpp` for iOS (Device/Simulator) when you 
 #### 💻 macOS / Linux / Windows
 The package handles native builds automatically via CMake.
 *   **macOS**: Metal acceleration is enabled by default.
-*   **Linux/Windows**: CPU inference is supported.
+*   **Linux/Windows**: CPU and Vulkan inference are supported.
 
 #### 📱 Android
 **No manual setup required.**
@@ -126,7 +128,7 @@ await service.init('model.gguf', modelParams: ModelParams(
 ));
 ```
 
-**Available backends**: `auto`, `cpu`, `cuda`, `vulkan`, `metal`
+**Available backends**: `auto`, `cpu`, `vulkan`, `metal`
 
 ### Compile-Time Options (Advanced)
 
@@ -139,9 +141,6 @@ LLAMA_DART_NO_VULKAN=true
 
 **Desktop** (CMake flags):
 ```bash
-# Disable CUDA
-cmake -DLLAMA_DART_NO_CUDA=ON ...
-
 # Disable Vulkan
 cmake -DLLAMA_DART_NO_VULKAN=ON ...
 ```

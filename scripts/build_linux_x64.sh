@@ -8,7 +8,7 @@ echo "========================================"
 echo "Building for Linux (x86_64/AMD64) via Docker"
 echo "========================================"
 
-IMAGE_NAME="llama_dart_linux_x64_builder"
+IMAGE_NAME="llamadart_linux_x64_builder"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DOCKERFILE="$SCRIPT_DIR/Dockerfile.linux"

@@ -20,14 +20,14 @@ echo "Verifying App on Linux ($BACKEND) via Docker"
 echo "========================================"
 
 # 1. Build the Docker image (reusing existing Dockerfile)
-echo "Step 1: Building Docker image (llama_dart_linux_builder)..."
-docker build -t llama_dart_linux_builder -f "$SCRIPT_DIR/Dockerfile.linux" "$SCRIPT_DIR"
+echo "Step 1: Building Docker image (llamadart_linux_builder)..."
+docker build -t llamadart_linux_builder -f "$SCRIPT_DIR/Dockerfile.linux" "$SCRIPT_DIR"
 
 # 2. Run the build and app execution inside the container
 echo "Step 2: Building native lib and running basic_app..."
 docker run --rm \
   -v "$PROJECT_ROOT:/app" \
-  llama_dart_linux_builder \
+  llamadart_linux_builder \
   bash -c "
     set -e
     echo '---- Building Native Library ----'

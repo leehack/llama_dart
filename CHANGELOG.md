@@ -1,3 +1,10 @@
+## 0.2.0
+
+*   **Project Rename**: Renamed package from `llama_dart` to `llamadart`.
+*   **New Build System**: Refactored native build system into modular platform-specific scripts (`scripts/`).
+*   **Cleaner Architecture**: Switched to a standard Flutter FFI plugin structure for better maintainability.
+*   **Cross-Platform GPU**: Verified and improved hardware acceleration on macOS (Metal), iOS (Metal), Android (Vulkan), and Linux (Vulkan).
+
 ## 0.1.0
 
 *   **WASM Support**: Full support for running the Flutter app and LLM inference in WASM on the web.
@@ -12,6 +19,6 @@
 *   Features:
     *   Text generation with `llama.cpp` backend.
     *   GGUF model support.
-    *   Hardware acceleration (Metal, Vulkan, CUDA).
+    *   Hardware acceleration (Metal, Vulkan).
     *   Flutter Chat Example.
     *   CLI Basic Example.

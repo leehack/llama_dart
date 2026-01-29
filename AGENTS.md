@@ -19,11 +19,11 @@ cmake -B build -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release -j 8
 ```
 
-### Build (iOS XCFramework)
-iOS requires a specific XCFramework build process to support both device and simulator architectures.
+### Build (iOS/macOS XCFramework)
+iOS and macOS requires a specific XCFramework build process to support both device and simulator architectures.
 ```bash
 # This script builds for arm64 (Device) and arm64/x86_64 (Simulator)
-dart run tool/build_ios.dart
+./scripts/build_apple.sh
 ```
 
 ### Build (Web / WASM)
@@ -55,7 +55,7 @@ There are currently two types of tests:
 These are standalone scripts in `test/` that do not use `package:test`.
 ```bash
 # Run inference smoke test
-dart run example/basic_app/bin/llamadart_basic_example.dart
+cd example/basic_app && dart run bin/llamadart_basic_example.dart
 
 
 # Run basic check
@@ -75,8 +75,9 @@ dart test test/my_new_test.dart
 **3. Linux Verification (Docker)**
 To verify Linux support (native build + inference):
 ```bash
-docker build -t llamadart_basic -f example/basic_app/Dockerfile .
-docker run --rm llamadart_basic
+./scripts/verify_linux_docker.sh vulkan
+# or
+./scripts/verify_app_linux.sh vulkan
 ```
 
 ## 2. Code Style & Conventions
@@ -117,8 +118,8 @@ import 'src/utils.dart';
 - **`lib/src/llama_service_interface.dart`**: Common interface `LlamaServiceBase`.
 - **`lib/src/llama_service_native.dart`**: Desktop/Mobile implementation (FFI).
 - **`lib/src/llama_service_web.dart`**: Web implementation (wllama/JS).
-- **`tool/build_ios.dart`**: Critical script for generating the iOS `llama_cpp.xcframework`. 
-- **`ios/llamadart.podspec`**: Configures the iOS plugin. Uses static linking (`s.static_framework = true`) and requires `Accelerate` and `Metal` frameworks.
+- **`scripts/build_apple.sh`**: Critical script for generating the iOS/macOS `llama_cpp.xcframework`. 
+- **`scripts/build_android.sh`**: Script for building Android `.so` libraries.
 
 ### macOS & iOS Integration
 - **Symbols**: Symbols must be exported to be visible to `DynamicLibrary.process()`. Ensure `-all_load` and `-Wl,-export_dynamic` are in the linker flags.
@@ -129,4 +130,5 @@ import 'src/utils.dart';
 - **Never commit broken code**: Run `dart analyze` before every commit.
 - **Verify Native**: If you touch `llama.cpp` version, you MUST run `test/simple_inference.dart` to verify the native build doesn't crash.
 - **iOS Changes**: If modifying iOS configuration, verify on BOTH a physical device (Metal) and the simulator (universal compatibility).
+- **Zero-Patch Strategy**: NEVER modify files inside `src/native/llama_cpp` or other submodules. Use our own wrappers or CMake flags for any adaptations.
 - **Clean Output**: Remove debug `print` statements from production code. Use a logger or `debugPrint` (if Flutter).

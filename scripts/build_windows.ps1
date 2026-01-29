@@ -29,13 +29,8 @@ if ($Backend -eq "vulkan") {
     Write-Host "Building for Windows (Vulkan)"
     Write-Host "============================"
     $CmakeArgs += "-DGGML_VULKAN=ON"
-} elseif ($Backend -eq "cuda") {
-    Write-Host "=========================="
-    Write-Host "Building for Windows (CUDA)"
-    Write-Host "=========================="
-    $CmakeArgs += "-DGGML_CUDA=ON"
 } else {
-    Write-Error "Invalid backend '$Backend'. Use 'vulkan' or 'cuda'."
+    Write-Error "Invalid backend '$Backend'. Use 'vulkan'."
     exit 1
 }
 
