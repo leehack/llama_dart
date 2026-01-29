@@ -161,11 +161,21 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-          merge-multiple: true
+
+      - name: Prepare Assets
+        run: |
+          mkdir -p release_assets
+          cp artifacts/libllama_windows_vulkan/libllama.dll release_assets/libllama-windows-x64.dll
+          cp artifacts/libllama_linux_x64_vulkan/libllama.so release_assets/libllama-linux-x64.so
+          cp artifacts/libllama_macos/libllama.dylib release_assets/libllama-macos.dylib
+          cp artifacts/llama_ios_xcframework/llama_ios_xcframework.zip release_assets/llama-ios-xcframework.zip
+          cp artifacts/libllama_android_arm64-v8a/libllama.so release_assets/libllama-android-arm64.so
+          cp artifacts/libllama_android_x86_64/libllama.so release_assets/libllama-android-x64.so
+          ls -R release_assets
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*
+          files: release_assets/*
           draft: true
           prerelease: false

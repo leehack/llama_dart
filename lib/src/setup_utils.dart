@@ -50,10 +50,8 @@ class SetupUtils {
       return;
     }
 
-    // Windows artifact in release is named 'libllama.dll' (assuming from libllama_windows_vulkan)
-    // Wait, if we have multiple assets, we should name them uniquely in the CI.
-    // For now, I will use a mapping.
-    final assetName = 'libllama.dll';
+    // Windows artifact in release is uniquely named
+    final assetName = 'libllama-windows-x64.dll';
     final destDir = targetFolder ?? 'windows/lib/x64';
     final destFile = path.join(destDir, 'libllama.dll');
 
@@ -65,9 +63,8 @@ class SetupUtils {
     bool force,
     String? targetFolder,
   ) async {
-    final assetName = arch == 'arm64'
-        ? 'libllama_linux_arm64.so'
-        : 'libllama.so';
+    final assetName =
+        arch == 'arm64' ? 'libllama-linux-arm64.so' : 'libllama-linux-x64.so';
     final destDir = targetFolder ?? 'linux/lib/$arch';
     final destFile = path.join(destDir, 'libllama.so');
 
@@ -75,7 +72,7 @@ class SetupUtils {
   }
 
   static Future<void> _setupMacOS(bool force, String? targetFolder) async {
-    final assetName = 'libllama.dylib';
+    final assetName = 'libllama-macos.dylib';
     final destDir = targetFolder ?? 'macos/Frameworks';
     final destFile = path.join(destDir, 'libllama.dylib');
 
@@ -84,7 +81,7 @@ class SetupUtils {
 
   static Future<void> _setupIOS(bool force, String? targetFolder) async {
     print('iOS setup requires manual extraction of llama_ios_xcframework.zip');
-    final assetName = 'llama_ios_xcframework.zip';
+    final assetName = 'llama-ios-xcframework.zip';
     final destDir = targetFolder ?? 'ios/Frameworks';
     final destFile = path.join(destDir, assetName);
 
@@ -93,8 +90,15 @@ class SetupUtils {
   }
 
   static Future<void> _setupAndroid(bool force, String? targetFolder) async {
-    print('Android setup currently handles JNI libs separately.');
-    // In a real scenario, we might want to download the whole jniLibs folder zip.
+    final arch = _getArch();
+    final assetName = arch == 'arm64'
+        ? 'libllama-android-arm64.so'
+        : 'libllama-android-x64.so';
+    final destDir = targetFolder ??
+        'android/src/main/jniLibs/${arch == "arm64" ? "arm64-v8a" : "x86_64"}';
+    final destFile = path.join(destDir, 'libllama.so');
+
+    await _downloadAsset(assetName, destFile, force);
   }
 
   static Future<void> _downloadAsset(
