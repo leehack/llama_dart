@@ -64,7 +64,8 @@ rm -rf "$LIB_DIR"
 mkdir -p "$LIB_DIR"
 
 echo "Copying libraries to $LIB_DIR (cleaning leftovers)..."
-# Copy only the main .so files, avoid versioned aliases if possible
-find "$BUILD_DIR" -name "*.so" ! -name "*.[0-9].so" ! -name "*.[0-9].[0-9].so" -exec cp -L {} "$LIB_DIR/" \;
+# Copy our consolidated library and rename to libllama.so
+cp -L "$BUILD_DIR/libllamadart.so" "$LIB_DIR/libllama.so" 2>/dev/null || \
+find "$BUILD_DIR" -name "libllamadart.so" -exec cp -L {} "$LIB_DIR/libllama.so" \;
 
 echo "Linux build complete for $TARGET_ARCH: $LIB_DIR"

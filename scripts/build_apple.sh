@@ -45,10 +45,10 @@ if [ "$PLATFORM" == "macos" ]; then
     mkdir -p "$MAC_FRAMEWORKS_DIR"
     
     echo "Copying libraries to $MAC_FRAMEWORKS_DIR..."
-    # We expect only libllama.dylib now from our top-level CMakeLists.txt
+    # We expect only libllamadart.dylib now from our top-level CMakeLists.txt
     # Strip debugging symbols
-    strip -x "$BUILD_DIR/libllama.dylib"
-    cp "$BUILD_DIR/libllama.dylib" "$MAC_FRAMEWORKS_DIR/"
+    strip -x "$BUILD_DIR/libllamadart.dylib"
+    cp "$BUILD_DIR/libllamadart.dylib" "$MAC_FRAMEWORKS_DIR/libllama.dylib"
     
     echo "Patching dylib ID..."
     # Set ID to @rpath/libllama.dylib so it can be found when embedded

@@ -18,8 +18,6 @@ $CmakeArgs = @(
     "-DCMAKE_BUILD_TYPE=Release",
     "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON",
     "-DBUILD_SHARED_LIBS=OFF",
-    "-DGGML_SHARED=ON",
-    "-DLLAMA_SHARED=ON",
     "-DLLAMA_BUILD_COMMON=OFF",
     "-DLLAMA_BUILD_TESTS=OFF",
     "-DLLAMA_BUILD_EXAMPLES=OFF",
@@ -226,7 +224,7 @@ Write-Host "Copying libraries to $LibDir (cleaning leftovers)..."
 # Renaming logic: Rename 'llama.dll' to 'libllama.dll', keep others as is
 Get-ChildItem -Path $BuildDir -Filter *.dll -Recurse | ForEach-Object {
     $Name = $_.Name
-    $DestName = if ($Name -eq "llama.dll") { "libllama.dll" } else { $Name }
+    $DestName = if ($Name -eq "llamadart.dll") { "libllama.dll" } else { $Name }
     $DestPath = Join-Path $LibDir $DestName
     
     # Avoid copying the same file multiple times if it appears in different subfolders

@@ -50,8 +50,8 @@ else()
     target_link_libraries(llamadart_shared PUBLIC llama)
 endif()
 
-# Set the output name to 'llama' so Flutter loader finds 'libllama.dll/so'
+# Set the output name to 'llamadart' to avoid conflict with submodule 'llama' target on Windows
 set_target_properties(llamadart_shared PROPERTIES 
-    OUTPUT_NAME llama
-    LIBRARY_OUTPUT_NAME llama
+    OUTPUT_NAME llamadart
+    LIBRARY_OUTPUT_NAME llamadart
 )
