@@ -128,10 +128,19 @@ jobs:
           submodules: recursive
 
 
-      - name: Setup Vulkan SDK
-        uses: humbletim/setup-vulkan-sdk@v1
-        with:
-          vulkan-version: 1.3.296.0
+      - name: Install Vulkan SDK (Choco)
+        run: |
+          choco install vulkan-sdk -y
+          # Locate installation (usually C:\VulkanSDK\<version>)
+          $sdk = Get-ChildItem -Path "C:\VulkanSDK" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if ($sdk) {
+             Write-Host "Found Vulkan SDK at $($sdk.FullName)"
+             Add-Content $env:GITHUB_ENV "VULKAN_SDK=$($sdk.FullName)"
+             Add-Content $env:GITHUB_PATH "$($sdk.FullName)\Bin"
+          } else {
+             Write-Error "Could not find Vulkan SDK in C:\VulkanSDK after choco install"
+             exit 1
+          }
 
       - name: Build Windows
         run: .\scripts\build_windows.ps1 vulkan
