@@ -119,18 +119,13 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: ""
+      CMAKE_CXX_COMPILER_LAUNCHER: ""
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Install ccache
-        run: choco install ccache
-
-      - name: ccache
-        uses: ggml-org/ccache-action@v1.2.16
-        with:
-          key: build-windows-vulkan
 
 
       - name: Setup Vulkan SDK
