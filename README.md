@@ -20,7 +20,7 @@ We welcome contributors to help us test on more platforms (especially Windows)!
 | **iOS** | `arm64` (Device), `x86_64`/`arm64` (Sim) | Metal (Device), CPU (Sim) | ✅ Tested (CPU, Metal) |
 | **Android** | `arm64-v8a`, `x86_64` | Vulkan | ✅ Tested (CPU, Vulkan) |
 | **Linux** | `x86_64` (x64), `arm64` (aarch64) | Vulkan | ✅ Tested (CPU, Vulkan) |
-| **Windows**| `x86_64` | CPU / Vulkan (SDK required) | ✅ CPU Available |
+| **Windows**| `x86_64` | CPU / Vulkan | ✅ Available |
 | **Web**| `WASM` | CPU (Wasm via `wllama`) | ✅ Tested (Wasm) |
 
 ---
@@ -99,9 +99,12 @@ The plugin includes pre-optimized `.so` binaries for `arm64-v8a` and `x86_64`.
 - **NDK**: Requires Android NDK 26+ installed (usually handled by Android Studio).
 
 ### Windows
-- **Pre-built Binaries**: Generic CPU binaries are included for x86_64 (no architecture-specific optimizations).
-- **Vulkan**: GPU acceleration requires the Vulkan SDK and runtime. To build with Vulkan support, install the [Vulkan SDK](https://vulkan.lunarg.com/) and use the native PowerShell build script.
-- **Build Scripts**: Use `build_windows.ps1` (PowerShell on Windows) or `build_windows_mingw.sh` (cross-compile from Linux with MinGW) to rebuild binaries. See CONTRIBUTING.md for details.
+- **Pre-built Binaries**: Vulkan-enabled binaries are included for x86_64.
+- **Vulkan**: GPU acceleration requires the Vulkan runtime on the target system. Download from [Vulkan SDK](https://vulkan.lunarg.com/).
+- **Build Scripts**: 
+  - Cross-compile from Linux: `build_windows_mingw.sh` (requires MinGW, glslc, libvulkan-dev)
+  - Native PowerShell build: `build_windows.ps1` (requires Visual Studio, Vulkan SDK)
+  - See CONTRIBUTING.md for detailed instructions.
 
 ---
 

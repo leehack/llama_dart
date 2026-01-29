@@ -84,13 +84,13 @@ If you find a bug in `llama.cpp`, the correct path is to contribute the fix to t
 -
 -    **Windows (Cross-compile on Linux with MinGW):**
 -    ```bash
--    # Install MinGW-w64 first:
--    # sudo apt-get install mingw-w64
+-    # Install dependencies first:
+-    # sudo apt-get install mingw-w64 glslc libvulkan-dev
 -    
 -    # Build CPU backend
 -    ./scripts/build_windows_mingw.sh cpu
 -    
--    # Build Vulkan backend (requires Windows Vulkan SDK)
+-    # Build Vulkan backend
 -    ./scripts/build_windows_mingw.sh vulkan
 -    ```
 -    
