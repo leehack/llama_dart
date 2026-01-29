@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+env:
+  CMAKE_C_COMPILER_LAUNCHER: ccache
+  CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
 jobs:
   build-android:
     runs-on: ubuntu-latest
@@ -29,8 +33,13 @@ jobs:
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
       
-      - name: Install Ninja
-        run: sudo apt-get install -y ninja-build
+      - name: Install Ninja & ccache
+        run: sudo apt-get update && sudo apt-get install -y ninja-build ccache
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.16
+        with:
+          key: build-android-${{ matrix.android_abi }}
 
       - name: Build with Script
         run: ./scripts/build_android.sh ${{ matrix.android_abi }}
@@ -50,6 +59,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Install ccache
+        run: brew install ccache
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.16
+        with:
+          key: build-apple-${{ matrix.target }}
 
       - name: Build Apple Platforms
         run: ./scripts/build_apple.sh ${{ matrix.target }}
@@ -84,7 +101,12 @@ jobs:
       - name: Install Vulkan Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev glslc
+          sudo apt-get install -y libvulkan-dev glslc ccache
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.16
+        with:
+          key: build-linux-vulkan
 
       - name: Build Linux (Vulkan)
         run: ./scripts/build_linux.sh vulkan
@@ -102,13 +124,21 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install ccache
+        run: choco install ccache
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.16
+        with:
+          key: build-windows-vulkan
+
       - name: Library Search Path Pre-fix
         run: mkdir -p windows/lib
 
       - name: Setup Vulkan SDK
         uses: humbletim/setup-vulkan-sdk@v1
         with:
-          vulkan-query-version: 1.3.261.1
+          vulkan-query-version: 1.3.296.0
 
       - name: Build Windows
         run: .\scripts\build_windows.ps1 vulkan
@@ -117,7 +147,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: libllama_windows_vulkan
-          path: windows/lib/libllama.dll
+          path: windows/lib/x64/libllama.dll
 
   release:
     needs: [build-android, build-apple, build-linux-vulkan, build-windows]
