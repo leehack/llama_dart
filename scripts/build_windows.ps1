@@ -34,46 +34,51 @@ if ($Backend -eq "vulkan") {
     Write-Host "Building for Windows (Vulkan)"
     Write-Host "============================"
     
-    # Handle Vulkan SDK selection
-    # Handle Vulkan SDK selection
+    # 1. Handle explicit SDK path from parameter
     if ($VulkanSdk -ne "") {
         $env:VULKAN_SDK = $VulkanSdk
         Write-Host "Using explicitly provided Vulkan SDK: $env:VULKAN_SDK"
-    } elseif (-not $env:VULKAN_SDK) {
+    } 
+
+    # 2. If not set, try to auto-detect from glslc.exe in PATH
+    if (-not $env:VULKAN_SDK) {
         Write-Host "Checking for glslc.exe in PATH to auto-detect Vulkan SDK..."
-        
         $Glslc = Get-Command glslc.exe -ErrorAction SilentlyContinue
         if ($Glslc) {
             $GlslcPath = $Glslc.Source.Replace('\', '/')
             Write-Host "Found glslc.exe: $GlslcPath"
             
-            # glslc.exe is usually in $SDK_ROOT/Bin
             $SdkBin = [System.IO.Path]::GetDirectoryName($Glslc.Source)
             $SdkRoot = [System.IO.Path]::GetDirectoryName($SdkBin)
-            $SdkRoot = $SdkRoot.Replace('\', '/')
             
             # Verify structure
             if ((Test-Path "$SdkRoot/Include/vulkan/vulkan.h") -or (Test-Path "$SdkRoot/Lib/vulkan-1.lib")) {
                 $env:VULKAN_SDK = $SdkRoot
                 Write-Host "Auto-detected Vulkan SDK root: $env:VULKAN_SDK"
-                
-                # Explicitly pass paths to CMake
-                $CmakeArgs += "-DVulkan_INCLUDE_DIR=$SdkRoot/Include"
-                if (Test-Path "$SdkRoot/Lib/vulkan-1.lib") {
-                     $CmakeArgs += "-DVulkan_LIBRARY=$SdkRoot/Lib/vulkan-1.lib"
-                } elseif (Test-Path "$SdkRoot/Lib/vulkan.lib") {
-                     $CmakeArgs += "-DVulkan_LIBRARY=$SdkRoot/Lib/vulkan.lib"
-                }
-
-                # Also help it find glslc
-                $CmakeArgs += "-DVulkan_GLSLC_EXECUTABLE=$GlslcPath"
-
             } else {
                 Write-Warning "Found glslc.exe but could not verify SDK root structure at $SdkRoot"
-                Write-Warning "Expected structure: Include/vulkan/vulkan.h AND Lib/vulkan-1.lib"
             }
         } else {
             Write-Warning "glslc.exe not found in PATH."
+        }
+    }
+    
+    # 3. Configure CMake if SDK references are available
+    if ($env:VULKAN_SDK) {
+        $SdkRoot = $env:VULKAN_SDK.Replace('\', '/')
+        Write-Host "Configuring CMake with Vulkan SDK: $SdkRoot"
+        
+        $CmakeArgs += "-DVulkan_INCLUDE_DIR=$SdkRoot/Include"
+        
+        if (Test-Path "$SdkRoot/Lib/vulkan-1.lib") {
+             $CmakeArgs += "-DVulkan_LIBRARY=$SdkRoot/Lib/vulkan-1.lib"
+        } elseif (Test-Path "$SdkRoot/Lib/vulkan.lib") {
+             $CmakeArgs += "-DVulkan_LIBRARY=$SdkRoot/Lib/vulkan.lib"
+        }
+        
+        # Ensure we pass glslc executable path if it exists
+        if (Test-Path "$SdkRoot/Bin/glslc.exe") {
+             $CmakeArgs += "-DVulkan_GLSLC_EXECUTABLE=$SdkRoot/Bin/glslc.exe"
         }
     }
     
