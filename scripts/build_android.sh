@@ -108,7 +108,7 @@ for ABI in "${ABIS[@]}"; do
     
     VULKAN_ENABLED="ON"
     
-    cmake -S src/native -B "$BUILD_DIR" \
+    cmake -G Ninja -S src/native -B "$BUILD_DIR" \
       -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
       -DANDROID_ABI=$ABI \
       -DANDROID_PLATFORM=android-23 \
@@ -133,7 +133,7 @@ for ABI in "${ABIS[@]}"; do
       -DVulkan_GLSLC_EXECUTABLE="$GLSLC" \
       -DGGML_VULKAN_SHADERS_GEN_TOOLCHAIN="$TOOLCHAIN_FILE"
 
-    cmake --build "$BUILD_DIR" --config Release -j $(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
+    cmake --build "$BUILD_DIR" -j $(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
 
     # 6. Artifact management
     JNI_LIBS_DIR="android/src/main/jniLibs/$ABI"
@@ -142,8 +142,9 @@ for ABI in "${ABIS[@]}"; do
     mkdir -p "$JNI_LIBS_DIR"
 
     echo "Copying libraries to $JNI_LIBS_DIR (cleaning leftovers)..."
-    # Find all .so files in the bin or root build directory
-    find "$BUILD_DIR" -name "*.so" -exec cp {} "$JNI_LIBS_DIR/" \;
+    # Copy our consolidated library and rename to libllama.so
+    cp -L "$BUILD_DIR/libllamadart.so" "$JNI_LIBS_DIR/libllama.so" 2>/dev/null || \
+    find "$BUILD_DIR" -name "libllamadart.so" -exec cp -L {} "$JNI_LIBS_DIR/libllama.so" \;
 
     echo "Android build complete: $ABI binaries in $JNI_LIBS_DIR"
 done
