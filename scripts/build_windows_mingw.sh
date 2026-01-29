@@ -2,14 +2,28 @@
 set -e
 
 # build_windows_mingw.sh <backend> [clean]
+# Example: ./scripts/build_windows_mingw.sh cpu
 # Example: ./scripts/build_windows_mingw.sh vulkan
 # Cross-compile Windows binaries on Linux using MinGW-w64
 
 BACKEND=$1
 CLEAN=$2
 
+# Validate backend parameter
 if [ -z "$BACKEND" ]; then
-    BACKEND="vulkan"
+    echo "Error: Backend parameter is required."
+    echo "Usage: $0 <backend> [clean]"
+    echo "  backend: 'cpu' or 'vulkan'"
+    echo "Example: $0 cpu"
+    exit 1
+fi
+
+# Check for required MinGW tools
+if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+    echo "Error: MinGW-w64 cross-compiler not found."
+    echo "Please install it first:"
+    echo "  Ubuntu/Debian: sudo apt-get install mingw-w64"
+    exit 1
 fi
 
 BUILD_DIR="build-windows-$BACKEND"
@@ -64,6 +78,12 @@ mkdir -p "$LIB_DIR"
 echo "Copying libraries to $LIB_DIR..."
 # Find and copy all .dll files
 find "$BUILD_DIR" -name "*.dll" -exec cp {} "$LIB_DIR/" \;
+
+# Verify that the expected DLL was created
+if [ ! -f "$LIB_DIR/libllama.dll" ]; then
+    echo "Error: Expected libllama.dll not found in $LIB_DIR"
+    exit 1
+fi
 
 echo "Windows build complete: $LIB_DIR"
 ls -lh "$LIB_DIR"

@@ -75,7 +75,11 @@ If you find a bug in `llama.cpp`, the correct path is to contribute the fix to t
 -
 -    **iOS/macOS (XCFramework):**
 -    ```bash
--    ./scripts/build_apple.sh ios  # or macos
+-    # Build iOS XCFramework
+-    ./scripts/build_apple.sh ios
+-    
+-    # Build macOS Universal binary
+-    ./scripts/build_apple.sh macos
 -    ```
 -
 -    **Windows (Cross-compile on Linux with MinGW):**

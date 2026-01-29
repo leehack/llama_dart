@@ -44,10 +44,11 @@ Example:
 ```bash
 # Install MinGW first: sudo apt-get install mingw-w64
 ./build_windows_mingw.sh cpu      # Build CPU-only backend
-./build_windows_mingw.sh vulkan   # Build with Vulkan (requires Windows Vulkan SDK)
+# Note: Vulkan backend is not supported via MinGW cross-compilation
+# Use the native Windows PowerShell build for Vulkan support
 ```
 
-**Note**: Vulkan backend for Windows requires the [Vulkan SDK](https://vulkan.lunarg.com/). The CPU backend works without additional dependencies.
+**Note**: The CPU backend works without additional dependencies. Vulkan backend requires native Windows build with the [Vulkan SDK](https://vulkan.lunarg.com/).
 
 ### Docker Verification (Linux)
 ```bash
