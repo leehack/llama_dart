@@ -53,7 +53,108 @@ if [ "$BACKEND" == "vulkan" ]; then
     echo "============================"
     echo "Building for Windows (Vulkan) with MinGW"
     echo "============================"
+    
+    # Check for glslc (required for shader compilation)
+    if ! command -v glslc >/dev/null 2>&1; then
+        echo "Error: glslc shader compiler not found."
+        echo "Please install it first:"
+        echo "  Ubuntu/Debian: sudo apt-get install glslc libvulkan-dev"
+        exit 1
+    fi
+    
+    # Set Vulkan paths for cross-compilation
+    # Use the Vulkan-Headers submodule for headers
+    VULKAN_HEADERS_DIR="$(pwd)/src/native/Vulkan-Headers/include"
+    
+    # Create a Windows-compatible Vulkan import library
+    VULKAN_MINGW_DIR="/tmp/vulkan-mingw-$BACKEND"
+    mkdir -p "$VULKAN_MINGW_DIR"
+    
+    if [ ! -f "$VULKAN_MINGW_DIR/libvulkan-1.a" ]; then
+        echo "Creating Windows Vulkan import library..."
+        cat > "$VULKAN_MINGW_DIR/vulkan-1.def" << 'EOFDEF'
+LIBRARY vulkan-1.dll
+EXPORTS
+vkCreateInstance
+vkDestroyInstance
+vkEnumeratePhysicalDevices
+vkGetPhysicalDeviceFeatures
+vkGetPhysicalDeviceProperties
+vkGetPhysicalDeviceQueueFamilyProperties
+vkGetPhysicalDeviceMemoryProperties
+vkGetInstanceProcAddr
+vkGetDeviceProcAddr
+vkCreateDevice
+vkDestroyDevice
+vkEnumerateInstanceExtensionProperties
+vkEnumerateDeviceExtensionProperties
+vkGetDeviceQueue
+vkQueueSubmit
+vkQueueWaitIdle
+vkDeviceWaitIdle
+vkAllocateMemory
+vkFreeMemory
+vkMapMemory
+vkUnmapMemory
+vkBindBufferMemory
+vkBindImageMemory
+vkGetBufferMemoryRequirements
+vkGetImageMemoryRequirements
+vkCreateFence
+vkDestroyFence
+vkResetFences
+vkWaitForFences
+vkCreateSemaphore
+vkDestroySemaphore
+vkCreateBuffer
+vkDestroyBuffer
+vkCreateImage
+vkDestroyImage
+vkCreateImageView
+vkDestroyImageView
+vkCreateShaderModule
+vkDestroyShaderModule
+vkCreateComputePipelines
+vkDestroyPipeline
+vkCreatePipelineLayout
+vkDestroyPipelineLayout
+vkCreateDescriptorSetLayout
+vkDestroyDescriptorSetLayout
+vkCreateDescriptorPool
+vkDestroyDescriptorPool
+vkAllocateDescriptorSets
+vkUpdateDescriptorSets
+vkCreateCommandPool
+vkDestroyCommandPool
+vkAllocateCommandBuffers
+vkBeginCommandBuffer
+vkEndCommandBuffer
+vkCmdBindPipeline
+vkCmdBindDescriptorSets
+vkCmdDispatch
+vkCmdCopyBuffer
+vkCmdPipelineBarrier
+vkGetPhysicalDeviceFeatures2
+vkGetPhysicalDeviceProperties2
+vkGetPhysicalDeviceMemoryProperties2
+vkBindBufferMemory2
+vkBindImageMemory2
+vkGetImageMemoryRequirements2
+vkGetBufferMemoryRequirements2
+EOFDEF
+        x86_64-w64-mingw32-dlltool -d "$VULKAN_MINGW_DIR/vulkan-1.def" -l "$VULKAN_MINGW_DIR/libvulkan-1.a" -D vulkan-1.dll
+        echo "Created: $VULKAN_MINGW_DIR/libvulkan-1.a"
+    fi
+    
+    # Point CMake to the Windows Vulkan library
     CMAKE_ARGS+=("-DGGML_VULKAN=ON")
+    CMAKE_ARGS+=("-DVulkan_INCLUDE_DIR=${VULKAN_HEADERS_DIR}")
+    CMAKE_ARGS+=("-DVulkan_LIBRARY=${VULKAN_MINGW_DIR}/libvulkan-1.a")
+    CMAKE_ARGS+=("-DVulkan_GLSLC_EXECUTABLE=$(which glslc)")
+    
+    echo "Using Vulkan headers from: ${VULKAN_HEADERS_DIR}"
+    echo "Using Vulkan library: ${VULKAN_MINGW_DIR}/libvulkan-1.a"
+    echo "Using glslc from: $(which glslc)"
 elif [ "$BACKEND" == "cpu" ]; then
     echo "============================"
     echo "Building for Windows (CPU) with MinGW"
