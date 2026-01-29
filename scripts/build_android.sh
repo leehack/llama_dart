@@ -6,7 +6,7 @@ set -e
 
 # Determine ABIs to build
 if [ "$1" == "all" ]; then
-    ABIS=("arm64-v8a" "armeabi-v7a" "x86_64")
+    ABIS=("arm64-v8a" "x86_64")
     CLEAN=$2
 else
     ABIS=("${1:-"arm64-v8a"}")
@@ -70,8 +70,6 @@ for ABI in "${ABIS[@]}"; do
     # NDK paths use different names than the ABI (e.g. aarch64 for arm64-v8a)
     if [ "$ABI" == "arm64-v8a" ]; then
         ARCH_PATH="aarch64-linux-android"
-    elif [ "$ABI" == "armeabi-v7a" ]; then
-        ARCH_PATH="arm-linux-androideabi"
     elif [ "$ABI" == "x86_64" ]; then
         ARCH_PATH="x86_64-linux-android"
     elif [ "$ABI" == "x86" ]; then
@@ -109,9 +107,6 @@ for ABI in "${ABIS[@]}"; do
     fi
     
     VULKAN_ENABLED="ON"
-    if [ "$ABI" == "armeabi-v7a" ]; then
-        VULKAN_ENABLED="OFF"
-    fi
     
     cmake -S src/native -B "$BUILD_DIR" \
       -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
