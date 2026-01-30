@@ -115,10 +115,10 @@ void main(List<String> args) async {
 
 String _getIOSFileName(BuildConfig config, Architecture arch) {
   // Use a string check on the target to detect simulator vs device
-  // Standard targets are 'ios_arm64', 'ios_arm64_simulator', 'ios_x64_simulator'
+  // Standard targets are 'ios_arm64', 'ios_arm64_simulator', 'ios_x86_64_simulator'
   final target = config.code.targetOS.toString().toLowerCase();
 
-  if (arch == Architecture.x64) return 'libllamadart-ios-x64-sim.a';
+  if (arch == Architecture.x64) return 'libllamadart-ios-x86_64-sim.a';
 
   // For arm64, it could be both. We check if the config string contains 'simulator'
   if (config.toString().toLowerCase().contains('simulator')) {
@@ -144,7 +144,7 @@ Future<void> _ensureAssets({
       final fileName = _getIOSFileName(config, arch);
       await _download(fileName, path.join(targetDir, fileName), log);
     case OS.macOS:
-      final archStr = arch == Architecture.arm64 ? 'arm64' : 'x64';
+      final archStr = arch == Architecture.arm64 ? 'arm64' : 'x86_64';
       await _download(
         'libllamadart-macos-$archStr.a',
         path.join(targetDir, 'libllamadart.a'),

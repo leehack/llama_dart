@@ -57,7 +57,7 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        target: [macos-arm64, macos-x64, ios-device-arm64, ios-sim-arm64, ios-sim-x64]
+        target: [macos-arm64, macos-x86_64, ios-device-arm64, ios-sim-arm64, ios-sim-x86_64]
     defaults:
       run:
         working-directory: third_party
@@ -199,12 +199,12 @@ jobs:
           find artifacts/libllamadart_linux_arm64 -name "*.so" -exec cp {} release_assets/libllamadart-linux-arm64.so \;
           # macOS
           find artifacts/libllamadart_apple_macos-arm64 -name "*.a" -exec cp {} release_assets/libllamadart-macos-arm64.a \;
-          find artifacts/libllamadart_apple_macos-x64 -name "*.a" -exec cp {} release_assets/libllamadart-macos-x64.a \;
+          find artifacts/libllamadart_apple_macos-x86_64 -name "*.a" -exec cp {} release_assets/libllamadart-macos-x86_64.a \;
           # iOS
           mkdir -p ios_slices
           find artifacts/libllamadart_apple_ios-device-arm64 -name "*.a" -exec cp {} ios_slices/ \;
           find artifacts/libllamadart_apple_ios-sim-arm64 -name "*.a" -exec cp {} ios_slices/ \;
-          find artifacts/libllamadart_apple_ios-sim-x64 -name "*.a" -exec cp {} ios_slices/ \;
+          find artifacts/libllamadart_apple_ios-sim-x86_64 -name "*.a" -exec cp {} ios_slices/ \;
           cd ios_slices
           zip -j ../release_assets/llamadart-ios-xcframework.zip *.a
           cd ..

@@ -9,6 +9,7 @@ CLEAN=$2
 
 if [[ "$TARGET" == macos-* ]]; then
     ARCH=${TARGET#macos-}
+    if [ "$ARCH" == "x64" ]; then ARCH="x86_64"; fi
     echo "========================================"
     echo "Building for macOS ($ARCH)..."
     echo "========================================"
