@@ -27,7 +27,7 @@ The project maps closely to the `llama.cpp` structure:
 
 This project follows a **Zero-Patch Strategy** for external submodules (like `llama.cpp` and `Vulkan-Headers`):
 
-*   **No Direct Modifications**: We never modify the source code inside `third_party/llamadart`.
+*   **No Direct Modifications**: We never modify the source code inside `third_party/llama_cpp`.
 *   **Upgradability**: This allows us to update the core engine by simply bumping the submodule pointer.
 *   **Wrappers & Hooks**: Any necessary changes should be implemented in `third_party/CMakeLists.txt` or through compiler flags in the build scripts.
 

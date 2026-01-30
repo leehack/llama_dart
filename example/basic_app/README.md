@@ -26,12 +26,14 @@ This will:
 
 ## Running with Docker (Linux Verification)
 
-You can verify the application on Linux using the provided Dockerfile:
+You can verify the application on Linux using the centralized Docker environment:
 
 ```bash
-docker build -t llamadart_basic -f example/basic_app/Dockerfile .
-docker run --rm llamadart_basic
+# Run from the project root
+./docker/build-docker.sh basic-run
 ```
+
+This ensures a consistent environment with all necessary Linux dependencies.
 
 ## Troubleshooting
 

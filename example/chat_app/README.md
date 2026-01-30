@@ -71,9 +71,13 @@ The app follows a clean architecture with state management:
 ```
 lib/
 ├── main.dart              # App entry point
-├── chat_screen.dart       # UI implementation
-└── models/
-    └── chat_model.dart    # State management + business logic
+├── chat_screen.dart       # Main chat UI
+├── models/
+│   └── chat_model.dart    # State management (Provider)
+├── screens/
+│   └── model_selection_screen.dart # Model downloader & selector
+└── stub/
+    └── io_stub.dart       # Platform stubs for web compatibility
 ```
 
 ### ChatProvider
@@ -94,30 +98,30 @@ Flutter UI with Material Design 3:
 
 ### Loading a Model
 ```dart
-final model = await LlamaModel.loadFromFile(
+final service = LlamaService();
+await service.init(
   modelPath,
-   params: DartLlamaModelParams(
-     nGpuLayers: 999, // Offload all layers for best performance on GPU
-     useMmap: true,
-   ),
-);
-
-final context = model.createContext(
-  params: DartLlamaContextParams(
-    nCtx: 2048,
-    nThreads: 4,
+  modelParams: ModelParams(
+    gpuLayers: 99, // Offload all layers for best performance on GPU
+    contextSize: 2048,
+    preferredBackend: GpuBackend.auto,
   ),
 );
 ```
 
 ### Sending a Message
 ```dart
-final stream = context.generate(
-  prompt: userMessage,
-  maxTokens: 128,
+final stream = service.generate(
+  userMessage,
+  params: GenerationParams(
+    maxTokens: 128,
+    temp: 0.7,
+  ),
 );
 
-final response = await stream.join();
+await for (final token in stream) {
+  print(token);
+}
 ```
 
 ### Persisting Settings

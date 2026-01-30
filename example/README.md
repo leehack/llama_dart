@@ -82,24 +82,13 @@ example/
 ## Need Help?
 
 - Check individual example README files
-- Report issues: https://github.com/your-org/llamadart/issues
-- Docs: https://github.com/your-org/llamadart
-
-## Running Tests
-
-```bash
-# Basic integration test
-cd example
-dart runner.dart basic
-
-# Instructions for Flutter tests
-dart runner.dart chat
-```
+- Report issues: https://github.com/leehack/llamadart/issues
+- Docs: https://github.com/leehack/llamadart
 
 ## Requirements
 
-- Dart SDK 3.6.0 or higher
-- For chat_app: Flutter 3.10.0 or higher
+- Dart SDK 3.10.7 or higher
+- For chat_app: Flutter 3.38.0 or higher
 - Internet connection (for first run - downloads native libraries)
 - At least 2GB RAM minimum, 4GB+ recommended
 
