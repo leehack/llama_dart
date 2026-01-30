@@ -31,7 +31,8 @@ if [[ "$TARGET" == macos-* ]]; then
       -DGGML_METAL_USE_BF16=OFF \
       -DGGML_METAL_EMBED_LIBRARY=ON \
       -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
-      -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+      -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+      -DGGML_NATIVE=OFF
     
     cmake --build "$BUILD_DIR" --config Release -j $(sysctl -n hw.logicalcpu)
     
