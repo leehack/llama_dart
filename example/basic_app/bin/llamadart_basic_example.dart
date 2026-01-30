@@ -12,6 +12,8 @@ void main() async {
   print('🦙 llamadart Basic Example & Test');
   print('=' * 50);
 
+  LlamaService? service;
+
   try {
     // 1. Setup & Download
     final downloader = ModelDownloader();
@@ -19,7 +21,7 @@ void main() async {
         await downloader.downloadModel(modelUrl, fileName: modelFileName);
 
     // 2. Initialize Service
-    final service = LlamaService();
+    service = LlamaService();
 
     // 3. Run Test
     final tester = InferenceTest(service);
@@ -30,5 +32,7 @@ void main() async {
   } catch (e) {
     print('\nFatal Error: $e');
     exit(1);
+  } finally {
+    await service?.dispose();
   }
 }

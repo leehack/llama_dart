@@ -22,16 +22,26 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    // Auto-open model selection if no model is loaded
+    // Auto-scrolling and generation status listener
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<ChatProvider>();
-      if (!provider.isLoaded) {
+
+      // Auto-open model selection if no model is selected
+      if (provider.modelPath == null) {
         _openModelSelection();
       }
 
       // Add listener for auto-scrolling
       provider.addListener(_onProviderUpdate);
     });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    _focusNode.dispose();
+    super.dispose();
   }
 
   bool _wasGenerating = false;
@@ -97,9 +107,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _openModelSelection() {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const ModelSelectionScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const ModelSelectionScreen()),
     );
   }
 
@@ -109,9 +117,7 @@ class _ChatScreenState extends State<ChatScreen> {
       extendBodyBehindAppBar: true,
       appBar: _buildAppBar(context),
       body: Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-        ),
+        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface),
         child: Column(
           children: [
             if (context.watch<ChatProvider>().isPruning)
@@ -145,7 +151,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       // Check if next message is from same user for grouping
                       bool isNextSame = false;
                       if (index + 1 < provider.messages.length) {
-                        isNextSame = provider.messages[index + 1].isUser ==
+                        isNextSame =
+                            provider.messages[index + 1].isUser ==
                             message.isUser;
                       }
                       return _buildMessageBubble(message, isNextSame);
@@ -163,8 +170,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   PreferredSizeWidget _buildAppBar(BuildContext context) {
     return AppBar(
-      backgroundColor:
-          Theme.of(context).colorScheme.surface.withValues(alpha: 0.8),
+      backgroundColor: Theme.of(
+        context,
+      ).colorScheme.surface.withValues(alpha: 0.8),
       flexibleSpace: ClipRect(
         child: BackdropFilter(
           filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
@@ -177,8 +185,9 @@ class _ChatScreenState extends State<ChatScreen> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color:
-                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
@@ -299,10 +308,9 @@ class _ChatScreenState extends State<ChatScreen> {
           margin: const EdgeInsets.all(32),
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: Theme.of(context)
-                .colorScheme
-                .errorContainer
-                .withValues(alpha: 0.5),
+            color: Theme.of(
+              context,
+            ).colorScheme.errorContainer.withValues(alpha: 0.5),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(
               color: Theme.of(context).colorScheme.error.withValues(alpha: 0.2),
@@ -311,8 +319,11 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_rounded,
-                  size: 48, color: Theme.of(context).colorScheme.error),
+              Icon(
+                Icons.error_rounded,
+                size: 48,
+                color: Theme.of(context).colorScheme.error,
+              ),
               const SizedBox(height: 16),
               Text(
                 'Something went wrong',
@@ -327,7 +338,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 provider.error!,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    color: Theme.of(context).colorScheme.onErrorContainer),
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
               ),
               const SizedBox(height: 24),
               FilledButton.icon(
@@ -352,10 +364,9 @@ class _ChatScreenState extends State<ChatScreen> {
           Container(
             padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .primaryContainer
-                  .withValues(alpha: 0.3),
+              color: Theme.of(
+                context,
+              ).colorScheme.primaryContainer.withValues(alpha: 0.3),
               shape: BoxShape.circle,
             ),
             child: Icon(
@@ -376,12 +387,10 @@ class _ChatScreenState extends State<ChatScreen> {
           Text(
             provider.modelPath != null
                 ? (provider.isLoaded
-                    ? 'Model Loaded: ${provider.modelPath!.split('/').last}'
-                    : 'Model Selected: ${provider.modelPath!.split('/').last}')
+                      ? 'Model Loaded: ${provider.modelPath!.split('/').last}'
+                      : 'Model Selected: ${provider.modelPath!.split('/').last}')
                 : 'No model selected',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.secondary,
-            ),
+            style: TextStyle(color: Theme.of(context).colorScheme.secondary),
           ),
           const SizedBox(height: 32),
           if (!provider.isLoaded)
@@ -390,14 +399,19 @@ class _ChatScreenState extends State<ChatScreen> {
                   ? _openModelSelection
                   : () => provider.loadModel(),
               style: FilledButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
+                ),
               ),
-              icon: Icon(provider.modelPath == null
-                  ? Icons.file_open_rounded
-                  : Icons.power_settings_new_rounded),
+              icon: Icon(
+                provider.modelPath == null
+                    ? Icons.file_open_rounded
+                    : Icons.power_settings_new_rounded,
+              ),
               label: Text(
-                  provider.modelPath == null ? 'Select Model' : 'Load Model'),
+                provider.modelPath == null ? 'Select Model' : 'Load Model',
+              ),
             ),
         ],
       ),
@@ -428,14 +442,12 @@ class _ChatScreenState extends State<ChatScreen> {
         crossAxisAlignment: align,
         children: [
           Row(
-            mainAxisAlignment:
-                isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+            mainAxisAlignment: isUser
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (!isUser) ...[
-                _buildAvatar(isUser),
-                const SizedBox(width: 8),
-              ],
+              if (!isUser) ...[_buildAvatar(isUser), const SizedBox(width: 8)],
               Flexible(
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -463,10 +475,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
               ),
-              if (isUser) ...[
-                const SizedBox(width: 8),
-                _buildAvatar(isUser),
-              ],
+              if (isUser) ...[const SizedBox(width: 8), _buildAvatar(isUser)],
             ],
           ),
         ],
@@ -513,10 +522,9 @@ class _ChatScreenState extends State<ChatScreen> {
             color: Theme.of(context).colorScheme.surface,
             border: Border(
               top: BorderSide(
-                color: Theme.of(context)
-                    .colorScheme
-                    .outlineVariant
-                    .withValues(alpha: 0.5),
+                color: Theme.of(
+                  context,
+                ).colorScheme.outlineVariant.withValues(alpha: 0.5),
               ),
             ),
           ),
@@ -525,19 +533,17 @@ class _ChatScreenState extends State<ChatScreen> {
               Expanded(
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest
                         .withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(28),
-                    border: Border.all(
-                      color: Colors.transparent,
-                    ),
+                    border: Border.all(color: Colors.transparent),
                   ),
                   child: CallbackShortcuts(
                     bindings: {
-                      const SingleActivator(LogicalKeyboardKey.enter,
-                          includeRepeats: false): _sendMessage,
+                      const SingleActivator(
+                        LogicalKeyboardKey.enter,
+                        includeRepeats: false,
+                      ): _sendMessage,
                     },
                     child: TextField(
                       controller: _controller,
@@ -657,80 +663,42 @@ class _ChatScreenState extends State<ChatScreen> {
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
                                 border: Border.all(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .outlineVariant,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.outlineVariant,
                                 ),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Row(
                                 children: [
-                                  Icon(Icons.description_outlined,
-                                      size: 20,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primary),
+                                  Icon(
+                                    Icons.description_outlined,
+                                    size: 20,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Text(
                                       provider.modelPath?.split('/').last ??
                                           'None',
                                       style: const TextStyle(
-                                          fontWeight: FontWeight.w500),
+                                        fontWeight: FontWeight.w500,
+                                      ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  Icon(Icons.chevron_right,
-                                      size: 16,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .outline),
+                                  Icon(
+                                    Icons.chevron_right,
+                                    size: 16,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.outline,
+                                  ),
                                 ],
                               ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        _buildSettingItem(
-                          context,
-                          title: 'System Information',
-                          child: Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHighest
-                                  .withValues(alpha: 0.3),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .outlineVariant
-                                    .withValues(alpha: 0.5),
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                _buildInfoRow(context, 'Compiled Backend',
-                                    provider.activeBackend),
-                                const Divider(height: 24),
-                                _buildInfoRow(
-                                    context,
-                                    'GPU Support',
-                                    provider.gpuSupported
-                                        ? 'Available'
-                                        : 'Not Supported'),
-                                const Divider(height: 24),
-                                _buildInfoRow(
-                                    context,
-                                    'Acceleration',
-                                    provider.activeBackend.toLowerCase() !=
-                                                'cpu' &&
-                                            provider.gpuSupported
-                                        ? 'Active (${provider.activeBackend})'
-                                        : 'CPU (No Acceleration)'),
-                              ],
                             ),
                           ),
                         ),
@@ -744,21 +712,24 @@ class _ChatScreenState extends State<ChatScreen> {
                             children: [
                               Container(
                                 width: double.infinity,
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 12),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
                                 decoration: BoxDecoration(
                                   border: Border.all(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .outlineVariant),
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.outlineVariant,
+                                  ),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: DropdownButtonHideUnderline(
                                   child: DropdownButton<GpuBackend>(
                                     value: provider.preferredBackend,
                                     isExpanded: true,
-                                    items:
-                                        _getAvailableBackends().map((backend) {
+                                    items: _getAvailableBackends().map((
+                                      backend,
+                                    ) {
                                       return DropdownMenuItem(
                                         value: backend,
                                         child: Text(backend.name.toUpperCase()),
@@ -775,14 +746,31 @@ class _ChatScreenState extends State<ChatScreen> {
                               if (provider.availableDevices.isNotEmpty)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 8.0),
-                                  child: Text(
-                                    'Detected: ${provider.availableDevices.join(", ")}',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .tertiary,
-                                    ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Active: ${provider.activeBackend}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Detected: ${provider.availableDevices.join(", ")}',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.tertiary,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                             ],
@@ -850,9 +838,10 @@ class _ChatScreenState extends State<ChatScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             decoration: BoxDecoration(
                               border: Border.all(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .outlineVariant),
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.outlineVariant,
+                              ),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: DropdownButtonHideUnderline(
@@ -863,7 +852,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                   return DropdownMenuItem(
                                     value: size,
                                     child: Text(
-                                        size == 0 ? "Auto (Native)" : "$size"),
+                                      size == 0 ? "Auto (Native)" : "$size",
+                                    ),
                                   );
                                 }).toList(),
                                 onChanged: (value) {
@@ -887,8 +877,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildSettingItem(BuildContext context,
-      {required String title, String? subtitle, required Widget child}) {
+  Widget _buildSettingItem(
+    BuildContext context, {
+    required String title,
+    String? subtitle,
+    required Widget child,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -925,44 +919,17 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildInfoRow(BuildContext context, String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label,
-            style: TextStyle(
-                fontSize: 13, color: Theme.of(context).colorScheme.secondary)),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            value,
-            textAlign: TextAlign.right,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-
   List<GpuBackend> _getAvailableBackends() {
-    final platform = Theme.of(context).platform;
-    switch (platform) {
-      case TargetPlatform.iOS:
-      case TargetPlatform.macOS:
-        return [GpuBackend.auto, GpuBackend.cpu, GpuBackend.metal];
-      case TargetPlatform.android:
-        return [GpuBackend.auto, GpuBackend.cpu, GpuBackend.vulkan];
-      case TargetPlatform.windows:
-      case TargetPlatform.linux:
-        return [
-          GpuBackend.auto,
-          GpuBackend.cpu,
-          GpuBackend.cuda,
-          GpuBackend.vulkan
-        ];
-      default:
-        return [GpuBackend.auto, GpuBackend.cpu];
+    final provider = context.read<ChatProvider>();
+    final Set<GpuBackend> backends = {GpuBackend.auto, GpuBackend.cpu};
+
+    for (final device in provider.availableDevices) {
+      final d = device.toLowerCase();
+      if (d.contains('metal')) backends.add(GpuBackend.metal);
+      if (d.contains('vulkan')) backends.add(GpuBackend.vulkan);
+      if (d.contains('blas')) backends.add(GpuBackend.blas);
     }
+
+    return backends.toList();
   }
 }

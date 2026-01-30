@@ -158,9 +158,9 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
         _downloadProgress.remove(model.filename);
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Download failed: $e')));
       }
 
       // Clean up partial file
@@ -243,10 +243,13 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
                           const SizedBox(height: 4),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
-                              color: colorScheme.secondaryContainer
-                                  .withValues(alpha: 0.5),
+                              color: colorScheme.secondaryContainer.withValues(
+                                alpha: 0.5,
+                              ),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -263,8 +266,10 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
                     ),
                     if (isDownloaded && !kIsWeb)
                       IconButton(
-                        icon: Icon(Icons.delete_outline_rounded,
-                            color: colorScheme.error),
+                        icon: Icon(
+                          Icons.delete_outline_rounded,
+                          color: colorScheme.error,
+                        ),
                         onPressed: () => _deleteModel(model.filename),
                         tooltip: 'Delete Model',
                       ),
@@ -294,13 +299,17 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
                     children: [
                       Text(
                         'Downloading...',
-                        style:
-                            TextStyle(fontSize: 12, color: colorScheme.primary),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colorScheme.primary,
+                        ),
                       ),
                       Text(
                         '${(progress * 100).toStringAsFixed(0)}%',
-                        style:
-                            TextStyle(fontSize: 12, color: colorScheme.primary),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colorScheme.primary,
+                        ),
                       ),
                     ],
                   ),
@@ -314,13 +323,17 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
                                 _selectModel(model.url);
                               } else {
                                 _selectModel(
-                                    p.join(_modelsDir!, model.filename));
+                                  p.join(_modelsDir!, model.filename),
+                                );
                               }
                             },
-                            icon: const Icon(Icons.auto_awesome_rounded,
-                                size: 18),
+                            icon: const Icon(
+                              Icons.auto_awesome_rounded,
+                              size: 18,
+                            ),
                             label: const Text(
-                                kIsWeb ? 'Load Web Model' : 'Use this model'),
+                              kIsWeb ? 'Load Web Model' : 'Use this model',
+                            ),
                             style: FilledButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               shape: RoundedRectangleBorder(

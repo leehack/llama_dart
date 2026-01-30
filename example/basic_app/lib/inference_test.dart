@@ -44,7 +44,7 @@ class InferenceTest {
       rethrow;
     } finally {
       // Note: service disposal is handled by the caller or typical lifecycle
-      _service.dispose();
+      await _service.dispose();
     }
   }
 }
