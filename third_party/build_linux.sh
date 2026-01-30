@@ -47,8 +47,13 @@ if [ "$BACKEND" == "vulkan" ]; then
     echo "Building for Linux ($TARGET_ARCH - Vulkan)..."
     echo "========================================"
     CMAKE_ARGS="$CMAKE_ARGS -DGGML_VULKAN=ON"
+elif [ "$BACKEND" == "cpu" ]; then
+    echo "========================================"
+    echo "Building for Linux ($TARGET_ARCH - CPU)..."
+    echo "========================================"
+    CMAKE_ARGS="$CMAKE_ARGS -DGGML_VULKAN=OFF"
 else
-    echo "Error: Invalid backend '$BACKEND'. Use 'vulkan'."
+    echo "Error: Invalid backend '$BACKEND'. Use 'vulkan' or 'cpu'."
     exit 1
 fi
 

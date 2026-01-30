@@ -147,7 +147,7 @@ jobs:
           key: build-linux-arm64
 
       - name: Build Linux (arm64)
-        run: ./build_linux.sh vulkan arm64
+        run: ./build_linux.sh cpu arm64
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
