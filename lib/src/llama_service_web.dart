@@ -23,10 +23,12 @@ class LlamaService implements LlamaServiceBase {
   /// [wllamaPath] is the URL to `wllama.js` (default: jsDelivr CDN).
   /// [wasmPath] is the URL to `wllama.wasm` (default: jsDelivr CDN).
   LlamaService({String? wllamaPath, String? wasmPath})
-      : _wllamaJsUrl = wllamaPath ??
-            'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/index.js',
-        _wllamaWasmUrl = wasmPath ??
-            'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/single-thread/wllama.wasm';
+    : _wllamaJsUrl =
+          wllamaPath ??
+          'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/index.js',
+      _wllamaWasmUrl =
+          wasmPath ??
+          'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/single-thread/wllama.wasm';
 
   /// Returns a list of available devices. On web, this reports the WASM environment.
   static Future<List<String>> getAvailableDevices() async {
@@ -77,7 +79,8 @@ class LlamaService implements LlamaServiceBase {
       // Standard CDN path for wllama
       // We use a specific version to ensure compatibility
 
-      script.text = '''
+      script.text =
+          '''
         import { Wllama } from "$_wllamaJsUrl";
         window.Wllama = Wllama;
         window.dispatchEvent(new Event('wllama_ready'));
@@ -99,12 +102,16 @@ class LlamaService implements LlamaServiceBase {
     // The key 'single-thread/wllama.wasm' is required by Wllama.
     final pathConfig = JSObject();
     pathConfig.setProperty(
-        'single-thread/wllama.wasm'.toJS, _wllamaWasmUrl.toJS);
+      'single-thread/wllama.wasm'.toJS,
+      _wllamaWasmUrl.toJS,
+    );
 
     _wllama = Wllama(pathConfig);
 
-    final loadPromise =
-        _wllama!.loadModelFromUrl(modelUrl, LoadModelOptions(useCache: true));
+    final loadPromise = _wllama!.loadModelFromUrl(
+      modelUrl,
+      LoadModelOptions(useCache: true),
+    );
     if (loadPromise == null) {
       throw Exception('Failed to load model: Wllama returned null promise');
     }
@@ -128,29 +135,29 @@ class LlamaService implements LlamaServiceBase {
 
     final onNewToken =
         (JSAny? token, JSAny? piece, JSAny? currentText, JSAny? optionals) {
-      if (piece == null || !piece.isA<JSUint8Array>()) {
-        return;
-      }
-      if (currentText == null || !currentText.isA<JSString>()) {
-        return;
-      }
-
-      // Get bytes
-      final bytes = (piece as JSUint8Array).toDart;
-
-      // Check for stop sequences in web using the full text from JS (which handles decoding)
-      if (p.stopSequences.isNotEmpty) {
-        final fullText = (currentText as JSString).toDart;
-        for (final stop in p.stopSequences) {
-          if (fullText.endsWith(stop)) {
-            _abortController?.abort();
+          if (piece == null || !piece.isA<JSUint8Array>()) {
             return;
           }
-        }
-      }
+          if (currentText == null || !currentText.isA<JSString>()) {
+            return;
+          }
 
-      controller.add(bytes);
-    }.toJS;
+          // Get bytes
+          final bytes = (piece as JSUint8Array).toDart;
+
+          // Check for stop sequences in web using the full text from JS (which handles decoding)
+          if (p.stopSequences.isNotEmpty) {
+            final fullText = (currentText as JSString).toDart;
+            for (final stop in p.stopSequences) {
+              if (fullText.endsWith(stop)) {
+                _abortController?.abort();
+                return;
+              }
+            }
+          }
+
+          controller.add(bytes);
+        }.toJS;
 
     final opts = CompletionOptions(
       nPredict: p.maxTokens,
@@ -196,8 +203,7 @@ class LlamaService implements LlamaServiceBase {
       return (tokensRes as JSInt32Array).toDart.cast<int>().toList();
     } else if (tokensRes.isA<JSArray>()) {
       // Fallback for standard JS arrays if that happens
-      return (tokensRes as JSArray)
-          .toDart
+      return (tokensRes as JSArray).toDart
           .map((e) => (e as JSNumber).toDartInt)
           .toList();
     }
@@ -226,8 +232,10 @@ class LlamaService implements LlamaServiceBase {
 
   /// Applies a chat template to the given [messages].
   @override
-  Future<String> applyChatTemplate(List<LlamaChatMessage> messages,
-      {bool addAssistant = true}) async {
+  Future<String> applyChatTemplate(
+    List<LlamaChatMessage> messages, {
+    bool addAssistant = true,
+  }) async {
     if (!_isReady || _wllama == null) {
       throw Exception('Service not initialized');
     }
@@ -310,8 +318,11 @@ class LlamaService implements LlamaServiceBase {
 
   /// Disposes the service and the underlying wllama instance.
   @override
-  void dispose() {
-    _wllama?.exit();
+  Future<void> dispose() async {
+    final exitPromise = _wllama?.exit();
+    if (exitPromise != null) {
+      await exitPromise.toDart;
+    }
     _wllama = null;
     _isReady = false;
   }
@@ -395,8 +406,11 @@ class LlamaService implements LlamaServiceBase {
 
   // Helper to get JS object keys
   JSArray _jsObjectKeys(JSObject obj) {
-    return (globalContext.getProperty('Object'.toJS) as JSObject)
-        .callMethod('keys'.toJS, obj) as JSArray;
+    return (globalContext.getProperty('Object'.toJS) as JSObject).callMethod(
+          'keys'.toJS,
+          obj,
+        )
+        as JSArray;
   }
 
   /// Returns the name of the backend being used.
@@ -405,6 +419,5 @@ class LlamaService implements LlamaServiceBase {
 
   /// Returns true if GPU acceleration is supported.
   @override
-  Future<bool> isGpuSupported() async =>
-      false; // WebGPU not yet explicitly toggled
+  Future<bool> isGpuSupported() async => false; // WebGPU not yet explicitly toggled
 }

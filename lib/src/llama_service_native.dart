@@ -56,7 +56,10 @@ class _MetadataRequest {
   _MetadataRequest(this.key, this.sendPort);
 }
 
-class _DisposeRequest {}
+class _DisposeRequest {
+  final SendPort sendPort;
+  _DisposeRequest(this.sendPort);
+}
 
 class _ApplyTemplateRequest {
   final List<LlamaChatMessage> messages;
@@ -381,9 +384,19 @@ class LlamaService implements LlamaServiceBase {
 
   /// Disposes the service and the underlying isolate.
   @override
-  void dispose() {
-    _sendPort?.send(_DisposeRequest());
+  Future<void> dispose() async {
+    cancelGeneration();
+
+    if (_sendPort != null) {
+      final receivePort = ReceivePort();
+      _sendPort!.send(_DisposeRequest(receivePort.sendPort));
+      await receivePort.first;
+      receivePort.close();
+    }
+
+    _isolate?.kill();
     _isolate = null;
+    _sendPort = null;
     _isReady = false;
   }
 
@@ -463,23 +476,37 @@ class LlamaService implements LlamaServiceBase {
 
     print("Isolate: Initializing Backend...");
 
-    // Force initialization of the dylib
-    // In ffi-native mode, this happens automatically when first function is called,
-    // but we can call a simple function to be sure.
-    llama_backend_init();
-
-    // Register log callback
-    // ...
+    // Set environment variable to disable residency sets on macOS 15+
+    // This prevents a crash on exit due to an aggressive assertion in llama.cpp
+    try {
+      if (Platform.isMacOS) {
+        final libc = DynamicLibrary.open('libc.dylib');
+        final setenv = libc
+            .lookupFunction<
+              Int32 Function(Pointer<Utf8>, Pointer<Utf8>, Int32),
+              int Function(Pointer<Utf8>, Pointer<Utf8>, int)
+            >('setenv');
+        final name = "GGML_METAL_RESIDENCY_DISABLE".toNativeUtf8();
+        final value = "1".toNativeUtf8();
+        setenv(name, value, 1);
+        malloc.free(name);
+        malloc.free(value);
+        print(
+          "Isolate: Disabled Metal residency sets to prevent crash on exit.",
+        );
+      }
+    } catch (e) {
+      print("Isolate: Failed to set environment variable: $e");
+    }
 
     // Initialize backend (native side) - Standard cpp backend init
     try {
       ggml_backend_load_all();
+      llama_backend_init();
       print("Isolate: Backends loaded.");
     } catch (e) {
       print("Isolate: Failed to load backends: $e");
     }
-
-    llama_backend_init();
 
     print("Isolate: Backend initialized.");
 
@@ -507,7 +534,7 @@ class LlamaService implements LlamaServiceBase {
       } else if (message is _TokenCountRequest) {
         _handleTokenCount(receivePort, message, state);
       } else if (message is _DisposeRequest) {
-        _handleDispose(receivePort, state);
+        _handleDispose(receivePort, message, state);
       }
     });
   }
@@ -532,6 +559,14 @@ class LlamaService implements LlamaServiceBase {
         print("Isolate: Cleaning up previous model...");
         state.ctx?.dispose();
         state.model?.dispose();
+        if (state.batch != null) {
+          llama_batch_free(state.batch!);
+          state.batch = null;
+        }
+        if (state.sampler != null) {
+          llama_sampler_free(state.sampler!);
+          state.sampler = null;
+        }
         state.model = null;
         state.ctx = null;
       }
@@ -1278,13 +1313,23 @@ class LlamaService implements LlamaServiceBase {
     }
   }
 
-  static void _handleDispose(ReceivePort receivePort, _LlamaState state) {
+  static void _handleDispose(
+    ReceivePort receivePort,
+    _DisposeRequest message,
+    _LlamaState state,
+  ) {
     print("Isolate: Disposing...");
     // Unregister log callback
     llama_log_set(nullptr, nullptr);
 
-    if (state.batch != null) llama_batch_free(state.batch!);
-    if (state.sampler != null) llama_sampler_free(state.sampler!);
+    if (state.batch != null) {
+      llama_batch_free(state.batch!);
+      state.batch = null;
+    }
+    if (state.sampler != null) {
+      llama_sampler_free(state.sampler!);
+      state.sampler = null;
+    }
 
     // Explicitly dispose wrappers which detaches finalizers
     state.ctx?.dispose();
@@ -1292,9 +1337,16 @@ class LlamaService implements LlamaServiceBase {
 
     state.ctx = null;
     state.model = null;
-    // llama_backend_free(); // Commented out to prevent crash on exit
-    receivePort.close();
+
+    try {
+      llama_backend_free();
+    } catch (e) {
+      print("Isolate: Error during llama_backend_free: $e");
+    }
+
     print("Isolate: Disposed.");
+    message.sendPort.send(null);
+    receivePort.close();
     Isolate.exit();
   }
 }

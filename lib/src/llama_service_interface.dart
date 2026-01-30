@@ -144,7 +144,7 @@ abstract class LlamaServiceBase {
   });
 
   /// Disposes the service and releases resources.
-  void dispose();
+  Future<void> dispose();
 
   /// Returns the name of the GPU backend compiled into the library (e.g., 'Metal', 'CUDA', 'Vulkan', 'CPU').
   Future<String> getBackendName();

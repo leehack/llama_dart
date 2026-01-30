@@ -33,9 +33,6 @@ void main() async {
     print('\nFatal Error: $e');
     exit(1);
   } finally {
-    service?.dispose();
-    // Allow time for the isolate to process the dispose message and detach finalizers
-    // preventing race condition on shutdown
-    await Future.delayed(Duration(seconds: 2));
+    await service?.dispose();
   }
 }

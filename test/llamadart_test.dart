@@ -13,8 +13,8 @@ void main() async {
     service = LlamaService();
   });
 
-  tearDownAll(() {
-    service.dispose();
+  tearDownAll(() async {
+    await service.dispose();
   });
 
   group('LlamaService Basic Tests', () {
@@ -45,8 +45,10 @@ void main() async {
 
     test('Generation (Streaming)', () async {
       const prompt = "The story of a small llama:";
-      final stream = service.generate(prompt,
-          params: const GenerationParams(maxTokens: 20));
+      final stream = service.generate(
+        prompt,
+        params: const GenerationParams(maxTokens: 20),
+      );
 
       final buffer = StringBuffer();
       await for (final token in stream) {
@@ -59,35 +61,48 @@ void main() async {
 
     test('Cancel Generation', () async {
       // Re-initialize with CPU to make it slow enough to cancel
-      await service.init(modelFile.path,
-          modelParams: const ModelParams(gpuLayers: 0));
+      await service.init(
+        modelFile.path,
+        modelParams: const ModelParams(gpuLayers: 0),
+      );
 
       const prompt =
           "The story of a llama who wanted to see the entire world and traveled to every continent, meeting many new friends along the way and learning about different cultures:";
       // Set a high maxTokens so it doesn't finish naturally too quickly
-      final stream = service.generate(prompt,
-          params: const GenerationParams(maxTokens: 500));
+      final stream = service.generate(
+        prompt,
+        params: const GenerationParams(maxTokens: 500),
+      );
 
       int tokenCount = 0;
       final completer = Completer<void>();
-      final subscription = stream.listen((token) {
-        tokenCount++;
-        if (tokenCount == 3) {
-          service.cancelGeneration();
-        }
-      }, onDone: () {
-        if (!completer.isCompleted) completer.complete();
-      }, onError: (e) {
-        if (!completer.isCompleted) completer.complete();
-      });
+      final subscription = stream.listen(
+        (token) {
+          tokenCount++;
+          if (tokenCount == 3) {
+            service.cancelGeneration();
+          }
+        },
+        onDone: () {
+          if (!completer.isCompleted) completer.complete();
+        },
+        onError: (e) {
+          if (!completer.isCompleted) completer.complete();
+        },
+      );
 
-      await completer.future
-          .timeout(const Duration(seconds: 10), onTimeout: () => null);
+      await completer.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => null,
+      );
       await subscription.cancel();
 
       print('Tokens generated before cancellation (CPU): $tokenCount');
-      expect(tokenCount, lessThan(100),
-          reason: "Generation did not stop early enough");
+      expect(
+        tokenCount,
+        lessThan(100),
+        reason: "Generation did not stop early enough",
+      );
 
       // Re-init with default (GPU) for subsequent tests
       await service.init(modelFile.path);

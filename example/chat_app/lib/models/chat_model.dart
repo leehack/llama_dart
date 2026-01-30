@@ -11,11 +11,8 @@ class ChatMessage {
   final bool isUser;
   final DateTime timestamp;
 
-  ChatMessage({
-    required this.text,
-    required this.isUser,
-    DateTime? timestamp,
-  }) : timestamp = timestamp ?? DateTime.now();
+  ChatMessage({required this.text, required this.isUser, DateTime? timestamp})
+    : timestamp = timestamp ?? DateTime.now();
 }
 
 class ChatProvider extends ChangeNotifier {
@@ -129,12 +126,14 @@ class ChatProvider extends ChangeNotifier {
             return;
           }
         }
-        await _service.init(_modelPath!,
-            modelParams: ModelParams(
-              gpuLayers: 99,
-              preferredBackend: _preferredBackend,
-              contextSize: _contextSize,
-            ));
+        await _service.init(
+          _modelPath!,
+          modelParams: ModelParams(
+            gpuLayers: 99,
+            preferredBackend: _preferredBackend,
+            contextSize: _contextSize,
+          ),
+        );
       }
 
       // Fetch active backend info
@@ -157,18 +156,24 @@ class ChatProvider extends ChangeNotifier {
       final libSupported = await _service.isGpuSupported();
 
       // If library supports GPU, or we explicitly found GPU devices (excluding CPU)
-      _gpuSupported = libSupported ||
-          _availableDevices.any((d) =>
-              !d.toLowerCase().contains("cpu") &&
-              !d.toLowerCase().contains("llvm"));
+      _gpuSupported =
+          libSupported ||
+          _availableDevices.any(
+            (d) =>
+                !d.toLowerCase().contains("cpu") &&
+                !d.toLowerCase().contains("llvm"),
+          );
 
       debugPrint(
-          "GPU Support Check: Lib=$libSupported, Devices=$_availableDevices, Result=$_gpuSupported");
+        "GPU Support Check: Lib=$libSupported, Devices=$_availableDevices, Result=$_gpuSupported",
+      );
 
-      _messages.add(ChatMessage(
-        text: 'Model loaded successfully! Ready to chat.',
-        isUser: false,
-      ));
+      _messages.add(
+        ChatMessage(
+          text: 'Model loaded successfully! Ready to chat.',
+          isUser: false,
+        ),
+      );
       _isLoaded = true;
     } catch (e, stackTrace) {
       debugPrint('Error loading model: $e');
@@ -190,10 +195,12 @@ class ChatProvider extends ChangeNotifier {
     _currentTokens = 0;
     _isPruning = false;
     _isGenerating = false;
-    _messages.add(ChatMessage(
-      text: 'Conversation cleared. Ready for a new topic!',
-      isUser: false,
-    ));
+    _messages.add(
+      ChatMessage(
+        text: 'Conversation cleared. Ready for a new topic!',
+        isUser: false,
+      ),
+    );
     notifyListeners();
   }
 
@@ -204,9 +211,11 @@ class ChatProvider extends ChangeNotifier {
 
     // 1. Filter out UI placeholders
     final conversationMessages = _messages
-        .where((m) =>
-            m.text != 'Model loaded successfully! Ready to chat.' &&
-            m.text != '...')
+        .where(
+          (m) =>
+              m.text != 'Model loaded successfully! Ready to chat.' &&
+              m.text != '...',
+        )
         .toList();
 
     // 2. Tokenize and implement sliding window
@@ -308,10 +317,12 @@ class ChatProvider extends ChangeNotifier {
 
         // Remove role headers that models sometimes leak
         cleanText = cleanText.replaceFirst(
-            RegExp(
-                r'^(?:[\|\><\s]*)?(model|assistant|user|system|thought)[:\n\s]*',
-                caseSensitive: false),
-            "");
+          RegExp(
+            r'^(?:[\|\><\s]*)?(model|assistant|user|system|thought)[:\n\s]*',
+            caseSensitive: false,
+          ),
+          "",
+        );
 
         // Strip any stop sequences if they appear at the very end
         for (final stop in [
@@ -328,12 +339,17 @@ class ChatProvider extends ChangeNotifier {
 
         // Final cleanup of common hallucinated headers mid-generation
         cleanText = cleanText.replaceAll(
-            RegExp(r'\n(?:[\|\><\s]*)?(model|assistant|user|system|thought):',
-                caseSensitive: false),
-            "\n");
+          RegExp(
+            r'\n(?:[\|\><\s]*)?(model|assistant|user|system|thought):',
+            caseSensitive: false,
+          ),
+          "\n",
+        );
 
         cleanText = cleanText.replaceFirst(
-            RegExp(r'(?:\<|\||\>|im_|end_|start_)+$'), "");
+          RegExp(r'(?:\<|\||\>|im_|end_|start_)+$'),
+          "",
+        );
 
         // Update the last message
         if (_messages.length > responseMessageIndex) {
@@ -351,10 +367,7 @@ class ChatProvider extends ChangeNotifier {
         }
       }
     } catch (e) {
-      _messages.add(ChatMessage(
-        text: 'Error: $e',
-        isUser: false,
-      ));
+      _messages.add(ChatMessage(text: 'Error: $e', isUser: false));
     } finally {
       _isGenerating = false;
       notifyListeners();
@@ -378,10 +391,12 @@ class ChatProvider extends ChangeNotifier {
     _preferredBackend = backend;
     notifyListeners();
     await _saveSettings();
-    _messages.add(ChatMessage(
-      text: 'Switching backend to ${backend.name}...',
-      isUser: false,
-    ));
+    _messages.add(
+      ChatMessage(
+        text: 'Switching backend to ${backend.name}...',
+        isUser: false,
+      ),
+    );
     notifyListeners(); // Second notify for the message and starting loadModel
     await loadModel();
   }
@@ -431,7 +446,10 @@ class ChatProvider extends ChangeNotifier {
     } catch (e) {
       if (e is PlatformException) {
         throw PlatformException(
-            code: e.code, message: e.message, details: e.details);
+          code: e.code,
+          message: e.message,
+          details: e.details,
+        );
       } else {
         throw Exception('Error selecting model file: $e');
       }
@@ -477,5 +495,9 @@ class ChatProvider extends ChangeNotifier {
   void dispose() {
     _service.dispose();
     super.dispose();
+  }
+
+  Future<void> shutdown() async {
+    await _service.dispose();
   }
 }
