@@ -11,12 +11,27 @@ const _llamaCppTag = 'b7883';
 const _baseUrl =
     'https://github.com/leehack/llamadart/releases/download/$_llamaCppTag';
 
+// Magic Strings as Constants
+const _packageName = 'llamadart';
+const _libPrefix = 'libllamadart';
+const _thirdPartyDir = 'third_party';
+const _binDir = 'bin';
+const _dartToolDir = '.dart_tool';
+const _cacheBaseDir = 'llamadart';
+const _cacheBinDir = 'binaries';
+const _reportDir = 'llamadart_bin';
+
+// Extensions
+const _extDylib = 'dylib';
+const _extSo = 'so';
+const _extDll = 'dll';
+
 void main(List<String> args) async {
   Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen(
     (r) => print('${r.level.name}: ${r.time}: ${r.message}'),
   );
-  final log = Logger('llamadart_hook');
+  final log = Logger('${_packageName}_hook');
 
   await build(args, (input, output) async {
     final code = input.config.code;
@@ -25,123 +40,120 @@ void main(List<String> args) async {
     log.info('Hook Start: $os-$arch');
 
     try {
-      final preferredLinkMode = code.linkModePreference;
-      // Allow dynamic linking on all platforms if requested by the build tool.
-      // This is necessary because Flutter's build process for iOS and Android
-      // often mandates dynamic linking for native assets.
-      final bool useShared = preferredLinkMode == LinkModePreference.dynamic;
-
-      // 1. Resolve Platform Configuration
       final isSimulator =
           os == OS.iOS && code.iOS.targetSdk == IOSSdk.iPhoneSimulator;
 
-      final (relPath, archFileName) = switch ((os, arch)) {
-        (OS.windows, _) => ('windows/x64', 'libllamadart.dll'),
-        (OS.linux, Architecture.arm64) => ('linux/arm64', 'libllamadart.so'),
-        (OS.linux, Architecture.x64) => ('linux/x64', 'libllamadart.so'),
-        (OS.macOS, _) => (
-          'macos/${arch.name}',
-          useShared
-              ? 'libllamadart-macos-${arch.name}.dylib'
-              : 'libllamadart-macos-${arch.name}.a',
+      // 1. Resolve Platform Metadata
+      final (relPath, remoteFileName, extension) = switch ((os, arch)) {
+        (OS.windows, _) => (
+          'windows/x64',
+          '$_libPrefix-windows-x64.$_extDll',
+          _extDll,
+        ),
+        (OS.linux, Architecture.arm64) => (
+          'linux/arm64',
+          '$_libPrefix-linux-arm64.$_extSo',
+          _extSo,
+        ),
+        (OS.linux, Architecture.x64) => (
+          'linux/x64',
+          '$_libPrefix-linux-x64.$_extSo',
+          _extSo,
         ),
         (OS.android, Architecture.arm64) => (
           'android/arm64',
-          'libllamadart.so',
+          '$_libPrefix-android-arm64.$_extSo',
+          _extSo,
         ),
-        (OS.android, Architecture.x64) => ('android/x64', 'libllamadart.so'),
-        (OS.iOS, _) => ('ios', _getIOSFileName(isSimulator, arch, useShared)),
-        _ => (null, null),
+        (OS.android, Architecture.x64) => (
+          'android/x64',
+          '$_libPrefix-android-x64.$_extSo',
+          _extSo,
+        ),
+        (OS.macOS, _) => (
+          'macos/${arch.name}',
+          '$_libPrefix-macos-${arch == Architecture.arm64 ? "arm64" : "x86_64"}.$_extDylib',
+          _extDylib,
+        ),
+        (OS.iOS, _) => ('ios', _getIOSFileName(isSimulator, arch), _extDylib),
+        _ => (null, null, null),
       };
 
-      if (relPath == null || archFileName == null) {
+      if (relPath == null || remoteFileName == null || extension == null) {
         log.warning('Unsupported platform: $os-$arch');
         return;
       }
 
-      // 2. Hybrid Search Strategy
-      final localBinDir = path.join(
-        input.packageRoot.toFilePath(),
-        'third_party',
-        'bin',
+      // 2. Resolve Paths
+      final pkgRoot = input.packageRoot.toFilePath();
+      final localAssetPath = path.join(
+        pkgRoot,
+        _thirdPartyDir,
+        _binDir,
         relPath,
+        remoteFileName,
       );
-      final localAssetPath = path.join(localBinDir, archFileName);
-
       final cacheDir = path.join(
-        input.packageRoot.toFilePath(),
-        '.dart_tool',
-        'llamadart',
-        'binaries',
+        pkgRoot,
+        _dartToolDir,
+        _cacheBaseDir,
+        _cacheBinDir,
         relPath,
       );
-      final cacheAssetPath = path.join(cacheDir, archFileName);
+      final cacheAssetPath = path.join(cacheDir, remoteFileName);
 
+      // 3. Asset Acquisition (Local -> Cache -> Download)
       String? finalAssetPath;
-
-      if (_exists(localAssetPath)) {
+      if (File(localAssetPath).existsSync()) {
         log.info('Using local binary: $localAssetPath');
         finalAssetPath = localAssetPath;
       } else {
-        log.info('Local binary not found, ensuring cached assets...');
-        await _ensureAssets(
-          targetDir: cacheDir,
-          os: os,
-          arch: arch,
-          log: log,
-          isSimulator: isSimulator,
-          useShared: useShared,
-        );
-        if (_exists(cacheAssetPath)) {
+        if (!File(cacheAssetPath).existsSync()) {
+          log.info('Cache miss, ensuring cached assets...');
+          await _download(remoteFileName, cacheAssetPath, log);
+        }
+        if (File(cacheAssetPath).existsSync()) {
           finalAssetPath = cacheAssetPath;
         }
       }
 
       if (finalAssetPath == null) {
-        log.severe('Missing Asset: $archFileName for $os-$arch');
+        log.severe('Failed to acquire asset: $remoteFileName');
         return;
       }
 
-      // 3. Standardize Filename for Flutter/Dart
+      // 4. Standardize Filename for Flutter/Dart
       // We copy the arch-specific file to a generic name so the Asset ID and
       // Framework name (on Apple) are consistent.
-      // On Apple, we remove 'lib' prefix to avoid Flutter creating 'libllamadart.framework'.
-      final extension = useShared
-          ? (os == OS.windows
-                ? 'dll'
-                : (os == OS.macOS || os == OS.iOS ? 'dylib' : 'so'))
-          : 'a';
       final genericFileName = (os == OS.macOS || os == OS.iOS)
-          ? 'llamadart.$extension'
-          : (os == OS.windows ? 'libllamadart.dll' : 'libllamadart.$extension');
+          ? '$_packageName.$extension'
+          : (os == OS.windows
+                ? '$_libPrefix.$_extDll'
+                : '$_libPrefix.$extension');
 
       final reportDir = path.join(
         input.outputDirectory.toFilePath(),
-        'llamadart_bin',
+        _reportDir,
       );
-      if (!Directory(reportDir).existsSync()) {
-        await Directory(reportDir).create(recursive: true);
-      }
+      await Directory(reportDir).create(recursive: true);
 
       final reportedAssetPath = path.join(reportDir, genericFileName);
       await File(finalAssetPath).copy(reportedAssetPath);
 
-      // 4. MacOS/iOS Thinning (if needed)
-      if (os == OS.macOS && reportedAssetPath.endsWith('.dylib')) {
+      // MacOS/iOS Thinning (if needed)
+      if (os == OS.macOS && reportedAssetPath.endsWith('.$_extDylib')) {
         await _thinBinary(reportedAssetPath, arch, log);
       }
 
       // 5. Report Asset
       final absoluteAssetPath = path.absolute(reportedAssetPath);
-      final linkMode = useShared ? DynamicLoadingBundled() : StaticLinking();
-      log.info('Reporting: $absoluteAssetPath');
-      log.info('Link Mode: ${useShared ? "Dynamic" : "Static"}');
+      log.info('Reporting: $absoluteAssetPath (Link: Dynamic)');
 
       output.assets.code.add(
         CodeAsset(
-          package: 'llamadart',
-          name: 'llamadart',
-          linkMode: linkMode,
+          package: _packageName,
+          name: _packageName,
+          linkMode: DynamicLoadingBundled(),
           file: Uri.file(absoluteAssetPath),
         ),
       );
@@ -152,64 +164,18 @@ void main(List<String> args) async {
   });
 }
 
-String _getIOSFileName(bool isSimulator, Architecture arch, bool useShared) {
-  final ext = useShared ? 'dylib' : 'a';
-  if (arch == Architecture.x64) return 'libllamadart-ios-x86_64-sim.$ext';
-
-  if (isSimulator) {
-    return 'libllamadart-ios-arm64-sim.$ext';
+String _getIOSFileName(bool isSimulator, Architecture arch) {
+  if (arch == Architecture.x64) {
+    return '$_libPrefix-ios-x86_64-sim.$_extDylib';
   }
-  return 'libllamadart-ios-arm64.$ext';
-}
-
-bool _exists(String p) => File(p).existsSync() || Directory(p).existsSync();
-
-Future<void> _ensureAssets({
-  required String targetDir,
-  required OS os,
-  required Architecture arch,
-  required Logger log,
-  required bool isSimulator,
-  required bool useShared,
-}) async {
-  final dir = Directory(targetDir);
-  if (!dir.existsSync()) await dir.create(recursive: true);
-
-  switch (os) {
-    case OS.iOS:
-      final fileName = _getIOSFileName(isSimulator, arch, useShared);
-      await _download(fileName, path.join(targetDir, fileName), log);
-    case OS.macOS:
-      final archStr = arch == Architecture.arm64 ? 'arm64' : 'x86_64';
-      final ext = useShared ? 'dylib' : 'a';
-      await _download(
-        'libllamadart-macos-$archStr.$ext',
-        path.join(targetDir, 'libllamadart-macos-$archStr.$ext'),
-        log,
-      );
-    case OS.windows:
-      await _download(
-        'libllamadart-windows-x64.dll',
-        path.join(targetDir, 'libllamadart.dll'),
-        log,
-      );
-    case OS.linux:
-    case OS.android:
-      final osStr = os == OS.android ? 'android' : 'linux';
-      final archStr = arch == Architecture.arm64 ? 'arm64' : 'x64';
-      await _download(
-        'libllamadart-$osStr-$archStr.so',
-        path.join(targetDir, 'libllamadart.so'),
-        log,
-      );
-    default:
-      throw UnsupportedError('Unsupported OS: $os');
-  }
+  return isSimulator
+      ? '$_libPrefix-ios-arm64-sim.$_extDylib'
+      : '$_libPrefix-ios-arm64.$_extDylib';
 }
 
 Future<void> _download(String assetName, String destPath, Logger log) async {
   final file = File(destPath);
-  if (file.existsSync()) return;
+  await file.parent.create(recursive: true);
 
   final url = '$_baseUrl/$assetName';
   log.info('Downloading $url...');
@@ -217,7 +183,7 @@ Future<void> _download(String assetName, String destPath, Logger log) async {
 
   if (res.statusCode != 200) {
     // Fallback logic for name transition
-    final oldAssetName = assetName.replaceAll('llamadart', 'llama');
+    final oldAssetName = assetName.replaceAll(_packageName, 'llama');
     if (oldAssetName != assetName) {
       log.warning('Trying fallback $oldAssetName');
       final oldUrl = '$_baseUrl/$oldAssetName';
