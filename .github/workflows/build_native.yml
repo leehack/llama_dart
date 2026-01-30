@@ -51,7 +51,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: libllama_android_${{ matrix.android_abi }}
-          path: third_party/bin/android/${{ matrix.android_abi }}/libllama.so
+          path: third_party/bin/android/*/libllama.so
 
   build-apple:
     runs-on: macos-latest
@@ -80,8 +80,8 @@ jobs:
       - name: Zip iOS XCFramework
         if: matrix.target == 'ios'
         run: |
-          cd bin/apple/ios
-          zip -r ../../../llama_ios_xcframework.zip llama.xcframework
+          cd bin/ios
+          zip -r ../../llama_ios_xcframework.zip llama.xcframework
 
       - name: Upload Artifact (macOS)
         if: matrix.target == 'macos'
@@ -96,6 +96,101 @@ jobs:
         with:
           name: llama_ios_xcframework
           path: third_party/llama_ios_xcframework.zip
+
+  build-linux-x64-vulkan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: third_party
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Vulkan Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev glslc ccache
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.16
+        with:
+          key: build-linux-x64-vulkan
+
+      - name: Build Linux (x64 Vulkan)
+        run: ./build_linux.sh vulkan x64
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libllama_linux_x64
+          path: third_party/bin/linux/x64/libllama.so
+
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: third_party
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Cross-compilation Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu ccache ninja-build
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.16
+        with:
+          key: build-linux-arm64
+
+      - name: Build Linux (arm64)
+        run: ./build_linux.sh vulkan arm64
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libllama_linux_arm64
+          path: third_party/bin/linux/arm64/libllama.so
+
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: third_party
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (ccache, ninja)
+        run: choco install ccache ninja -y
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.16
+        with:
+          key: windows-vulkan
+          evict-old-files: 1d
+          save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+
+      - name: Install Vulkan SDK
+        run: |
+          $ver = "1.4.313.2"
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/$ver/windows/vulkansdk-windows-X64-$ver.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\$ver"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\$ver\Bin"
+
+      - name: Build Windows
+        run: .\build_windows.ps1 vulkan
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libllama_windows_x64
+          path: third_party/bin/windows/x64/libllama.dll
 
   release:
     needs: [build-android, build-apple, build-linux-x64-vulkan, build-linux-arm64, build-windows]
@@ -117,7 +212,6 @@ jobs:
           cp artifacts/libllama_android_arm64-v8a/libllama.so release_assets/libllama-android-arm64.so
           cp artifacts/libllama_android_x86_64/libllama.so release_assets/libllama-android-x64.so
           ls -R release_assets
-
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
