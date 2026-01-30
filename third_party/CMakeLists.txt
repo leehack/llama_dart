@@ -12,11 +12,8 @@ set(CONSOLIDATED_LIBS llama ggml ggml-base ggml-cpu ggml-vulkan ggml-blas ggml-m
 if (APPLE)
     # On Apple (iOS/macOS), we prefer STATIC libraries for Native Assets
     # This avoids code-signing and @rpath issues during development.
-    add_library(llamadart_static STATIC "llamadart_empty.cpp")
-    target_link_libraries(llamadart_static PUBLIC -Wl,-all_load llama)
-    set_target_properties(llamadart_static PROPERTIES 
-        OUTPUT_NAME llamadart
-    )
+    add_library(llamadart_lib STATIC "llamadart_empty.cpp")
+    target_link_libraries(llamadart_lib PUBLIC -Wl,-all_load llama)
 elseif (MSVC)
     # On MSVC, we want to consolidate everything into a single DLL.
     # We use $<TARGET_OBJECTS:target> to pull in all objects into one DLL.
@@ -34,12 +31,12 @@ elseif (MSVC)
         endif()
     endforeach()
 
-    add_library(llamadart_shared SHARED "llamadart_empty.cpp" ${COMBINED_OBJECTS})
-    target_link_libraries(llamadart_shared PUBLIC ${ACTIVE_LIBS})
+    add_library(llamadart_lib SHARED "llamadart_empty.cpp" ${COMBINED_OBJECTS})
+    target_link_libraries(llamadart_lib PUBLIC ${ACTIVE_LIBS})
 elseif (CMAKE_SYSTEM_NAME MATCHES "Android|Linux" OR MINGW)
-    add_library(llamadart_shared SHARED "llamadart_empty.cpp")
+    add_library(llamadart_lib SHARED "llamadart_empty.cpp")
     if (MINGW)
-        target_link_options(llamadart_shared PRIVATE -Wl,--export-all-symbols)
+        target_link_options(llamadart_lib PRIVATE -Wl,--export-all-symbols)
     endif()
 
     set(WHOLE_ARCHIVE_LIBS "")
@@ -49,14 +46,14 @@ elseif (CMAKE_SYSTEM_NAME MATCHES "Android|Linux" OR MINGW)
         endif()
     endforeach()
 
-    target_link_libraries(llamadart_shared PUBLIC -Wl,--whole-archive ${WHOLE_ARCHIVE_LIBS} -Wl,--no-whole-archive)
+    target_link_libraries(llamadart_lib PUBLIC -Wl,--whole-archive ${WHOLE_ARCHIVE_LIBS} -Wl,--no-whole-archive)
 else()
-    add_library(llamadart_shared SHARED "llamadart_empty.cpp")
-    target_link_libraries(llamadart_shared PUBLIC llama)
+    add_library(llamadart_lib SHARED "llamadart_empty.cpp")
+    target_link_libraries(llamadart_lib PUBLIC llama)
 endif()
 
-# Set the output name to 'llamadart' to avoid conflict with submodule 'llama' target on Windows
-set_target_properties(llamadart_shared PROPERTIES 
+# Set the output name to 'llamadart' consistently
+set_target_properties(llamadart_lib PROPERTIES 
     OUTPUT_NAME llamadart
     LIBRARY_OUTPUT_NAME llamadart
 )

@@ -142,7 +142,7 @@ combine_static_libraries() {
     local build_dir="$1"
     local is_simulator="$3"
     local base_dir="$(pwd)"
-    local framework_name="llamadart"
+    local framework_name="libllamadart"
 
     local output_lib="${build_dir}/${framework_name}.a"
 
@@ -192,11 +192,11 @@ combine_static_libraries "build-ios-device" "" "false"
 
 mkdir -p bin/ios
 # Device slice
-cp build-ios-device/llamadart.a bin/ios/libllamadart-ios-arm64.a
+cp build-ios-device/libllamadart.a bin/ios/libllamadart-ios-arm64.a
 
 # Simulator slices (thinning from the combined simulator lib)
-lipo build-ios-sim/llamadart.a -thin arm64 -output bin/ios/libllamadart-ios-arm64-sim.a
-lipo build-ios-sim/llamadart.a -thin x86_64 -output bin/ios/libllamadart-ios-x64-sim.a
+lipo build-ios-sim/libllamadart.a -thin arm64 -output bin/ios/libllamadart-ios-arm64-sim.a
+lipo build-ios-sim/libllamadart.a -thin x86_64 -output bin/ios/libllamadart-ios-x64-sim.a
 
 echo "Done: Individual slices created in bin/ios/"
 ls -l bin/ios/
