@@ -198,6 +198,24 @@ function Get-CMake {
     return $null
 }
 
+# Helper to find ccache
+function Get-Ccache {
+    $CcacheCmd = Get-Command "ccache" -ErrorAction SilentlyContinue
+    if ($CcacheCmd) {
+        return "ccache"
+    }
+    return $null
+}
+
+$CcacheExe = Get-Ccache
+if ($CcacheExe) {
+    Write-Host "Found ccache: $CcacheExe"
+    $CmakeArgs += "-DCMAKE_C_COMPILER_LAUNCHER=$CcacheExe"
+    $CmakeArgs += "-DCMAKE_CXX_COMPILER_LAUNCHER=$CcacheExe"
+} else {
+    Write-Warning "ccache not found. Build will not be cached."
+}
+
 $CmakeExe = Get-CMake
 if (-not $CmakeExe) {
     Write-Error "CMake not found in PATH or standard locations."
