@@ -143,9 +143,9 @@ combine_static_libraries() {
     local release_dir="$2"
     local is_simulator="$3"
     local base_dir="$(pwd)"
-    local framework_name="llama"
+    local framework_name="llamadart"
 
-    local output_lib="${build_dir}/framework/${framework_name}.framework/${framework_name}"
+    local output_lib="${build_dir}/${framework_name}.a"
 
     local libs=(
         "${base_dir}/${build_dir}/src/libllama.a"
@@ -156,56 +156,8 @@ combine_static_libraries() {
         "${base_dir}/${build_dir}/ggml/src/ggml-blas/libggml-blas.a"
     )
 
-    local temp_dir="${base_dir}/${build_dir}/temp"
-    mkdir -p "${temp_dir}"
-
-    libtool -static -o "${temp_dir}/combined.a" "${libs[@]}" 2> /dev/null
-
-    local sdk=""
-    local archs=""
-    local min_version_flag=""
-    
-    if [[ "$is_simulator" == "true" ]]; then
-        sdk="iphonesimulator"
-        archs="arm64 x86_64"
-        min_version_flag="-mios-simulator-version-min=${IOS_MIN_OS_VERSION}"
-    else
-        sdk="iphoneos"
-        archs="arm64"
-        min_version_flag="-mios-version-min=${IOS_MIN_OS_VERSION}"
-    fi
-
-    local install_name="@rpath/llama.framework/llama"
-    local arch_flags=""
-    for arch in $archs; do
-        arch_flags+=" -arch $arch"
-    done
-
-    echo "Creating dynamic library..."
-    xcrun -sdk $sdk clang++ -dynamiclib \
-        -isysroot $(xcrun --sdk $sdk --show-sdk-path) \
-        $arch_flags \
-        $min_version_flag \
-        -Wl,-force_load,"${temp_dir}/combined.a" \
-        -framework Foundation -framework Metal -framework Accelerate \
-        -install_name "$install_name" \
-        -o "${base_dir}/${output_lib}"
-
-    if [[ "$is_simulator" == "false" ]]; then
-        if command -v xcrun vtool &>/dev/null; then
-             xcrun vtool -set-build-version ios ${IOS_MIN_OS_VERSION} ${IOS_MIN_OS_VERSION} -replace \
-                -output "${base_dir}/${output_lib}" "${base_dir}/${output_lib}"
-        fi
-    fi
-
-    # dSYMs
-    mkdir -p "${base_dir}/${build_dir}/dSYMs"
-    xcrun dsymutil "${base_dir}/${output_lib}" -o "${base_dir}/${build_dir}/dSYMs/llama.dSYM"
-    cp "${base_dir}/${output_lib}" "${temp_dir}/binary_to_strip"
-    xcrun strip -S "${temp_dir}/binary_to_strip" -o "${temp_dir}/stripped_lib"
-    mv "${temp_dir}/stripped_lib" "${base_dir}/${output_lib}"
-
-    rm -rf "${temp_dir}"
+    echo "Combining static libraries into ${output_lib}..."
+    libtool -static -o "${base_dir}/${output_lib}" "${libs[@]}" 2> /dev/null
 }
 
 # 1. iOS Simulator
@@ -240,23 +192,17 @@ cmake -B build-ios-device -G Ninja \
 cmake --build build-ios-device -j 8
 
 # 3. Package
-echo "Setting up framework structures..."
-setup_framework_structure "build-ios-sim" ${IOS_MIN_OS_VERSION}
-setup_framework_structure "build-ios-device" ${IOS_MIN_OS_VERSION}
-
-echo "Creating dynamic libraries..."
+echo "Combining static libraries and creating slices..."
 combine_static_libraries "build-ios-sim" "" "true"
 combine_static_libraries "build-ios-device" "" "false"
 
-rm -rf build-apple
-mkdir -p build-apple
+mkdir -p bin/ios
+# Device slice
+cp build-ios-device/llamadart.a bin/ios/libllamadart-ios-arm64.a
 
-echo "Creating XCFramework..."
-xcodebuild -create-xcframework \
-    -framework $(pwd)/build-ios-sim/framework/llama.framework \
-    -debug-symbols $(pwd)/build-ios-sim/dSYMs/llama.dSYM \
-    -framework $(pwd)/build-ios-device/framework/llama.framework \
-    -debug-symbols $(pwd)/build-ios-device/dSYMs/llama.dSYM \
-    -output $(pwd)/build-apple/llama.xcframework
+# Simulator slices (thinning from the combined simulator lib)
+lipo build-ios-sim/llamadart.a -thin arm64 -output bin/ios/libllamadart-ios-arm64-sim.a
+lipo build-ios-sim/llamadart.a -thin x86_64 -output bin/ios/libllamadart-ios-x64-sim.a
 
-echo "Done: build-apple/llama.xcframework"
+echo "Done: Individual slices created in bin/ios/"
+ls -l bin/ios/

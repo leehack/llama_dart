@@ -49,20 +49,11 @@ if [ "$PLATFORM" == "macos" ]; then
     rm -rf "$MAC_BIN_DIR"
     mkdir -p "$MAC_BIN_DIR"
     
-    echo "Copying libraries to $MAC_BIN_DIR..."
-    # We expect only libllamadart.dylib now from our top-level CMakeLists.txt
-    # Strip debugging symbols
-    strip -x "$BUILD_DIR/libllamadart.dylib"
-    cp "$BUILD_DIR/libllamadart.dylib" "$MAC_BIN_DIR/libllama.dylib"
+    echo "Copying static library to $MAC_BIN_DIR..."
+    # We now produce libllamadart.a for static linking
+    cp "$BUILD_DIR/libllamadart.a" "$MAC_BIN_DIR/libllamadart.a"
     
-    echo "Patching dylib ID..."
-    # Set ID to @rpath/libllama.dylib so it can be found when embedded
-    install_name_tool -id "@rpath/libllama.dylib" "$MAC_BIN_DIR/libllama.dylib"
-    
-    # Verify
-    otool -L "$MAC_BIN_DIR/libllama.dylib"
-    
-    echo "macOS build complete: $MAC_BIN_DIR/libllama.dylib"
+    echo "macOS build complete: $MAC_BIN_DIR/libllamadart.a"
 
 elif [ "$PLATFORM" == "ios" ]; then
     echo "========================================"
@@ -79,11 +70,11 @@ elif [ "$PLATFORM" == "ios" ]; then
     
     # Copy/Move the result to our expected location
     mkdir -p "$OUTPUT_DIR"
-    rm -rf "$OUTPUT_DIR/llama.xcframework"
+    rm -rf "$OUTPUT_DIR/llamadart.xcframework"
     # Copy without renaming
-    cp -r "$LLAMA_CPP_DIR/build-apple/llama.xcframework" "$OUTPUT_DIR/llama.xcframework"
+    cp -r "$LLAMA_CPP_DIR/build-apple/llamadart.xcframework" "$OUTPUT_DIR/llamadart.xcframework"
     
-    echo "iOS XCFramework update complete: $OUTPUT_DIR/llama.xcframework"
+    echo "iOS XCFramework update complete: $OUTPUT_DIR/llamadart.xcframework"
 
 else
     echo "Error: Invalid platform '$PLATFORM'. Use 'macos' or 'ios'."

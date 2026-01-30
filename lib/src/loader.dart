@@ -10,16 +10,16 @@ final DynamicLibrary? llamaLib = _openLibrary();
 
 DynamicLibrary? _openLibrary() {
   try {
-    return DynamicLibrary.open('package:llamadart/llama_cpp');
+    return DynamicLibrary.open('package:llamadart/llamadart');
   } catch (_) {
     try {
       // Fallback to name-only open which works if the library was bundled
       // or is in the standard library search path.
       final libName = Platform.isWindows
-          ? 'libllama.dll'
+          ? 'libllamadart.dll'
           : Platform.isMacOS
-          ? 'libllama.dylib'
-          : 'libllama.so';
+          ? 'libllamadart.dylib'
+          : 'libllamadart.so';
       return DynamicLibrary.open(libName);
     } catch (_) {
       return null;

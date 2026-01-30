@@ -50,8 +50,8 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libllama_android_${{ matrix.android_abi }}
-          path: third_party/bin/android/*/libllama.so
+          name: libllamadart_android_${{ matrix.android_abi }}
+          path: third_party/bin/android/*/libllamadart.so
 
   build-apple:
     runs-on: macos-latest
@@ -77,25 +77,25 @@ jobs:
       - name: Build Apple Platforms
         run: ./build_apple.sh ${{ matrix.target }}
 
-      - name: Zip iOS XCFramework
+      - name: Zip iOS Slices
         if: matrix.target == 'ios'
         run: |
           cd bin/ios
-          zip -r ../../llama_ios_xcframework.zip llama.xcframework
+          zip -r ../../llamadart_ios_static.zip *.a
 
       - name: Upload Artifact (macOS)
         if: matrix.target == 'macos'
         uses: actions/upload-artifact@v4
         with:
-          name: libllama_macos
-          path: third_party/bin/macos/*/libllama.dylib
+          name: libllamadart_macos
+          path: third_party/bin/macos/*/libllamadart.a
 
       - name: Upload Artifact (iOS)
         if: matrix.target == 'ios'
         uses: actions/upload-artifact@v4
         with:
-          name: llama_ios_xcframework
-          path: third_party/llama_ios_xcframework.zip
+          name: llamadart_ios_static
+          path: third_party/llamadart_ios_static.zip
 
   build-linux-x64-vulkan:
     runs-on: ubuntu-latest
@@ -123,8 +123,8 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libllama_linux_x64
-          path: third_party/bin/linux/x64/libllama.so
+          name: libllamadart_linux_x64
+          path: third_party/bin/linux/x64/libllamadart.so
 
   build-linux-arm64:
     runs-on: ubuntu-latest
@@ -152,8 +152,8 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libllama_linux_arm64
-          path: third_party/bin/linux/arm64/libllama.so
+          name: libllamadart_linux_arm64
+          path: third_party/bin/linux/arm64/libllamadart.so
 
   build-windows:
     runs-on: windows-latest
@@ -189,8 +189,8 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libllama_windows_x64
-          path: third_party/bin/windows/x64/libllama.dll
+          name: libllamadart_windows_x64
+          path: third_party/bin/windows/x64/libllamadart.dll
 
   release:
     needs: [build-android, build-apple, build-linux-x64-vulkan, build-linux-arm64, build-windows]
@@ -204,13 +204,13 @@ jobs:
       - name: Prepare Assets
         run: |
           mkdir -p release_assets
-          cp artifacts/libllama_windows_x64/libllama.dll release_assets/libllama-windows-x64.dll
-          cp artifacts/libllama_linux_x64/libllama.so release_assets/libllama-linux-x64.so
-          cp artifacts/libllama_linux_arm64/libllama.so release_assets/libllama-linux-arm64.so
-          find artifacts/libllama_macos -name "libllama.dylib" -exec cp {} release_assets/libllama-macos.dylib \;
-          cp artifacts/llama_ios_xcframework/llama_ios_xcframework.zip release_assets/llama-ios-xcframework.zip
-          cp artifacts/libllama_android_arm64-v8a/libllama.so release_assets/libllama-android-arm64.so
-          cp artifacts/libllama_android_x86_64/libllama.so release_assets/libllama-android-x64.so
+          cp artifacts/libllamadart_windows_x64/libllamadart.dll release_assets/libllamadart-windows-x64.dll
+          cp artifacts/libllamadart_linux_x64/libllamadart.so release_assets/libllamadart-linux-x64.so
+          cp artifacts/libllamadart_linux_arm64/libllamadart.so release_assets/libllamadart-linux-arm64.so
+          find artifacts/libllamadart_macos -name "*.a" -exec cp {} release_assets/libllamadart-macos.a \;
+          cp artifacts/llamadart_ios_static/llamadart_ios_static.zip release_assets/llamadart-ios-xcframework.zip
+          cp artifacts/libllamadart_android_arm64-v8a/libllamadart.so release_assets/libllamadart-android-arm64.so
+          cp artifacts/libllamadart_android_x86_64/libllamadart.so release_assets/libllamadart-android-x64.so
           ls -R release_assets
 
       - name: Create Release

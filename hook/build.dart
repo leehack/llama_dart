@@ -27,13 +27,16 @@ void main(List<String> args) async {
     try {
       // 1. Resolve Platform Configuration
       final (relPath, fileName) = switch ((os, arch)) {
-        (OS.windows, _) => ('windows/x64', 'libllama.dll'),
-        (OS.linux, Architecture.arm64) => ('linux/arm64', 'libllama.so'),
-        (OS.linux, Architecture.x64) => ('linux/x64', 'libllama.so'),
-        (OS.macOS, _) => ('macos/${arch.name}', 'libllama.dylib'),
-        (OS.android, Architecture.arm64) => ('android/arm64', 'libllama.so'),
-        (OS.android, Architecture.x64) => ('android/x64', 'libllama.so'),
-        (OS.iOS, _) => ('ios', 'llama.xcframework'),
+        (OS.windows, _) => ('windows/x64', 'libllamadart.dll'),
+        (OS.linux, Architecture.arm64) => ('linux/arm64', 'libllamadart.so'),
+        (OS.linux, Architecture.x64) => ('linux/x64', 'libllamadart.so'),
+        (OS.macOS, _) => ('macos/${arch.name}', 'libllamadart.a'),
+        (OS.android, Architecture.arm64) => (
+          'android/arm64',
+          'libllamadart.so',
+        ),
+        (OS.android, Architecture.x64) => ('android/x64', 'libllamadart.so'),
+        (OS.iOS, _) => ('ios', _getIOSFileName(input.config, arch)),
         _ => (null, null),
       };
 
@@ -43,7 +46,6 @@ void main(List<String> args) async {
       }
 
       // 2. Hybrid Search Strategy
-      // Path A: Local Build Output (Developer mode)
       final localBinDir = path.join(
         input.packageRoot.toFilePath(),
         'third_party',
@@ -52,7 +54,6 @@ void main(List<String> args) async {
       );
       final localAssetPath = path.join(localBinDir, fileName);
 
-      // Path B: Download Cache (User mode)
       final cacheDir = path.join(
         input.packageRoot.toFilePath(),
         '.dart_tool',
@@ -69,7 +70,13 @@ void main(List<String> args) async {
         finalAssetPath = localAssetPath;
       } else {
         log.info('Local binary not found, ensuring cached assets...');
-        await _ensureAssets(targetDir: cacheDir, os: os, arch: arch, log: log);
+        await _ensureAssets(
+          targetDir: cacheDir,
+          os: os,
+          arch: arch,
+          log: log,
+          config: input.config,
+        );
         if (_exists(cacheAssetPath)) {
           finalAssetPath = cacheAssetPath;
         }
@@ -80,7 +87,7 @@ void main(List<String> args) async {
         return;
       }
 
-      // 3. MacOS Thinning (only if it's a dylib and we downloaded a fat one)
+      // 3. MacOS Thinning
       if (os == OS.macOS && finalAssetPath.endsWith('.dylib')) {
         await _thinBinary(finalAssetPath, arch, log);
       }
@@ -92,12 +99,11 @@ void main(List<String> args) async {
       output.assets.code.add(
         CodeAsset(
           package: 'llamadart',
-          name: 'llama_cpp',
-          linkMode: DynamicLoadingBundled(),
-          // For iOS/macOS frameworks, providing the directory is preferred
-          file: os == OS.iOS
-              ? Uri.directory(absoluteAssetPath)
-              : Uri.file(absoluteAssetPath),
+          name: 'llamadart',
+          linkMode: (os == OS.iOS || os == OS.macOS)
+              ? StaticLinking()
+              : DynamicLoadingBundled(),
+          file: Uri.file(absoluteAssetPath),
         ),
       );
     } catch (e, st) {
@@ -107,6 +113,20 @@ void main(List<String> args) async {
   });
 }
 
+String _getIOSFileName(BuildConfig config, Architecture arch) {
+  // Use a string check on the target to detect simulator vs device
+  // Standard targets are 'ios_arm64', 'ios_arm64_simulator', 'ios_x64_simulator'
+  final target = config.code.targetOS.toString().toLowerCase();
+
+  if (arch == Architecture.x64) return 'libllamadart-ios-x64-sim.a';
+
+  // For arm64, it could be both. We check if the config string contains 'simulator'
+  if (config.toString().toLowerCase().contains('simulator')) {
+    return 'libllamadart-ios-arm64-sim.a';
+  }
+  return 'libllamadart-ios-arm64.a';
+}
+
 bool _exists(String p) => File(p).existsSync() || Directory(p).existsSync();
 
 Future<void> _ensureAssets({
@@ -114,23 +134,25 @@ Future<void> _ensureAssets({
   required OS os,
   required Architecture arch,
   required Logger log,
+  required BuildConfig config,
 }) async {
   final dir = Directory(targetDir);
   if (!dir.existsSync()) await dir.create(recursive: true);
 
   switch (os) {
     case OS.iOS:
-      await _setupIOS(targetDir, log);
+      final fileName = _getIOSFileName(config, arch);
+      await _download(fileName, path.join(targetDir, fileName), log);
     case OS.macOS:
       await _download(
-        'libllama-macos.dylib',
-        path.join(targetDir, 'libllama.dylib'),
+        'libllamadart-macos.a',
+        path.join(targetDir, 'libllamadart.a'),
         log,
       );
     case OS.windows:
       await _download(
-        'libllama-windows-x64.dll',
-        path.join(targetDir, 'libllama.dll'),
+        'libllamadart-windows-x64.dll',
+        path.join(targetDir, 'libllamadart.dll'),
         log,
       );
     case OS.linux:
@@ -138,8 +160,8 @@ Future<void> _ensureAssets({
       final osStr = os == OS.android ? 'android' : 'linux';
       final archStr = arch == Architecture.arm64 ? 'arm64' : 'x64';
       await _download(
-        'libllama-$osStr-$archStr.so',
-        path.join(targetDir, 'libllama.so'),
+        'libllamadart-$osStr-$archStr.so',
+        path.join(targetDir, 'libllamadart.so'),
         log,
       );
     default:
@@ -156,26 +178,21 @@ Future<void> _download(String assetName, String destPath, Logger log) async {
   final res = await http.get(Uri.parse(url));
 
   if (res.statusCode != 200) {
+    // Fallback logic for name transition
+    final oldAssetName = assetName.replaceAll('llamadart', 'llama');
+    if (oldAssetName != assetName) {
+      log.warning('Trying fallback $oldAssetName');
+      final oldUrl = '$_baseUrl/$oldAssetName';
+      final oldRes = await http.get(Uri.parse(oldUrl));
+      if (oldRes.statusCode == 200) {
+        await file.writeAsBytes(oldRes.bodyBytes);
+        return;
+      }
+    }
     throw Exception('Failed to download $url (${res.statusCode})');
   }
   await file.writeAsBytes(res.bodyBytes);
   log.info('Saved to $destPath');
-}
-
-Future<void> _setupIOS(String targetDir, Logger log) async {
-  final frameworkPath = path.join(targetDir, 'llama.xcframework');
-  if (Directory(frameworkPath).existsSync()) return;
-
-  final zipName = 'llama-ios-xcframework.zip';
-  final zipPath = path.join(targetDir, zipName);
-
-  await _download(zipName, zipPath, log);
-
-  log.info('Extracting $zipName...');
-  final result = await Process.run('unzip', ['-o', zipPath, '-d', targetDir]);
-  if (result.exitCode != 0) throw Exception('Unzip failed: ${result.stderr}');
-
-  if (File(zipPath).existsSync()) await File(zipPath).delete();
 }
 
 Future<void> _thinBinary(

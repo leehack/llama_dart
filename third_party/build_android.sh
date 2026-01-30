@@ -151,9 +151,9 @@ for ABI in "${ABIS[@]}"; do
     mkdir -p "$JNI_LIBS_DIR"
 
     echo "Copying libraries to $JNI_LIBS_DIR (cleaning leftovers)..."
-    # Copy our consolidated library and rename to libllama.so
-    cp -L "$BUILD_DIR/libllamadart.so" "$JNI_LIBS_DIR/libllama.so" 2>/dev/null || \
-    find "$BUILD_DIR" -name "libllamadart.so" -exec cp -L {} "$JNI_LIBS_DIR/libllama.so" \;
+    # Copy our consolidated library
+    cp -L "$BUILD_DIR/libllamadart.so" "$JNI_LIBS_DIR/libllamadart.so" 2>/dev/null || \
+    find "$BUILD_DIR" -name "libllamadart.so" -exec cp -L {} "$JNI_LIBS_DIR/libllamadart.so" \;
 
     echo "Android build complete: $ABI binaries in $JNI_LIBS_DIR"
 done

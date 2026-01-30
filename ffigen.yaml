@@ -22,4 +22,4 @@ comments:
   length: full
 silence-enum-warning: true
 ffi-native:
-  asset-id: 'package:llamadart/llama_cpp'
+  asset-id: 'package:llamadart/llamadart'

@@ -221,17 +221,17 @@ if (Test-Path $LibDir) {
 New-Item -Path $LibDir -ItemType Directory -Force
 
 Write-Host "Copying libraries to $LibDir (cleaning leftovers)..."
-# Renaming logic: Rename 'llama.dll' to 'libllama.dll', keep others as is
+# Copy dlls
 Get-ChildItem -Path $BuildDir -Filter *.dll -Recurse | ForEach-Object {
     $Name = $_.Name
-    $DestName = if ($Name -eq "llamadart.dll") { "libllama.dll" } else { $Name }
+    $DestName = if ($Name -eq "llamadart.dll") { "libllamadart.dll" } else { $Name }
     $DestPath = Join-Path $LibDir $DestName
     
-    # Avoid copying the same file multiple times if it appears in different subfolders
+    # Avoid copying the same file multiple times
     if (-not (Test-Path $DestPath)) {
         Copy-Item -Path $_.FullName -Destination $DestPath -Force
         Write-Host "Copied $Name to $DestPath"
     }
 }
 
-Write-Host "Windows build complete: $LibDir\libllama.dll"
+Write-Host "Windows build complete: $LibDir\libllamadart.dll"

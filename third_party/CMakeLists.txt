@@ -10,8 +10,13 @@ add_subdirectory(llama_cpp)
 set(CONSOLIDATED_LIBS llama ggml ggml-base ggml-cpu ggml-vulkan ggml-blas ggml-metal ggml-cuda)
 
 if (APPLE)
-    add_library(llamadart_shared SHARED "llamadart_empty.cpp")
-    target_link_libraries(llamadart_shared PUBLIC -Wl,-all_load llama)
+    # On Apple (iOS/macOS), we prefer STATIC libraries for Native Assets
+    # This avoids code-signing and @rpath issues during development.
+    add_library(llamadart_static STATIC "llamadart_empty.cpp")
+    target_link_libraries(llamadart_static PUBLIC -Wl,-all_load llama)
+    set_target_properties(llamadart_static PROPERTIES 
+        OUTPUT_NAME llamadart
+    )
 elseif (MSVC)
     # On MSVC, we want to consolidate everything into a single DLL.
     # We use $<TARGET_OBJECTS:target> to pull in all objects into one DLL.

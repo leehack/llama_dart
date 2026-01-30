@@ -27,7 +27,7 @@ The project maps closely to the `llama.cpp` structure:
 
 This project follows a **Zero-Patch Strategy** for external submodules (like `llama.cpp` and `Vulkan-Headers`):
 
-*   **No Direct Modifications**: We never modify the source code inside `third_party/llama_cpp`.
+*   **No Direct Modifications**: We never modify the source code inside `third_party/llamadart`.
 *   **Upgradability**: This allows us to update the core engine by simply bumping the submodule pointer.
 *   **Wrappers & Hooks**: Any necessary changes should be implemented in `third_party/CMakeLists.txt` or through compiler flags in the build scripts.
 
@@ -46,7 +46,7 @@ When a user adds `llamadart` as a dependency and runs their app:
 - The **`hook/build.dart`** script executes automatically.
 - It detects the user's current target OS and architecture.
 - It downloads the matching pre-compiled binary from the GitHub Release corresponding to the package version.
-- It reports the binary to the Dart VM as a **`CodeAsset`** with the ID `package:llamadart/llama_cpp`.
+- It reports the binary to the Dart VM as a **`CodeAsset`** with the ID `package:llamadart/llamadart`.
 
 ### 3. Runtime Resolution (FFI)
 - The library uses **`@Native`** top-level bindings in `lib/src/generated/llama_bindings.dart`.

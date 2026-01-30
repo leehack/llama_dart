@@ -70,8 +70,8 @@ rm -rf "$LIB_DIR"
 mkdir -p "$LIB_DIR"
 
 echo "Copying libraries to $LIB_DIR (cleaning leftovers)..."
-# Copy our consolidated library and rename to libllama.so
-cp -L "$BUILD_DIR/libllamadart.so" "$LIB_DIR/libllama.so" 2>/dev/null || \
-find "$BUILD_DIR" -name "libllamadart.so" -exec cp -L {} "$LIB_DIR/libllama.so" \;
+# Copy our consolidated library
+cp -L "$BUILD_DIR/libllamadart.so" "$LIB_DIR/libllamadart.so" 2>/dev/null || \
+find "$BUILD_DIR" -name "libllamadart.so" -exec cp -L {} "$LIB_DIR/libllamadart.so" \;
 
 echo "Linux build complete for $TARGET_ARCH: $LIB_DIR"
