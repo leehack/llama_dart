@@ -1,10 +1,12 @@
 name: Build Native Binaries
 
 on:
-  push:
-    tags:
-      - 'b*'
   workflow_dispatch:
+    inputs:
+      llama_cpp_tag:
+        description: 'llama.cpp tag to build (e.g., b7883)'
+        required: true
+        default: 'b7883'
 
 permissions:
   contents: write
@@ -24,8 +26,11 @@ jobs:
         working-directory: third_party
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Fetch Dependencies
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.llama_cpp_tag }} https://github.com/ggml-org/llama.cpp.git llama_cpp
+          git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -63,8 +68,11 @@ jobs:
         working-directory: third_party
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Fetch Dependencies
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.llama_cpp_tag }} https://github.com/ggml-org/llama.cpp.git llama_cpp
+          git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
 
       - name: Install dependencies
         run: brew install ccache
@@ -94,8 +102,11 @@ jobs:
         working-directory: third_party
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Fetch Dependencies
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.llama_cpp_tag }} https://github.com/ggml-org/llama.cpp.git llama_cpp
+          git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
 
       - name: Install Vulkan Dependencies
         run: |
@@ -123,8 +134,11 @@ jobs:
         working-directory: third_party
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Fetch Dependencies
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.llama_cpp_tag }} https://github.com/ggml-org/llama.cpp.git llama_cpp
+          git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
 
       - name: Install Cross-compilation Tools
         run: |
@@ -152,8 +166,11 @@ jobs:
         working-directory: third_party
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Fetch Dependencies
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.llama_cpp_tag }} https://github.com/ggml-org/llama.cpp.git llama_cpp
+          git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
 
       - name: Install dependencies (ccache, ninja)
         run: choco install ccache ninja -y
@@ -185,7 +202,6 @@ jobs:
   release:
     needs: [build-android, build-apple, build-linux-x64-vulkan, build-linux-arm64, build-windows]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -219,6 +235,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.llama_cpp_tag }}
           files: release_assets/*
           draft: true
           prerelease: false
