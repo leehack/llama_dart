@@ -12,7 +12,7 @@ class LlamaCliService {
       modelPath,
       modelParams: const ModelParams(
         gpuLayers: 99,
-        logLevel: LlamaLogLevel.warn,
+        logLevel: LlamaLogLevel.error,
       ),
     );
   }

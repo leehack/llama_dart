@@ -16,7 +16,7 @@ class ChatSettings {
     this.topK = 40,
     this.topP = 0.9,
     this.contextSize = 0,
-    this.logLevel = LlamaLogLevel.warn,
+    this.logLevel = LlamaLogLevel.error,
   });
 
   ChatSettings copyWith({

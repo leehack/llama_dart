@@ -173,7 +173,7 @@ class LlamaService implements LlamaServiceBase {
     try {
       return NativeHelpers.getAvailableDevices();
     } catch (e) {
-      print("Error listing devices: $e");
+      _log("Error listing devices: $e", level: LlamaLogLevel.error);
       return [];
     }
   }
@@ -221,15 +221,15 @@ class LlamaService implements LlamaServiceBase {
     final file = File('${tempDir.path}/$filename');
 
     if (!file.existsSync()) {
-      print('Downloading model from $modelUrl to ${file.path}...');
+      _log('Downloading model from $modelUrl to ${file.path}...');
       final response = await http.get(uri);
       if (response.statusCode != 200) {
         throw Exception('Failed to download model: ${response.statusCode}');
       }
       await file.writeAsBytes(response.bodyBytes);
-      print('Download complete.');
+      _log('Download complete.');
     } else {
-      print('Using cached model at ${file.path}');
+      _log('Using cached model at ${file.path}');
     }
 
     await init(file.path, modelParams: modelParams);
@@ -979,8 +979,8 @@ class LlamaService implements LlamaServiceBase {
 
       message.sendPort.send(_DoneResponse());
     } catch (e, stack) {
-      _log("Isolate: Error during generate: $e");
-      print(stack);
+      _log("Isolate: Error during generate: $e", level: LlamaLogLevel.error);
+      _log(stack.toString(), level: LlamaLogLevel.error);
       message.sendPort.send(_ErrorResponse(e.toString()));
     } finally {
       malloc.free(tokensPtr);
@@ -1162,7 +1162,7 @@ class LlamaService implements LlamaServiceBase {
       if (tmplRes >= 0) {
         tmplPtr = tmplBuf;
         final templateStr = tmplBuf.cast<Utf8>().toDartString();
-        print(
+        _log(
           "Isolate: Using template from metadata (length: ${templateStr.length})",
         );
       } else {
@@ -1171,7 +1171,7 @@ class LlamaService implements LlamaServiceBase {
 
       _log("Isolate: Applying template to $nMsgs messages:");
       for (int i = 0; i < nMsgs; i++) {
-        print(
+        _log(
           "  [$i] role: ${message.messages[i].role}, content length: ${message.messages[i].content.length}",
         );
       }
