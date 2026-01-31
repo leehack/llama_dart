@@ -94,13 +94,14 @@ example/
 
 ## Platform Compatibility
 
-| Platform | Basic App | Chat App | Notes |
-|----------|-----------|----------|-------|
-| macOS    | ✅        | ✅       | Fully tested |
-| Linux    | ✅        | ✅       | Fully tested |
-| Windows  | 🟡        | 🟡       | Expected to work |
-| Android  | N/A       | ✅       | Fully supported |
-| iOS      | N/A       | ✅       | Fully supported |
+| Platform | Architecture(s) | GPU Backend | Status |
+|----------|-----------------|-------------|--------|
+| **macOS** | arm64, x86_64 | Metal | ✅ Tested |
+| **iOS** | arm64 (Device), x86_64 (Sim) | Metal (Device), CPU (Sim) | ✅ Tested |
+| **Android** | arm64-v8a, x86_64 | Vulkan | ✅ Tested |
+| **Linux** | arm64, x86_64 | Vulkan | ✅ Tested |
+| **Windows** | x64 | Vulkan | ✅ Tested |
+| **Web** | WASM | CPU | ✅ Tested |
 
 ## Troubleshooting
 
