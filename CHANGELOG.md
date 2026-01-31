@@ -1,3 +1,13 @@
+## 0.3.1
+
+*   **Logging Control**: Implemented comprehensive logging interception for both `llama` and `ggml` backends. Added `LlamaLogLevel` configuration to `ModelParams` to suppress verbose engine output.
+*   **Performance Optimization**: Added token caching to message processing, significantly reducing latency when building prompts from long conversation histories.
+*   **Architecture Overhaul**: 
+    *   Refactored the Flutter Chat Example into a clean, layered architecture (Models, Services, Providers, Widgets).
+    *   Rebuilt the CLI Basic Example into a robust conversation tool with interactive and single-response modes.
+*   **UI Improvements**: Added fine-grained rebuilds using Selectors and isolated painting with RepaintBoundaries for smoother streaming performance.
+*   **Model Management**: Enhanced the chat example with background model downloads and persistent configuration.
+
 ## 0.3.0+b7883
 
 *   **Version Alignment**: Aligned package versioning and binary distribution with `llama.cpp` release tags (starting with `b7883`).

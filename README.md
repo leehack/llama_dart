@@ -16,6 +16,7 @@
   - **Android/Linux/Windows**: Vulkan
 - 🌐 **Web Support**: Run inference in the browser via WASM (powered by `wllama`).
 - 💎 **Dart-First API**: Streamlined FFI bindings with a clean, isolate-safe Dart interface.
+- 🔇 **Logging Control**: Granular control over native engine output (debug, info, warn, error, none).
 
 ---
 
@@ -40,7 +41,7 @@ Add `llamadart` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  llamadart: ^0.3.0
+  llamadart: ^0.3.1
 ```
 
 ### 2. Zero Setup (Native Assets)
