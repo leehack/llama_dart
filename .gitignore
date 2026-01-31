@@ -74,3 +74,7 @@ compile_commands.json
 
 build-*/
 third_party/bin/
+
+# Exclude submodules source when cloned locally
+third_party/llama_cpp/
+third_party/Vulkan-Headers/

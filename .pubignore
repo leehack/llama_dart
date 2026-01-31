@@ -1,4 +1,4 @@
-# Exclude large development sources and submodules
+# Exclude development sources and external headers
 third_party/
 .git/
 .github/
