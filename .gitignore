@@ -75,6 +75,8 @@ compile_commands.json
 # build outputs
 build-*/
 third_party/bin/
+artifacts/
+release_assets/
 
 # Exclude submodules source
 third_party/llama_cpp/

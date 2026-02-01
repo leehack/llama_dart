@@ -383,3 +383,6 @@ jobs:
             - Verified on Desktop and Mobile.
           branch: automation/llama-cpp-${{ needs.codegen.outputs.tag }}
           labels: automation/llama-cpp
+          add-paths: |
+            lib/src/generated/llama_bindings.dart
+            hook/build.dart
