@@ -354,12 +354,8 @@ jobs:
           api-level: 29
           arch: x86_64
           target: default
-          script: |
-            cd example/chat_app
-            flutter pub get
-            mkdir -p models
-            curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf
-            flutter test integration_test/smoke_test.dart
+          emulator-boot-timeout: 600
+          script: cd example/chat_app && flutter pub get && mkdir -p models && curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf && flutter test integration_test/smoke_test.dart --target-platform android-x64 --no-pub
 
   test-ios:
     needs: [build-apple, codegen]
@@ -407,7 +403,7 @@ jobs:
           fi
           echo "Booting simulator $ID"
           xcrun simctl boot "$ID" || true
-          flutter test integration_test/smoke_test.dart -d "$ID"
+          flutter test integration_test/smoke_test.dart -d "$ID" --no-pub
 
   # ---------------------------------------------------------------------------
   # Stage D: Release & PR
