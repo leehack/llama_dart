@@ -350,10 +350,11 @@ jobs:
       - name: Run Android Integration Test
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 31
+          api-level: 34
           arch: arm64-v8a
           target: google_apis
-          emulator-boot-timeout: 600
+          emulator-boot-timeout: 1200
+          disable-animations: true
           script: cd example/chat_app && flutter pub get && mkdir -p models && curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf && flutter test integration_test/smoke_test.dart --target-platform android-arm64 --no-pub
 
   test-ios:
