@@ -223,7 +223,7 @@ jobs:
             hook/build.dart
 
   # ---------------------------------------------------------------------------
-  # Stage C: Verification (Desktop Gatekeepers)
+  # Stage C: Verification (Robust Gatekeepers)
   # ---------------------------------------------------------------------------
   test-desktop:
     needs: [build-linux, build-apple, build-windows, codegen]
@@ -267,7 +267,6 @@ jobs:
           # macOS
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             ARCH=$(uname -m)
-            # Standardize arch name for hook (x86_64 -> x64)
             HOOK_ARCH=$ARCH
             if [ "$ARCH" == "x86_64" ]; then HOOK_ARCH="x64"; fi
             
@@ -290,12 +289,12 @@ jobs:
           if [ ! -f "models/stories15M.gguf" ]; then
             curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf
           fi
-          # Run the smoke test with increased timeout
           dart test --timeout 5m test/inference_smoke_test.dart
 
   test-android:
     needs: [build-android, codegen]
-    runs-on: ubuntu-latest
+    # Use macOS for Android tests to get hardware acceleration (HAXM)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - name: Setup Flutter
@@ -317,13 +316,6 @@ jobs:
           mkdir -p third_party/bin/android/x64
           find artifacts/libllamadart_android_arm64-v8a -name "libllamadart.so" -exec cp {} third_party/bin/android/arm64/libllamadart-android-arm64.so \;
           find artifacts/libllamadart_android_x86_64 -name "libllamadart.so" -exec cp {} third_party/bin/android/x64/libllamadart-android-x64.so \;
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-      - name: Setup Android NDK
-        uses: android-actions/setup-android@v3
       - name: Run Android Integration Test
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -371,7 +363,6 @@ jobs:
           echo "Booting simulator $ID"
           xcrun simctl boot "$ID" || true
           flutter test integration_test/smoke_test.dart -d "$ID"
-
 
   # ---------------------------------------------------------------------------
   # Stage D: Release & PR
