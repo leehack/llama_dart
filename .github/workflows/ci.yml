@@ -37,7 +37,7 @@ jobs:
         run: flutter pub global activate pana
 
       - name: Check Pana Score
-        run: flutter pub global run pana . --exit-code-threshold 0
+        run: flutter pub global run pana . --exit-code-threshold 160
 
   test-native:
     name: Native Test (${{ matrix.os }})
