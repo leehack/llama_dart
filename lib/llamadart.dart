@@ -14,6 +14,7 @@ export 'src/models/lora_adapter_config.dart';
 export 'src/engine/llama_engine.dart';
 export 'src/engine/llama_tokenizer.dart';
 export 'src/engine/chat_template_processor.dart';
+export 'src/engine/chat_session.dart';
 
 // Backends - hide createBackend to avoid conflict with factory export
 export 'src/backend/llama_backend_interface.dart';

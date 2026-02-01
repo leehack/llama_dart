@@ -1,10 +1,14 @@
 import 'package:llamadart/llamadart.dart';
-import '../models.dart';
 
 /// Service for interacting with the Llama engine in a CLI environment.
 class LlamaCliService {
   final LlamaEngine _engine = LlamaEngine(NativeLlamaBackend());
-  final List<CliMessage> _history = [];
+  late final ChatSession _session;
+
+  /// Creates a new [LlamaCliService].
+  LlamaCliService() {
+    _session = ChatSession(_engine);
+  }
 
   /// Initializes the engine with the given [modelPath].
   Future<void> init(
@@ -28,40 +32,12 @@ class LlamaCliService {
 
   /// Sends a message and returns the full response.
   Future<String> chat(String text) async {
-    _history.add(CliMessage(text: text, role: CliRole.user));
-
-    final messages = _getChatHistory();
-    String response = "";
-
-    await for (final token in _engine.chat(messages)) {
-      response += token;
-    }
-
-    final cleanResponse = response.trim();
-    _history.add(CliMessage(text: cleanResponse, role: CliRole.assistant));
-    return cleanResponse;
+    return _session.chatText(text);
   }
 
   /// Sends a message and returns a stream of tokens.
-  Stream<String> chatStream(String text) async* {
-    _history.add(CliMessage(text: text, role: CliRole.user));
-
-    final messages = _getChatHistory();
-
-    await for (final token in _engine.chat(messages)) {
-      yield token;
-    }
-
-    // Note: In a real app we'd need to collect and save the full response to history here too.
-  }
-
-  List<LlamaChatMessage> _getChatHistory() {
-    return _history
-        .map((m) => LlamaChatMessage(
-              role: m.role == CliRole.user ? 'user' : 'assistant',
-              content: m.text,
-            ))
-        .toList();
+  Stream<String> chatStream(String text) {
+    return _session.chat(text);
   }
 
   /// Disposes the underlying engine resources.
