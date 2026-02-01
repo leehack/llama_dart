@@ -351,10 +351,10 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 31
-          arch: x86_64
-          target: default
+          arch: arm64-v8a
+          target: google_apis
           emulator-boot-timeout: 600
-          script: cd example/chat_app && flutter pub get && mkdir -p models && curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf && flutter test integration_test/smoke_test.dart --target-platform android-x64 --no-pub
+          script: cd example/chat_app && flutter pub get && mkdir -p models && curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf && flutter test integration_test/smoke_test.dart --target-platform android-arm64 --no-pub
 
   test-ios:
     needs: [build-apple, codegen]
