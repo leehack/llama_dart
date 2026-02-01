@@ -340,13 +340,12 @@ jobs:
           api-level: 29
           arch: x86_64
           target: default
-          profile: Pixel_3a
           script: |
+            cd example/chat_app
             flutter pub get
             # Download model
             mkdir -p models
             curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf
-            # Integration tests are now in integration_test/
             flutter test integration_test/smoke_test.dart
 
   test-ios:
@@ -374,12 +373,12 @@ jobs:
           find artifacts/libllamadart_apple_ios-sim-x86_64 -name "libllamadart-ios-x86_64-sim.dylib" -exec cp {} third_party/bin/ios/libllamadart-ios-x86_64-sim.dylib \;
       - name: Run iOS Integration Test
         run: |
+          cd example/chat_app
           flutter pub get
           # Download model
           mkdir -p models
           curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf
           # Start a standard simulator
-          # We pick the first available iPhone simulator
           ID=$(xcrun simctl list devices iPhone available --json | jq -r '.devices[] | .[] | .udid' | head -n 1)
           if [ -z "$ID" ]; then
             echo "No available iPhone simulator found!"
