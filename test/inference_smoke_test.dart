@@ -1,3 +1,4 @@
+@Timeout(Duration(minutes: 5))
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:ffi/ffi.dart';
@@ -31,6 +32,9 @@ void main() {
         if (!modelFile.existsSync()) {
           print('Downloading tiny model for inference test...');
           final response = await http.get(Uri.parse(modelUrl));
+          if (response.statusCode != 200) {
+            fail('Failed to download model: ${response.statusCode}');
+          }
           await modelFile.writeAsBytes(response.bodyBytes);
           print('Model downloaded to $modelPath');
         }
@@ -44,16 +48,14 @@ void main() {
         expect(engine.isReady, isTrue);
         print('Model loaded successfully.');
 
-        print('Running 1-token generation check...');
+        print('Running 5-token generation check...');
         final stream = engine.generate(
           'Hello',
-          params: const GenerationParams(
-            maxTokens: 5,
-          ), // Increased to 5 for better check
+          params: const GenerationParams(maxTokens: 5),
         );
 
         final tokens = <String>[];
-        await for (final token in stream) {
+        await for (final token in stream.timeout(const Duration(seconds: 60))) {
           print('Token received: "$token"');
           tokens.add(token);
         }
