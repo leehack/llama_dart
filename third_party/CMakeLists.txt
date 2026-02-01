@@ -8,20 +8,27 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
 
 # Add llama.cpp as a subdirectory
-add_subdirectory(llama_cpp)
+set(LLAMA_BUILD_COMMON OFF CACHE BOOL "Build llama.cpp common library" FORCE)
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Build llama.cpp tests" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Build llama.cpp examples" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Build llama.cpp server" FORCE)
+set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "Build llama.cpp tools" FORCE)
 
-set(CONSOLIDATED_LIBS llama ggml ggml-base ggml-cpu ggml-vulkan ggml-blas ggml-metal ggml-cuda)
+add_subdirectory(llama_cpp)
+add_subdirectory(llama_cpp/tools/mtmd EXCLUDE_FROM_ALL)
+
+set(CONSOLIDATED_LIBS llama ggml ggml-base ggml-cpu ggml-vulkan ggml-blas ggml-metal ggml-cuda mtmd)
 
 if (APPLE)
     # Support both STATIC and SHARED for Apple platforms
     if (LLAMADART_SHARED)
         add_library(llamadart_lib SHARED "llamadart_empty.cpp")
         # Use -Wl,-force_load to ensure all symbols from the static 'llama' lib are included in the dylib
-        target_link_libraries(llamadart_lib PUBLIC -Wl,-force_load llama)
+        target_link_libraries(llamadart_lib PUBLIC -Wl,-force_load llama -Wl,-force_load mtmd)
     else()
         add_library(llamadart_lib STATIC "llamadart_empty.cpp")
         # Use -Wl,-all_load for static library consolidation
-        target_link_libraries(llamadart_lib PUBLIC -Wl,-all_load llama)
+        target_link_libraries(llamadart_lib PUBLIC -Wl,-all_load llama -Wl,-all_load mtmd)
     endif()
 elseif (MSVC)
     # On MSVC, we want to consolidate everything into a single DLL.

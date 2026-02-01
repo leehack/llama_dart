@@ -117,9 +117,20 @@ void main(List<String> args) async {
 
       // 3. Asset Acquisition (Local -> Cache -> Download)
       String? finalAssetPath;
+      final localSimpleAssetPath = path.join(
+        pkgRoot,
+        _thirdPartyDir,
+        _binDir,
+        relPath,
+        '$_libPrefix.$extension',
+      );
+
       if (File(localAssetPath).existsSync()) {
         log.info('Using local binary: $localAssetPath');
         finalAssetPath = localAssetPath;
+      } else if (File(localSimpleAssetPath).existsSync()) {
+        log.info('Using local binary (simple name): $localSimpleAssetPath');
+        finalAssetPath = localSimpleAssetPath;
       } else {
         if (!File(cacheAssetPath).existsSync()) {
           log.info('Cache miss, ensuring cached assets...');
