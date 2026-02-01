@@ -52,7 +52,7 @@ void main() {
   group('LlamaChatMessage', () {
     test('properties', () {
       const msg = LlamaChatMessage(role: 'user', content: 'hello');
-      expect(msg.role, 'user');
+      expect(msg.role, LlamaChatRole.user);
       expect(msg.content, 'hello');
     });
   });

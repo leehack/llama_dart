@@ -33,9 +33,9 @@ void main() {
 
       expect(response, 'Hello world');
       expect(session.history.length, 2);
-      expect(session.history[0].role, 'user');
+      expect(session.history[0].role, LlamaChatRole.user);
       expect(session.history[0].content, 'How are you?');
-      expect(session.history[1].role, 'assistant');
+      expect(session.history[1].role, LlamaChatRole.assistant);
       expect(session.history[1].content, 'Hello world');
     });
 
