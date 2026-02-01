@@ -104,7 +104,15 @@ jobs:
         run: dart pub global activate coverage
 
       - name: Run web tests
-        run: dart test -p chrome --coverage=coverage
+        run: |
+          dart test -p chrome \
+            test/web_backend_unit_test.dart \
+            test/web_integration_test.dart \
+            test/web_smoke_test.dart \
+            test/chat_session_test.dart \
+            test/models_test.dart \
+            test/engine_test.dart \
+            --coverage=coverage
 
       - name: Format coverage
         run: |

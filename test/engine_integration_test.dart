@@ -9,11 +9,11 @@ import 'test_helper.dart';
 void main() async {
   late File modelFile;
   late LlamaEngine engine;
-  late NativeLlamaBackend backend;
+  late LlamaBackend backend;
 
   setUpAll(() async {
     modelFile = await TestHelper.getTestModel();
-    backend = NativeLlamaBackend();
+    backend = LlamaBackend();
     engine = LlamaEngine(backend);
   });
 
