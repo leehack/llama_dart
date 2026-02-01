@@ -21,9 +21,30 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # Stage 0: Resolve Tag
+  # ---------------------------------------------------------------------------
+  resolve-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Resolve llama.cpp Tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.llama_cpp_tag }}"
+          if [ -z "$TAG" ] || [ "$TAG" == "latest" ]; then
+            TAG=$(gh api repos/ggerganov/llama.cpp/releases/latest --jq '.tag_name')
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Resolved Tag: $TAG"
+
+  # ---------------------------------------------------------------------------
   # Stage A: Native Builds
   # ---------------------------------------------------------------------------
   build-android:
+    needs: resolve-tag
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -34,18 +55,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Fetch llama.cpp
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.event.inputs.llama_cpp_tag }}"
-          if [ -z "$TAG" ] || [ "$TAG" == "latest" ]; then
-            TAG=$(gh api repos/ggerganov/llama.cpp/releases/latest --jq '.tag_name')
-          fi
-          echo "Selected Tag: $TAG"
+          TAG="${{ needs.resolve-tag.outputs.tag }}"
+          echo "Using Tag: $TAG"
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git llama_cpp
           git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
-
       - name: Set up JDK
+
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -67,6 +83,7 @@ jobs:
           path: third_party/bin/android/*/libllamadart.so
 
   build-apple:
+    needs: resolve-tag
     runs-on: macos-latest
     strategy:
       matrix:
@@ -77,18 +94,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Fetch llama.cpp
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.event.inputs.llama_cpp_tag }}"
-          if [ -z "$TAG" ] || [ "$TAG" == "latest" ]; then
-            TAG=$(gh api repos/ggerganov/llama.cpp/releases/latest --jq '.tag_name')
-          fi
-          echo "Selected Tag: $TAG"
+          TAG="${{ needs.resolve-tag.outputs.tag }}"
+          echo "Using Tag: $TAG"
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git llama_cpp
           git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
-
       - name: Install dependencies
+
         run: brew install ccache
       - name: ccache
         uses: ggml-org/ccache-action@v1.2.16
@@ -107,6 +119,7 @@ jobs:
             third_party/bin/ios/*.dylib
 
   build-linux:
+    needs: resolve-tag
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -117,18 +130,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Fetch llama.cpp
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.event.inputs.llama_cpp_tag }}"
-          if [ -z "$TAG" ] || [ "$TAG" == "latest" ]; then
-            TAG=$(gh api repos/ggerganov/llama.cpp/releases/latest --jq '.tag_name')
-          fi
-          echo "Selected Tag: $TAG"
+          TAG="${{ needs.resolve-tag.outputs.tag }}"
+          echo "Using Tag: $TAG"
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git llama_cpp
           git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
-
       - name: Install Dependencies
+
         run: |
           sudo apt-get update
           sudo apt-get install -y libvulkan-dev glslc ccache ninja-build
@@ -148,6 +156,7 @@ jobs:
           path: third_party/bin/linux/${{ matrix.config.arch }}/libllamadart.so
 
   build-windows:
+    needs: resolve-tag
     runs-on: windows-latest
     defaults:
       run:
@@ -157,13 +166,12 @@ jobs:
       - name: Fetch llama.cpp
         shell: bash
         run: |
-          TAG=${{ github.event.inputs.llama_cpp_tag }}
-          if [ "$TAG" == "latest" ]; then
-            TAG=$(curl -s https://api.github.com/repos/ggerganov/llama.cpp/releases/latest | jq -r .tag_name)
-          fi
+          TAG="${{ needs.resolve-tag.outputs.tag }}"
+          echo "Using Tag: $TAG"
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git llama_cpp
           git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
       - name: Install dependencies (ccache, ninja)
+
         run: choco install ccache ninja -y
       - name: ccache
         uses: ggml-org/ccache-action@v1.2.16
@@ -188,6 +196,7 @@ jobs:
   # Stage B: Code Generation (Bindings & Hooks)
   # ---------------------------------------------------------------------------
   codegen:
+    needs: resolve-tag
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
@@ -199,13 +208,8 @@ jobs:
           channel: 'stable'
       - name: Fetch llama.cpp for Headers
         id: tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.event.inputs.llama_cpp_tag }}"
-          if [ -z "$TAG" ] || [ "$TAG" == "latest" ]; then
-            TAG=$(gh api repos/ggerganov/llama.cpp/releases/latest --jq '.tag_name')
-          fi
+          TAG="${{ needs.resolve-tag.outputs.tag }}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git third_party/llama_cpp
       - name: Install LLVM
