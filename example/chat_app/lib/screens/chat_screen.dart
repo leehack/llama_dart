@@ -83,9 +83,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _sendMessage() {
     final text = _controller.text.trim();
-    if (text.isEmpty) return;
+    final provider = context.read<ChatProvider>();
+    if (text.isEmpty && provider.stagedParts.isEmpty) return;
 
-    context.read<ChatProvider>().sendMessage(text);
+    provider.sendMessage(text);
 
     // Reset the controller completely to clear any composing state from the IME.
     // Using TextEditingValue.empty is more robust than .clear() for some IMEs.

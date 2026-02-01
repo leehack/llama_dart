@@ -12,6 +12,7 @@ class ChatProvider extends ChangeNotifier {
   final SettingsService _settingsService;
 
   final List<ChatMessage> _messages = [];
+  final List<LlamaContentPart> _stagedParts = [];
   ChatSettings _settings = const ChatSettings();
 
   String _activeBackend = "Unknown";
@@ -20,6 +21,8 @@ class ChatProvider extends ChangeNotifier {
   double _loadingProgress = 0.0;
   bool _isLoaded = false;
   bool _isGenerating = false;
+  bool _supportsVision = false;
+  bool _supportsAudio = false;
   String? _error;
 
   // Telemetry
@@ -31,6 +34,7 @@ class ChatProvider extends ChangeNotifier {
 
   // Getters
   List<ChatMessage> get messages => List.unmodifiable(_messages);
+  List<LlamaContentPart> get stagedParts => List.unmodifiable(_stagedParts);
   ChatSettings get settings => _settings;
   String? get modelPath => _settings.modelPath;
   GpuBackend get preferredBackend => _settings.preferredBackend;
@@ -40,6 +44,8 @@ class ChatProvider extends ChangeNotifier {
   double get loadingProgress => _loadingProgress;
   bool get isLoaded => _isLoaded;
   bool get isGenerating => _isGenerating;
+  bool get supportsVision => _supportsVision;
+  bool get supportsAudio => _supportsAudio;
   String? get error => _error;
   double get temperature => _settings.temperature;
   int get topK => _settings.topK;
@@ -105,6 +111,8 @@ class ChatProvider extends ChangeNotifier {
       _activeBackend = rawBackend;
 
       _maxTokens = await _chatService.engine.getContextSize();
+      _supportsVision = await _chatService.engine.supportsVision;
+      _supportsAudio = await _chatService.engine.supportsAudio;
 
       final libSupported = await _chatService.engine.isGpuSupported();
 
@@ -120,6 +128,7 @@ class ChatProvider extends ChangeNotifier {
         ChatMessage(
           text: 'Model loaded successfully! Ready to chat.',
           isUser: false,
+          isInfo: true,
         ),
       );
       _isLoaded = true;
@@ -138,10 +147,12 @@ class ChatProvider extends ChangeNotifier {
     _currentTokens = 0;
     _isPruning = false;
     _isGenerating = false;
+    _stagedParts.clear();
     _messages.add(
       ChatMessage(
         text: 'Conversation cleared. Ready for a new topic!',
         isUser: false,
+        isInfo: true,
       ),
     );
     notifyListeners();
@@ -150,14 +161,20 @@ class ChatProvider extends ChangeNotifier {
   Future<void> sendMessage(String text) async {
     if (_isGenerating) return;
 
-    final userMsg = ChatMessage(text: text, isUser: true);
+    final parts = List<LlamaContentPart>.from(_stagedParts);
+    if (text.isNotEmpty) {
+      parts.add(LlamaTextContent(text));
+    }
+
+    if (parts.isEmpty) return;
+
+    final userMsg = ChatMessage(text: text, isUser: true, parts: parts);
     _messages.add(userMsg);
+    _stagedParts.clear();
     _isGenerating = true;
     notifyListeners();
 
     try {
-      await _chatService.buildPrompt(_messages, _maxTokens);
-
       final responseMessageIndex = _messages.length;
       _messages.add(ChatMessage(text: "...", isUser: false));
       notifyListeners();
@@ -165,25 +182,35 @@ class ChatProvider extends ChangeNotifier {
       String fullResponse = "";
       DateTime lastUpdate = DateTime.now();
 
-      final List<LlamaChatMessage> conversationMessages = _messages
-          .where(
-            (m) =>
-                m.text != 'Model loaded successfully! Ready to chat.' &&
-                m.text != '...',
-          )
-          .map(
-            (m) => LlamaChatMessage(
-              role: m.isUser ? 'user' : 'assistant',
+      // For multimodal, we need the conversation history with parts
+      final List<LlamaChatMessage> conversationMessages = [];
+      for (final m in _messages) {
+        if (m.isInfo || m.text == '...') continue;
+
+        if (m.parts != null && m.parts!.isNotEmpty) {
+          conversationMessages.add(
+            LlamaChatMessage.multimodal(
+              role: m.isUser ? LlamaChatRole.user : LlamaChatRole.assistant,
+              parts: m.parts!,
+            ),
+          );
+        } else {
+          conversationMessages.add(
+            LlamaChatMessage.text(
+              role: m.isUser ? LlamaChatRole.user : LlamaChatRole.assistant,
               content: m.text,
             ),
-          )
-          .toList();
+          );
+        }
+      }
 
       await for (final token in _chatService.generate(
         conversationMessages,
         _settings,
       )) {
-        if (!_isGenerating) break;
+        if (!_isGenerating) {
+          break;
+        }
         fullResponse += token;
 
         final cleanText = _chatService.cleanResponse(fullResponse);
@@ -210,6 +237,46 @@ class ChatProvider extends ChangeNotifier {
     } finally {
       _isGenerating = false;
       notifyListeners();
+    }
+  }
+
+  void addStagedPart(LlamaContentPart part) {
+    _stagedParts.add(part);
+    notifyListeners();
+  }
+
+  void removeStagedPart(int index) {
+    if (index >= 0 && index < _stagedParts.length) {
+      _stagedParts.removeAt(index);
+      notifyListeners();
+    }
+  }
+
+  Future<void> pickImage() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+      if (result != null && result.files.single.path != null) {
+        addStagedPart(LlamaImageContent(path: result.files.single.path));
+      }
+    } catch (e) {
+      debugPrint("Error picking image: $e");
+    }
+  }
+
+  Future<void> pickAudio() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.audio,
+        allowMultiple: false,
+      );
+      if (result != null && result.files.single.path != null) {
+        addStagedPart(LlamaAudioContent(path: result.files.single.path));
+      }
+    } catch (e) {
+      debugPrint("Error picking audio: $e");
     }
   }
 
@@ -246,6 +313,12 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateMmprojPath(String path) {
+    _settings = _settings.copyWith(mmprojPath: path);
+    _settingsService.saveSettings(_settings);
+    notifyListeners();
+  }
+
   Future<void> updatePreferredBackend(GpuBackend backend) async {
     _settings = _settings.copyWith(preferredBackend: backend);
     await _settingsService.saveSettings(_settings);
@@ -253,6 +326,7 @@ class ChatProvider extends ChangeNotifier {
       ChatMessage(
         text: 'Switching backend to ${backend.name}...',
         isUser: false,
+        isInfo: true,
       ),
     );
     notifyListeners();
@@ -272,6 +346,26 @@ class ChatProvider extends ChangeNotifier {
 
       _settings = _settings.copyWith(modelPath: selectedPath);
       _error = null;
+      await _settingsService.saveSettings(_settings);
+      notifyListeners();
+      await loadModel();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> selectMmprojFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: false,
+        type: FileType.any,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final selectedPath = result.files.single.path;
+      if (selectedPath == null) throw Exception('No file path');
+
+      _settings = _settings.copyWith(mmprojPath: selectedPath);
       await _settingsService.saveSettings(_settings);
       notifyListeners();
       await loadModel();

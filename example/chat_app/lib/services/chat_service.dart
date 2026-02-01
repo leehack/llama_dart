@@ -6,7 +6,7 @@ class ChatService {
   final LlamaEngine _engine;
 
   ChatService({LlamaEngine? engine})
-    : _engine = engine ?? LlamaEngine(createBackend());
+    : _engine = engine ?? LlamaEngine(LlamaBackend());
 
   LlamaEngine get engine => _engine;
 
@@ -41,6 +41,10 @@ class ChatService {
         ),
       );
     }
+
+    if (settings.mmprojPath != null && settings.mmprojPath!.isNotEmpty) {
+      await _engine.loadMultimodalProjector(settings.mmprojPath!);
+    }
   }
 
   Future<LlamaChatTemplateResult> buildPrompt(
@@ -69,13 +73,24 @@ class ChatService {
       }
 
       totalTokens += tokens;
-      finalMessages.insert(
-        0,
-        LlamaChatMessage(
-          role: m.isUser ? 'user' : 'assistant',
-          content: m.text,
-        ),
-      );
+
+      if (m.parts != null && m.parts!.isNotEmpty) {
+        finalMessages.insert(
+          0,
+          LlamaChatMessage.multimodal(
+            role: m.isUser ? LlamaChatRole.user : LlamaChatRole.assistant,
+            parts: m.parts!,
+          ),
+        );
+      } else {
+        finalMessages.insert(
+          0,
+          LlamaChatMessage.text(
+            role: m.isUser ? LlamaChatRole.user : LlamaChatRole.assistant,
+            content: m.text,
+          ),
+        );
+      }
     }
 
     return await _engine.chatTemplate(finalMessages);

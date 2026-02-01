@@ -1,3 +1,19 @@
+## 0.3.2
+*   **Multimodal Support (Vision & Audio)**: Integrated the experimental `mtmd` module from `llama.cpp` for native platforms.
+    *   Added `loadMultimodalProjector` to `LlamaEngine`.
+    *   Introduced `LlamaChatMessage.multimodal` and `LlamaContentPart` (Text, Image, Audio).
+*   **Moondream 2 & Phi-2 Optimization**: 
+    *   Implemented a specialized `Question: / Answer:` chat template fallback for Moondream models.
+    *   Added dynamic BOS token handling: Automatically disables BOS injection for models where BOS == EOS (like Moondream) to prevent immediate "End of Generation".
+*   **[BREAKING] API Changes**:
+    *   `LlamaChatMessage.role` now returns a `LlamaChatRole` enum instead of a `String`.
+*   **[DEPRECATED] API Changes**:
+    *   Default `LlamaChatMessage` constructor (string-based) is now deprecated; use `.text()` or `.multimodal()` instead.
+    *   `LlamaChatMessage.roleString` is deprecated and will be removed in v1.0.
+*   **Engine Upgrades**: Upgraded core `llama.cpp` to tag `b7898`.
+*   **Robust Media Loading**: Support for loading images and audio via both file paths and raw byte buffers.
+*   **Bug Fixes**: Improved native resource cleanup and fixed potential null-pointer crashes in the multimodal pipeline.
+
 ## 0.3.1
 *   **ChatSession Manager**: Introduced a new high-level `ChatSession` class to automatically manage conversation history and system prompts.
 *   **Context Window Management**: `ChatSession` now implements an automated sliding window to truncate history when the model's context limit is approached.

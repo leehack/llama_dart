@@ -2,6 +2,7 @@ import 'package:llamadart/llamadart.dart';
 
 class ChatSettings {
   final String? modelPath;
+  final String? mmprojPath;
   final GpuBackend preferredBackend;
   final double temperature;
   final int topK;
@@ -11,6 +12,7 @@ class ChatSettings {
 
   const ChatSettings({
     this.modelPath,
+    this.mmprojPath,
     this.preferredBackend = GpuBackend.auto,
     this.temperature = 0.7,
     this.topK = 40,
@@ -21,6 +23,7 @@ class ChatSettings {
 
   ChatSettings copyWith({
     String? modelPath,
+    String? mmprojPath,
     GpuBackend? preferredBackend,
     double? temperature,
     int? topK,
@@ -30,6 +33,7 @@ class ChatSettings {
   }) {
     return ChatSettings(
       modelPath: modelPath ?? this.modelPath,
+      mmprojPath: mmprojPath ?? this.mmprojPath,
       preferredBackend: preferredBackend ?? this.preferredBackend,
       temperature: temperature ?? this.temperature,
       topK: topK ?? this.topK,

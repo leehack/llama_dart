@@ -43,8 +43,9 @@ class MockLlamaBackend implements LlamaBackend {
   Stream<List<int>> generate(
     int contextHandle,
     String prompt,
-    GenerationParams params,
-  ) async* {
+    GenerationParams params, {
+    List<LlamaContentPart>? parts,
+  }) async* {
     yield utf8.encode("Hello world");
   }
 
@@ -113,6 +114,21 @@ class MockLlamaBackend implements LlamaBackend {
 
   @override
   Future<void> dispose() async {}
+
+  @override
+  Future<int?> multimodalContextCreate(
+    int modelHandle,
+    String mmProjPath,
+  ) async => 1;
+
+  @override
+  Future<void> multimodalContextFree(int mmContextHandle) async {}
+
+  @override
+  Future<bool> supportsAudio(int mmContextHandle) async => false;
+
+  @override
+  Future<bool> supportsVision(int mmContextHandle) async => false;
 }
 
 void main() {

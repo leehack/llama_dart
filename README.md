@@ -15,7 +15,8 @@
 - ⚡ **GPU Acceleration**:
   - **Apple**: Metal (macOS/iOS)
   - **Android/Linux/Windows**: Vulkan
--  **LoRA Support**: Apply fine-tuned adapters (GGUF) dynamically at runtime.
+- 🖼️ **Multimodal Support**: Run vision and audio models (LLaVA, Gemma 3, Qwen2-VL) with integrated media processing.
+- **LoRA Support**: Apply fine-tuned adapters (GGUF) dynamically at runtime.
 - 🌐 **Web Support**: Run inference in the browser via WASM (powered by `wllama` v2).
 - 💎 **Dart-First API**: Streamlined architecture with decoupled backends.
 - 🔇 **Logging Control**: Toggle native engine output or use granular filtering on Web.
@@ -152,15 +153,63 @@ void main() async {
     await for (final token in session.chat('And its population?')) {
       stdout.write(token);
     }
+    } finally {
+      await engine.dispose();
+    }
+  }
+}
+```
+
+### 4. Multimodal Usage (Vision/Audio)
+
+`llamadart` now supports multimodal models by integrating the experimental `mtmd` module from `llama.cpp`.
+
+```dart
+import 'package:llamadart/llamadart.dart';
+
+void main() async {
+  final engine = LlamaEngine(NativeLlamaBackend());
+  
+  try {
+    // 1. Load the base LLM
+    await engine.loadModel('moondream2.gguf');
+    
+    // 2. Load the multimodal projector (mmproj)
+    await engine.loadMultimodalProjector('moondream2-mmproj.gguf');
+
+    // 3. Create a multimodal message
+    final messages = [
+      LlamaChatMessage.multimodal(
+        role: LlamaChatRole.user,
+        parts: [
+          LlamaImageContent(path: 'sample_image.jpg'),
+          LlamaTextContent('What is this image about?'),
+        ],
+      ),
+    ];
+
+    // 4. Generate response
+    await for (final token in engine.chat(messages)) {
+      stdout.write(token);
+    }
   } finally {
     await engine.dispose();
   }
 }
 ```
 
+### 💡 Model-Specific Notes
+
+#### Moondream 2 & Phi-2
+These models use a unique architecture where the Start-of-Sequence (BOS) and End-of-Sequence (EOS) tokens are identical. `llamadart` includes a specialized handler for these models that:
+- **Disables Auto-BOS**: Prevents the model from stopping immediately upon generation.
+- **Manual Templates**: Automatically applies the required `Question: / Answer:` format if the model metadata is missing a chat template.
+- **Stop Sequences**: Injects `Question:` as a stop sequence to prevent rambling in multi-turn conversations.
+
 ---
 
 ## 🧹 Resource Management
+
 
 Since `llamadart` allocates significant native memory and manages background worker Isolates/Threads, it is essential to manage its lifecycle correctly.
 

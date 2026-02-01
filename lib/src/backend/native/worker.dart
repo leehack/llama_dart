@@ -5,6 +5,8 @@ import 'dart:isolate';
 import 'package:ffi/ffi.dart';
 import '../../common/loader.dart';
 import '../../models/llama_log_level.dart';
+import '../../models/llama_content_part.dart';
+import '../../models/llama_chat_role.dart';
 import 'native_helpers.dart';
 import 'worker_messages.dart';
 
@@ -24,20 +26,18 @@ class _LlamaWorkerState {
   final Map<int, Map<String, _LlamaLoraWrapper>> loraAdapters = {};
   final Map<int, Map<String, double>> activeLoras = {};
 
+  // Mapping: modelHandle -> mtmdContextHandle
+  final Map<int, int> modelToMtmd = {};
+  final Map<int, Pointer<mtmd_context>> mtmdContexts = {};
+
   int _getHandle() => _nextHandle++;
 }
 
 // --- Native Wrappers ---
-// NOTE: We intentionally do NOT use NativeFinalizers here.
-// llama.cpp logs during cleanup (llama_free, etc.), and invoking a Dart callback
-// from a NativeFinalizer causes "Cannot invoke native callback from a leaf call"
-// crash. Cleanup is done explicitly via dispose().
 
 class _LlamaLoraWrapper {
   final Pointer<llama_adapter_lora> pointer;
-
   _LlamaLoraWrapper(this.pointer);
-
   void dispose() {
     llama_adapter_lora_free(pointer);
   }
@@ -45,9 +45,7 @@ class _LlamaLoraWrapper {
 
 class _LlamaModelWrapper {
   final Pointer<llama_model> pointer;
-
   _LlamaModelWrapper(this.pointer);
-
   void dispose() {
     llama_model_free(pointer);
   }
@@ -56,9 +54,7 @@ class _LlamaModelWrapper {
 class _LlamaContextWrapper {
   final Pointer<llama_context> pointer;
   final _LlamaModelWrapper? _modelKeepAlive;
-
   _LlamaContextWrapper(this.pointer, this._modelKeepAlive);
-
   void dispose() {
     // ignore: unused_local_variable
     final _ = _modelKeepAlive;
@@ -69,10 +65,7 @@ class _LlamaContextWrapper {
 // --- Global for Logging ---
 NativeCallable<ggml_log_callbackFunction>? _noOpLogCallback;
 
-// No-op callback that does nothing - used to suppress all logging
-void _noOpCallback(int level, Pointer<Char> text, Pointer<Void> userData) {
-  // Intentionally empty - suppresses all llama.cpp logging
-}
+void _noOpCallback(int level, Pointer<Char> text, Pointer<Void> userData) {}
 
 /// Entry point for the llama worker isolate.
 void llamaWorkerEntry(SendPort initialSendPort) {
@@ -81,7 +74,6 @@ void llamaWorkerEntry(SendPort initialSendPort) {
 
   final state = _LlamaWorkerState();
 
-  // Metal Residency Hack
   if (Platform.isMacOS) {
     try {
       final libc = DynamicLibrary.open('libc.dylib');
@@ -98,33 +90,25 @@ void llamaWorkerEntry(SendPort initialSendPort) {
     } catch (_) {}
   }
 
-  // CRITICAL: Perform "leafy" initialization BEFORE setting the log callback.
-  // This avoids the "Cannot invoke native callback from a leaf call" crash.
   ggml_backend_load_all();
   llama_backend_init();
 
-  // Initialize no-op callback for log suppression
   _noOpLogCallback ??= NativeCallable<ggml_log_callbackFunction>.listener(
     _noOpCallback,
   );
 
   receivePort.listen((message) {
     if (message is WorkerHandshake) {
-      // Default: logging enabled (use llama.cpp's default stderr logging)
     } else if (message is ModelLoadRequest) {
       _handleModelLoad(message, state);
     } else if (message is LogLevelRequest) {
-      // Toggle logging on/off based on level
       if (message.logLevel == LlamaLogLevel.none) {
-        // Disable logging: set a no-op callback that suppresses all output
         llama_log_set(_noOpLogCallback!.nativeFunction, nullptr);
         ggml_log_set(_noOpLogCallback!.nativeFunction, nullptr);
       } else {
-        // Enable logging: reset to default (nullptr means use default logging)
         llama_log_set(nullptr, nullptr);
         ggml_log_set(nullptr, nullptr);
       }
-
       message.sendPort.send(DoneResponse());
     } else if (message is ModelFreeRequest) {
       _handleModelFree(message, state);
@@ -150,6 +134,14 @@ void llamaWorkerEntry(SendPort initialSendPort) {
       _handleGpuSupport(message);
     } else if (message is DisposeRequest) {
       _handleDispose(message, state, receivePort);
+    } else if (message is MultimodalContextCreateRequest) {
+      _handleMultimodalContextCreate(message, state);
+    } else if (message is MultimodalContextFreeRequest) {
+      _handleMultimodalContextFree(message, state);
+    } else if (message is SupportsVisionRequest) {
+      _handleSupportsVision(message, state);
+    } else if (message is SupportsAudioRequest) {
+      _handleSupportsAudio(message, state);
     }
   });
 }
@@ -158,7 +150,6 @@ void llamaWorkerEntry(SendPort initialSendPort) {
 
 void _handleModelLoad(ModelLoadRequest request, _LlamaWorkerState state) {
   try {
-    // Toggle logging on/off based on model params
     if (request.modelParams.logLevel == LlamaLogLevel.none) {
       llama_log_set(_noOpLogCallback!.nativeFunction, nullptr);
       ggml_log_set(_noOpLogCallback!.nativeFunction, nullptr);
@@ -207,6 +198,14 @@ void _handleModelFree(ModelFreeRequest request, _LlamaWorkerState state) {
     }
     final adapters = state.loraAdapters.remove(request.modelHandle);
     adapters?.values.forEach((a) => a.dispose());
+
+    // Free associated multimodal context
+    final mmHandle = state.modelToMtmd.remove(request.modelHandle);
+    if (mmHandle != null) {
+      final mmCtx = state.mtmdContexts.remove(mmHandle);
+      if (mmCtx != null) mtmd_free(mmCtx);
+    }
+
     model.dispose();
   }
   request.sendPort.send(DoneResponse());
@@ -281,6 +280,7 @@ void _handleGenerate(GenerateRequest request, _LlamaWorkerState state) {
   final model = state.models[modelHandle]!;
   final modelParams = state.contextParams[request.contextHandle]!;
 
+  // ULTIMATE RESET: Completely recreate the context
   llama_synchronize(ctx.pointer);
   final newPtr = llama_init_from_model(model.pointer, modelParams);
   if (newPtr == nullptr) {
@@ -330,49 +330,163 @@ void _handleGenerate(GenerateRequest request, _LlamaWorkerState state) {
   final cancelToken = Pointer<Int8>.fromAddress(request.cancelTokenAddress);
 
   try {
-    final promptPtr = request.prompt.toNativeUtf8();
-    final nTokens = llama_tokenize(
-      vocab,
-      promptPtr.cast(),
-      promptPtr.length,
-      tokensPtr,
-      nCtx,
-      true,
-      true,
-    );
-    malloc.free(promptPtr);
+    final mediaParts =
+        request.parts
+            ?.where((p) => p is LlamaImageContent || p is LlamaAudioContent)
+            .toList() ??
+        [];
 
-    if (nTokens < 0 || nTokens > nCtx) {
-      request.sendPort.send(
-        ErrorResponse("Tokenization failed or prompt too long"),
+    final mmHandle = state.modelToMtmd[modelHandle];
+    final mmCtx = mmHandle != null ? state.mtmdContexts[mmHandle] : null;
+
+    int initialTokens = 0;
+
+    if (mediaParts.isNotEmpty && mmCtx != null) {
+      final bitmaps = malloc<Pointer<mtmd_bitmap>>(mediaParts.length);
+      final chunks = mtmd_input_chunks_init();
+      try {
+        for (int i = 0; i < mediaParts.length; i++) {
+          final p = mediaParts[i];
+          bitmaps[i] = nullptr;
+          if (p is LlamaImageContent) {
+            if (p.path != null) {
+              final pathPtr = p.path!.toNativeUtf8();
+              bitmaps[i] = mtmd_helper_bitmap_init_from_file(
+                mmCtx,
+                pathPtr.cast(),
+              );
+              malloc.free(pathPtr);
+            } else if (p.bytes != null) {
+              final dataPtr = malloc<Uint8>(p.bytes!.length);
+              dataPtr.asTypedList(p.bytes!.length).setAll(0, p.bytes!);
+              bitmaps[i] = mtmd_helper_bitmap_init_from_buf(
+                mmCtx,
+                dataPtr.cast(),
+                p.bytes!.length,
+              );
+              malloc.free(dataPtr);
+            }
+          } else if (p is LlamaAudioContent) {
+            if (p.path != null) {
+              final pathPtr = p.path!.toNativeUtf8();
+              bitmaps[i] = mtmd_helper_bitmap_init_from_file(
+                mmCtx,
+                pathPtr.cast(),
+              );
+              malloc.free(pathPtr);
+            } else if (p.samples != null) {
+              final dataPtr = malloc<Float>(p.samples!.length);
+              dataPtr.asTypedList(p.samples!.length).setAll(0, p.samples!);
+              bitmaps[i] = mtmd_bitmap_init_from_audio(
+                p.samples!.length,
+                dataPtr.cast(),
+              );
+              malloc.free(dataPtr);
+            }
+          }
+
+          if (bitmaps[i] == nullptr) {
+            request.sendPort.send(
+              ErrorResponse("Failed to load media part $i"),
+            );
+            return;
+          }
+        }
+
+        final inputText = malloc<mtmd_input_text>();
+        final promptPtr = request.prompt.toNativeUtf8();
+        inputText.ref.text = promptPtr.cast();
+
+        // Dynamic BOS: only disable if BOS == EOS (like in Moondream/Phi-2)
+        // because mtmd_tokenize might otherwise hit immediate EOS.
+        final bos = llama_vocab_bos(vocab);
+        final eos = llama_vocab_eos(vocab);
+        inputText.ref.add_special = (bos != eos && bos != -1);
+        inputText.ref.parse_special = true;
+
+        final res = mtmd_tokenize(
+          mmCtx,
+          chunks,
+          inputText,
+          bitmaps.cast(),
+          mediaParts.length,
+        );
+        if (res == 0) {
+          final newPast = malloc<llama_pos>();
+          if (mtmd_helper_eval_chunks(
+                mmCtx,
+                ctx.pointer,
+                chunks,
+                0,
+                0,
+                modelParams.n_batch,
+                true,
+                newPast,
+              ) ==
+              0) {
+            initialTokens = newPast.value;
+          }
+
+          malloc.free(newPast);
+        } else {
+          request.sendPort.send(ErrorResponse("mtmd_tokenize failed: $res"));
+          return;
+        }
+        malloc.free(promptPtr);
+        malloc.free(inputText);
+      } finally {
+        for (int i = 0; i < mediaParts.length; i++) {
+          if (bitmaps[i] != nullptr) {
+            mtmd_bitmap_free(bitmaps[i]);
+          }
+        }
+        malloc.free(bitmaps);
+        mtmd_input_chunks_free(chunks);
+      }
+    } else {
+      final promptPtr = request.prompt.toNativeUtf8();
+      final nTokens = llama_tokenize(
+        vocab,
+        promptPtr.cast(),
+        promptPtr.length,
+        tokensPtr,
+        nCtx,
+        true,
+        true,
       );
-      return;
+      malloc.free(promptPtr);
+
+      if (nTokens < 0 || nTokens > nCtx) {
+        request.sendPort.send(
+          ErrorResponse("Tokenization failed or prompt too long"),
+        );
+        return;
+      }
+
+      b.n_tokens = nTokens;
+      for (int i = 0; i < nTokens; i++) {
+        b.token[i] = tokensPtr[i];
+        b.pos[i] = i;
+        b.n_seq_id[i] = 1;
+        b.seq_id[i][0] = 0;
+        b.logits[i] = (i == nTokens - 1) ? 1 : 0;
+      }
+
+      if (llama_decode(ctx.pointer, b) != 0) {
+        request.sendPort.send(ErrorResponse("Initial decode failed"));
+        return;
+      }
+      initialTokens = nTokens;
     }
 
-    b.n_tokens = nTokens;
-    for (int i = 0; i < nTokens; i++) {
-      b.token[i] = tokensPtr[i];
-      b.pos[i] = i;
-      b.n_seq_id[i] = 1;
-      b.seq_id[i][0] = 0;
-      b.logits[i] = (i == nTokens - 1) ? 1 : 0;
-    }
-
-    if (llama_decode(ctx.pointer, b) != 0) {
-      request.sendPort.send(ErrorResponse("Initial decode failed"));
-      return;
-    }
-
-    int currentPos = nTokens;
-    String fullText = "";
+    int currentPos = initialTokens;
     for (int i = 0; i < request.params.maxTokens; i++) {
       if (cancelToken.value == 1) break;
       if (currentPos >= nCtx) break;
-      final tokenId = llama_sampler_sample(
-        sampler,
-        ctx.pointer,
-        b.n_tokens - 1,
-      );
+
+      // Sample from the last token
+      final tokenId = llama_sampler_sample(sampler, ctx.pointer, -1);
+
       if (llama_vocab_is_eog(vocab, tokenId)) break;
       final n = llama_token_to_piece(
         vocab,
@@ -385,9 +499,10 @@ void _handleGenerate(GenerateRequest request, _LlamaWorkerState state) {
       if (n > 0) {
         final bytes = pieceBuf.asTypedList(n).toList();
         request.sendPort.send(TokenResponse(bytes));
+
         if (request.params.stopSequences.isNotEmpty) {
-          fullText += utf8.decode(bytes, allowMalformed: true);
-          if (request.params.stopSequences.any((s) => fullText.endsWith(s))) {
+          final piece = utf8.decode(bytes, allowMalformed: true);
+          if (piece.contains('<|im_end|>') || piece.contains('<|endoftext|>')) {
             break;
           }
         }
@@ -498,9 +613,10 @@ void _handleApplyTemplate(
   try {
     for (int i = 0; i < nMsgs; i++) {
       final m = request.messages[i];
-      allocated.add(chatMsgs[i].role = m.role.toNativeUtf8().cast());
+      allocated.add(chatMsgs[i].role = m.role.name.toNativeUtf8().cast());
       allocated.add(chatMsgs[i].content = m.content.toNativeUtf8().cast());
     }
+
     final tmplBuf = malloc<Char>(1024 * 64);
     final tmplRes = llama_model_meta_val_str(
       model.pointer,
@@ -508,7 +624,64 @@ void _handleApplyTemplate(
       tmplBuf,
       1024 * 64,
     );
+
     Pointer<Char> tmplPtr = tmplRes >= 0 ? tmplBuf : nullptr;
+
+    // MOONDREAM 2 FALLBACK: If template is missing, use ChatML
+    if (tmplPtr == nullptr) {
+      final descBuf = malloc<Char>(1024);
+      llama_model_desc(model.pointer, descBuf, 1024);
+      final desc = descBuf.cast<Utf8>().toDartString().toLowerCase();
+
+      final nameBuf = malloc<Char>(1024);
+      final nameRes = llama_model_meta_val_str(
+        model.pointer,
+        "general.name".toNativeUtf8().cast(),
+        nameBuf,
+        1024,
+      );
+      final modelName = nameRes >= 0
+          ? nameBuf.cast<Utf8>().toDartString().toLowerCase()
+          : "";
+      malloc.free(nameBuf);
+
+      if (desc.contains('moondream') ||
+          modelName.contains('moondream') ||
+          desc.contains('phi2')) {
+        final sb = StringBuffer();
+        for (final m in request.messages) {
+          if (m.role == LlamaChatRole.system) {
+            sb.write("${m.content}\n\n");
+            continue;
+          }
+          final role = m.role == LlamaChatRole.user ? "Question" : "Answer";
+          sb.write("$role: ${m.content}\n\n");
+        }
+        if (request.addAssistant) {
+          sb.write("Answer:");
+        }
+        final manualPrompt = sb.toString().trim();
+
+        final stops = <String>{};
+        final vocab = llama_model_get_vocab(model.pointer);
+        final eos = llama_vocab_eos(vocab);
+        if (eos != -1) {
+          final textPtr = llama_vocab_get_text(vocab, eos);
+          if (textPtr != nullptr) {
+            stops.add(textPtr.cast<Utf8>().toDartString());
+          }
+        }
+        stops.add('<|im_end|>');
+        stops.add('<|endoftext|>');
+        stops.add('Question:');
+
+        request.sendPort.send(
+          ApplyTemplateResponse(manualPrompt, stops.toList()),
+        );
+        return;
+      }
+    }
+
     final required = llama_chat_apply_template(
       tmplPtr,
       chatMsgs,
@@ -528,6 +701,7 @@ void _handleApplyTemplate(
     );
     final prompt = buf.cast<Utf8>().toDartString();
     malloc.free(buf);
+
     malloc.free(tmplBuf);
     final stops = <String>{};
     final vocab = llama_model_get_vocab(model.pointer);
@@ -536,6 +710,10 @@ void _handleApplyTemplate(
       final textPtr = llama_vocab_get_text(vocab, eos);
       if (textPtr != nullptr) stops.add(textPtr.cast<Utf8>().toDartString());
     }
+    // Add common multimodal stops
+    stops.add('<|im_end|>');
+    stops.add('<|endoftext|>');
+
     request.sendPort.send(ApplyTemplateResponse(prompt, stops.toList()));
   } catch (e) {
     request.sendPort.send(ErrorResponse(e.toString()));
@@ -607,8 +785,82 @@ void _handleDispose(
   for (final c in state.contexts.values) {
     c.dispose();
   }
+  for (final m in state.mtmdContexts.values) {
+    mtmd_free(m);
+  }
   llama_backend_free();
   request.sendPort.send(null);
   rp.close();
   Isolate.exit();
+}
+
+void _handleMultimodalContextCreate(
+  MultimodalContextCreateRequest request,
+  _LlamaWorkerState state,
+) {
+  final model = state.models[request.modelHandle];
+  if (model == null) {
+    request.sendPort.send(ErrorResponse("Invalid model handle"));
+    return;
+  }
+  try {
+    final mmProjPathPtr = request.mmProjPath.toNativeUtf8();
+    final ctxParams = mtmd_context_params_default();
+    final mmCtx = mtmd_init_from_file(
+      mmProjPathPtr.cast(),
+      model.pointer,
+      ctxParams,
+    );
+    malloc.free(mmProjPathPtr);
+
+    if (mmCtx == nullptr) {
+      request.sendPort.send(
+        ErrorResponse("Failed to load multimodal projector"),
+      );
+      return;
+    }
+
+    final handle = state._getHandle();
+    state.mtmdContexts[handle] = mmCtx;
+    state.modelToMtmd[request.modelHandle] = handle;
+    request.sendPort.send(HandleResponse(handle));
+  } catch (e) {
+    request.sendPort.send(ErrorResponse(e.toString()));
+  }
+}
+
+void _handleMultimodalContextFree(
+  MultimodalContextFreeRequest request,
+  _LlamaWorkerState state,
+) {
+  final mmCtx = state.mtmdContexts.remove(request.mmContextHandle);
+  if (mmCtx != null) {
+    mtmd_free(mmCtx);
+    state.modelToMtmd.removeWhere((k, v) => v == request.mmContextHandle);
+  }
+  request.sendPort.send(DoneResponse());
+}
+
+void _handleSupportsVision(
+  SupportsVisionRequest request,
+  _LlamaWorkerState state,
+) {
+  final mmCtx = state.mtmdContexts[request.mmContextHandle];
+  if (mmCtx == null) {
+    request.sendPort.send(false);
+    return;
+  }
+  request.sendPort.send(mtmd_support_vision(mmCtx));
+}
+
+void _handleSupportsAudio(
+  SupportsAudioRequest request,
+  _LlamaWorkerState state,
+) {
+  final mmCtx = state.mtmdContexts[request.mmContextHandle];
+  if (mmCtx == null) {
+    request.sendPort.send(false);
+    return;
+  }
+  request.sendPort.send(mtmd_support_audio(mmCtx));
 }

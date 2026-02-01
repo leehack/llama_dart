@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:llamadart/llamadart.dart';
 import '../models/chat_message.dart';
 
 class MessageBubble extends StatelessWidget {
@@ -50,30 +52,39 @@ class MessageBubble extends StatelessWidget {
                 const SizedBox(width: 8),
               ],
               Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 14,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: border,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
-                        blurRadius: 4,
-                        offset: const Offset(0, 2),
+                child: Column(
+                  crossAxisAlignment: align,
+                  children: [
+                    if (message.parts != null)
+                      ...message.parts!
+                          .where((p) => p is! LlamaTextContent)
+                          .map((p) => _buildMediaPart(context, p)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
                       ),
-                    ],
-                  ),
-                  child: Text(
-                    message.text,
-                    style: TextStyle(
-                      color: textColor,
-                      fontSize: 15,
-                      height: 1.4,
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: border,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        message.text,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 15,
+                          height: 1.4,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
               if (isUser) ...[
@@ -85,6 +96,43 @@ class MessageBubble extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Widget _buildMediaPart(BuildContext context, LlamaContentPart part) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      constraints: const BoxConstraints(maxWidth: 240, maxHeight: 240),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: _buildPartContent(part),
+    );
+  }
+
+  Widget _buildPartContent(LlamaContentPart part) {
+    if (part is LlamaImageContent) {
+      if (part.path != null) {
+        return Image.file(File(part.path!), fit: BoxFit.cover);
+      } else if (part.bytes != null) {
+        return Image.memory(part.bytes!, fit: BoxFit.cover);
+      }
+    } else if (part is LlamaAudioContent) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        color: Colors.black12,
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.audiotrack),
+            SizedBox(width: 8),
+            Text('Audio message'),
+          ],
+        ),
+      );
+    }
+    return const Icon(Icons.description);
   }
 
   Widget _buildAvatar(BuildContext context, bool isUser) {

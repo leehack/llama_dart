@@ -7655,6 +7655,431 @@ external ggml_backend_buffer_t ggml_backend_cpu_buffer_from_ptr(
 @ffi.Native<ggml_backend_buffer_type_t Function()>()
 external ggml_backend_buffer_type_t ggml_backend_cpu_buffer_type();
 
+@ffi.Native<ffi.Pointer<ffi.Char> Function()>()
+external ffi.Pointer<ffi.Char> mtmd_default_marker();
+
+@ffi.Native<mtmd_context_params Function()>()
+external mtmd_context_params mtmd_context_params_default();
+
+/// initialize the mtmd context
+/// return nullptr on failure
+@ffi.Native<
+  ffi.Pointer<mtmd_context> Function(
+    ffi.Pointer<ffi.Char>,
+    ffi.Pointer<llama_model>,
+    mtmd_context_params,
+  )
+>()
+external ffi.Pointer<mtmd_context> mtmd_init_from_file(
+  ffi.Pointer<ffi.Char> mmproj_fname,
+  ffi.Pointer<llama_model> text_model,
+  mtmd_context_params ctx_params,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<mtmd_context>)>()
+external void mtmd_free(ffi.Pointer<mtmd_context> ctx);
+
+/// whether we need to set non-causal mask before llama_decode
+@ffi.Native<ffi.Bool Function(ffi.Pointer<mtmd_context>)>()
+external bool mtmd_decode_use_non_causal(ffi.Pointer<mtmd_context> ctx);
+
+/// whether the current model use M-RoPE for llama_decode
+@ffi.Native<ffi.Bool Function(ffi.Pointer<mtmd_context>)>()
+external bool mtmd_decode_use_mrope(ffi.Pointer<mtmd_context> ctx);
+
+/// whether the current model supports vision input
+@ffi.Native<ffi.Bool Function(ffi.Pointer<mtmd_context>)>()
+external bool mtmd_support_vision(ffi.Pointer<mtmd_context> ctx);
+
+/// whether the current model supports audio input
+@ffi.Native<ffi.Bool Function(ffi.Pointer<mtmd_context>)>()
+external bool mtmd_support_audio(ffi.Pointer<mtmd_context> ctx);
+
+/// get audio bitrate in Hz, for example 16000 for Whisper
+/// return -1 if audio is not supported
+@ffi.Native<ffi.Int Function(ffi.Pointer<mtmd_context>)>()
+external int mtmd_get_audio_bitrate(ffi.Pointer<mtmd_context> ctx);
+
+/// mtmd_bitmap
+///
+/// if bitmap is image:
+/// length of data must be nx * ny * 3
+/// the data is in RGBRGBRGB... format
+/// if bitmap is audio:
+/// length of data must be n_samples * sizeof(float)
+/// the data is in float format (PCM F32)
+@ffi.Native<
+  ffi.Pointer<mtmd_bitmap> Function(
+    ffi.Uint32,
+    ffi.Uint32,
+    ffi.Pointer<ffi.UnsignedChar>,
+  )
+>()
+external ffi.Pointer<mtmd_bitmap> mtmd_bitmap_init(
+  int nx,
+  int ny,
+  ffi.Pointer<ffi.UnsignedChar> data,
+);
+
+@ffi.Native<
+  ffi.Pointer<mtmd_bitmap> Function(ffi.Size, ffi.Pointer<ffi.Float>)
+>()
+external ffi.Pointer<mtmd_bitmap> mtmd_bitmap_init_from_audio(
+  int n_samples,
+  ffi.Pointer<ffi.Float> data,
+);
+
+@ffi.Native<ffi.Uint32 Function(ffi.Pointer<mtmd_bitmap>)>()
+external int mtmd_bitmap_get_nx(ffi.Pointer<mtmd_bitmap> bitmap);
+
+@ffi.Native<ffi.Uint32 Function(ffi.Pointer<mtmd_bitmap>)>()
+external int mtmd_bitmap_get_ny(ffi.Pointer<mtmd_bitmap> bitmap);
+
+@ffi.Native<ffi.Pointer<ffi.UnsignedChar> Function(ffi.Pointer<mtmd_bitmap>)>()
+external ffi.Pointer<ffi.UnsignedChar> mtmd_bitmap_get_data(
+  ffi.Pointer<mtmd_bitmap> bitmap,
+);
+
+@ffi.Native<ffi.Size Function(ffi.Pointer<mtmd_bitmap>)>()
+external int mtmd_bitmap_get_n_bytes(ffi.Pointer<mtmd_bitmap> bitmap);
+
+@ffi.Native<ffi.Bool Function(ffi.Pointer<mtmd_bitmap>)>()
+external bool mtmd_bitmap_is_audio(ffi.Pointer<mtmd_bitmap> bitmap);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<mtmd_bitmap>)>()
+external void mtmd_bitmap_free(ffi.Pointer<mtmd_bitmap> bitmap);
+
+/// bitmap ID is optional, but useful for KV cache tracking
+/// these getters/setters are dedicated functions, so you can for example calculate the hash of the image based on mtmd_bitmap_get_data()
+@ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.Pointer<mtmd_bitmap>)>()
+external ffi.Pointer<ffi.Char> mtmd_bitmap_get_id(
+  ffi.Pointer<mtmd_bitmap> bitmap,
+);
+
+@ffi.Native<
+  ffi.Void Function(ffi.Pointer<mtmd_bitmap>, ffi.Pointer<ffi.Char>)
+>()
+external void mtmd_bitmap_set_id(
+  ffi.Pointer<mtmd_bitmap> bitmap,
+  ffi.Pointer<ffi.Char> id,
+);
+
+/// mtmd_input_chunks
+///
+/// this is simply a list of mtmd_input_chunk
+/// the elements can only be populated via mtmd_tokenize()
+@ffi.Native<ffi.Pointer<mtmd_input_chunks> Function()>()
+external ffi.Pointer<mtmd_input_chunks> mtmd_input_chunks_init();
+
+@ffi.Native<ffi.Size Function(ffi.Pointer<mtmd_input_chunks>)>()
+external int mtmd_input_chunks_size(ffi.Pointer<mtmd_input_chunks> chunks);
+
+@ffi.Native<
+  ffi.Pointer<mtmd_input_chunk> Function(
+    ffi.Pointer<mtmd_input_chunks>,
+    ffi.Size,
+  )
+>()
+external ffi.Pointer<mtmd_input_chunk> mtmd_input_chunks_get(
+  ffi.Pointer<mtmd_input_chunks> chunks,
+  int idx,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<mtmd_input_chunks>)>()
+external void mtmd_input_chunks_free(ffi.Pointer<mtmd_input_chunks> chunks);
+
+/// mtmd_input_chunk
+///
+/// the instance will be constructed via mtmd_tokenize()
+/// it will be freed along with mtmd_input_chunks
+@ffi.Native<ffi.UnsignedInt Function(ffi.Pointer<mtmd_input_chunk>)>(
+  symbol: 'mtmd_input_chunk_get_type',
+)
+external int _mtmd_input_chunk_get_type(ffi.Pointer<mtmd_input_chunk> chunk);
+
+mtmd_input_chunk_type mtmd_input_chunk_get_type(
+  ffi.Pointer<mtmd_input_chunk> chunk,
+) => mtmd_input_chunk_type.fromValue(_mtmd_input_chunk_get_type(chunk));
+
+@ffi.Native<
+  ffi.Pointer<llama_token> Function(
+    ffi.Pointer<mtmd_input_chunk>,
+    ffi.Pointer<ffi.Size>,
+  )
+>()
+external ffi.Pointer<llama_token> mtmd_input_chunk_get_tokens_text(
+  ffi.Pointer<mtmd_input_chunk> chunk,
+  ffi.Pointer<ffi.Size> n_tokens_output,
+);
+
+@ffi.Native<
+  ffi.Pointer<mtmd_image_tokens> Function(ffi.Pointer<mtmd_input_chunk>)
+>()
+external ffi.Pointer<mtmd_image_tokens> mtmd_input_chunk_get_tokens_image(
+  ffi.Pointer<mtmd_input_chunk> chunk,
+);
+
+@ffi.Native<ffi.Size Function(ffi.Pointer<mtmd_input_chunk>)>()
+external int mtmd_input_chunk_get_n_tokens(ffi.Pointer<mtmd_input_chunk> chunk);
+
+/// returns nullptr for ID on text chunk
+@ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.Pointer<mtmd_input_chunk>)>()
+external ffi.Pointer<ffi.Char> mtmd_input_chunk_get_id(
+  ffi.Pointer<mtmd_input_chunk> chunk,
+);
+
+/// number of temporal positions (equals to max(t,h,w) for M-RoPE; equals to n_tokens otherwise)
+@ffi.Native<llama_pos Function(ffi.Pointer<mtmd_input_chunk>)>()
+external int mtmd_input_chunk_get_n_pos(ffi.Pointer<mtmd_input_chunk> chunk);
+
+/// in case you want to use custom logic to handle the chunk (i.e. KV cache management)
+/// you can move the chunk ownership to your own code by copying it
+/// remember to free the chunk when you are done with it
+@ffi.Native<
+  ffi.Pointer<mtmd_input_chunk> Function(ffi.Pointer<mtmd_input_chunk>)
+>()
+external ffi.Pointer<mtmd_input_chunk> mtmd_input_chunk_copy(
+  ffi.Pointer<mtmd_input_chunk> chunk,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<mtmd_input_chunk>)>()
+external void mtmd_input_chunk_free(ffi.Pointer<mtmd_input_chunk> chunk);
+
+/// mtmd_image_tokens
+///
+/// the instance will be constructed via mtmd_tokenize()
+/// it will be freed along with mtmd_input_chunk
+@ffi.Native<ffi.Size Function(ffi.Pointer<mtmd_image_tokens>)>()
+external int mtmd_image_tokens_get_n_tokens(
+  ffi.Pointer<mtmd_image_tokens> image_tokens,
+);
+
+@ffi.Native<ffi.Size Function(ffi.Pointer<mtmd_image_tokens>)>()
+external int mtmd_image_tokens_get_nx(
+  ffi.Pointer<mtmd_image_tokens> image_tokens,
+);
+
+@ffi.Native<ffi.Size Function(ffi.Pointer<mtmd_image_tokens>)>()
+external int mtmd_image_tokens_get_ny(
+  ffi.Pointer<mtmd_image_tokens> image_tokens,
+);
+
+@ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.Pointer<mtmd_image_tokens>)>()
+external ffi.Pointer<ffi.Char> mtmd_image_tokens_get_id(
+  ffi.Pointer<mtmd_image_tokens> image_tokens,
+);
+
+/// number of temporal positions (equals to max(t,h,w) for M-RoPE; equals to n_tokens otherwise)
+@ffi.Native<llama_pos Function(ffi.Pointer<mtmd_image_tokens>)>()
+external int mtmd_image_tokens_get_n_pos(
+  ffi.Pointer<mtmd_image_tokens> image_tokens,
+);
+
+/// tokenize an input text prompt and a list of bitmaps (images/audio)
+/// the prompt must have the input image marker (default: "<__media__>") in it
+/// the default marker is defined by mtmd_default_marker()
+/// the marker will be replaced with the image/audio chunk
+/// for example:
+/// "here is an image: <__media__>\ndescribe it in detail."
+/// this will gives 3 chunks:
+/// 1. "here is an image: <start_of_image>"
+/// 2. (image/audio tokens)
+/// 3. "<end_of_image>\ndescribe it in detail."
+/// number of bitmaps must be equal to the number of markers in the prompt
+/// this function is thread-safe (shared ctx)
+/// return values:
+/// 0 on success
+/// 1 on number of bitmaps not matching the number of markers
+/// 2 on image preprocessing error
+@ffi.Native<
+  ffi.Int32 Function(
+    ffi.Pointer<mtmd_context>,
+    ffi.Pointer<mtmd_input_chunks>,
+    ffi.Pointer<mtmd_input_text>,
+    ffi.Pointer<ffi.Pointer<mtmd_bitmap>>,
+    ffi.Size,
+  )
+>()
+external int mtmd_tokenize(
+  ffi.Pointer<mtmd_context> ctx,
+  ffi.Pointer<mtmd_input_chunks> output,
+  ffi.Pointer<mtmd_input_text> text,
+  ffi.Pointer<ffi.Pointer<mtmd_bitmap>> bitmaps,
+  int n_bitmaps,
+);
+
+/// returns 0 on success
+/// TODO: deprecate
+@ffi.Native<
+  ffi.Int32 Function(ffi.Pointer<mtmd_context>, ffi.Pointer<mtmd_image_tokens>)
+>()
+external int mtmd_encode(
+  ffi.Pointer<mtmd_context> ctx,
+  ffi.Pointer<mtmd_image_tokens> image_tokens,
+);
+
+/// returns 0 on success
+@ffi.Native<
+  ffi.Int32 Function(ffi.Pointer<mtmd_context>, ffi.Pointer<mtmd_input_chunk>)
+>()
+external int mtmd_encode_chunk(
+  ffi.Pointer<mtmd_context> ctx,
+  ffi.Pointer<mtmd_input_chunk> chunk,
+);
+
+/// get output embeddings from the last encode pass
+/// the reading size (in bytes) is equal to:
+/// llama_model_n_embd_inp(model) * mtmd_input_chunk_get_n_tokens(chunk) * sizeof(float)
+@ffi.Native<ffi.Pointer<ffi.Float> Function(ffi.Pointer<mtmd_context>)>()
+external ffi.Pointer<ffi.Float> mtmd_get_output_embd(
+  ffi.Pointer<mtmd_context> ctx,
+);
+
+/// Set callback for all future logging events.
+/// If this is not called, or NULL is supplied, everything is output on stderr.
+@ffi.Native<ffi.Void Function(ggml_log_callback, ffi.Pointer<ffi.Void>)>()
+external void mtmd_log_set(
+  ggml_log_callback log_callback,
+  ffi.Pointer<ffi.Void> user_data,
+);
+
+/// test function, to be used in test-mtmd-c-api.c
+@ffi.Native<ffi.Pointer<mtmd_input_chunks> Function()>()
+external ffi.Pointer<mtmd_input_chunks> mtmd_test_create_input_chunks();
+
+/// Set callback for all future logging events.
+/// If this is not called, or NULL is supplied, everything is output on stderr.
+/// Note: this also call mtmd_log_set() internally
+@ffi.Native<ffi.Void Function(ggml_log_callback, ffi.Pointer<ffi.Void>)>()
+external void mtmd_helper_log_set(
+  ggml_log_callback log_callback,
+  ffi.Pointer<ffi.Void> user_data,
+);
+
+/// helper function to construct a mtmd_bitmap from a file
+/// it calls mtmd_helper_bitmap_init_from_buf() internally
+/// returns nullptr on failure
+/// this function is thread-safe
+@ffi.Native<
+  ffi.Pointer<mtmd_bitmap> Function(
+    ffi.Pointer<mtmd_context>,
+    ffi.Pointer<ffi.Char>,
+  )
+>()
+external ffi.Pointer<mtmd_bitmap> mtmd_helper_bitmap_init_from_file(
+  ffi.Pointer<mtmd_context> ctx,
+  ffi.Pointer<ffi.Char> fname,
+);
+
+/// helper function to construct a mtmd_bitmap from a buffer containing a file
+/// supported formats:
+/// image: formats supported by stb_image: jpg, png, bmp, gif, etc.
+/// audio: formats supported by miniaudio: wav, mp3, flac
+/// note: audio files will be auto-detected based on magic bytes
+/// returns nullptr on failure
+/// this function is thread-safe
+@ffi.Native<
+  ffi.Pointer<mtmd_bitmap> Function(
+    ffi.Pointer<mtmd_context>,
+    ffi.Pointer<ffi.UnsignedChar>,
+    ffi.Size,
+  )
+>()
+external ffi.Pointer<mtmd_bitmap> mtmd_helper_bitmap_init_from_buf(
+  ffi.Pointer<mtmd_context> ctx,
+  ffi.Pointer<ffi.UnsignedChar> buf,
+  int len,
+);
+
+/// helper to count the total number of tokens from a list of chunks, useful to keep track of KV cache
+@ffi.Native<ffi.Size Function(ffi.Pointer<mtmd_input_chunks>)>()
+external int mtmd_helper_get_n_tokens(ffi.Pointer<mtmd_input_chunks> chunks);
+
+/// helper to count the total position of tokens from a list of chunks, useful to keep track of n_past
+/// normally, n_pos is equal to n_tokens, but for M-RoPE it is different
+@ffi.Native<llama_pos Function(ffi.Pointer<mtmd_input_chunks>)>()
+external int mtmd_helper_get_n_pos(ffi.Pointer<mtmd_input_chunks> chunks);
+
+/// helper function that automatically:
+/// 1. run llama_decode() on text chunks
+/// 2. run mtmd_encode() on image chunks, then mtmd_get_output_embd() and then llama_decode()
+/// if any of the mtmd_encode() or llama_decode() calls return non-zero, stop and forward the error
+/// otherwise, returns 0 on success
+/// this function is NOT thread-safe
+@ffi.Native<
+  ffi.Int32 Function(
+    ffi.Pointer<mtmd_context>,
+    ffi.Pointer<llama_context>,
+    ffi.Pointer<mtmd_input_chunks>,
+    llama_pos,
+    llama_seq_id,
+    ffi.Int32,
+    ffi.Bool,
+    ffi.Pointer<llama_pos>,
+  )
+>()
+external int mtmd_helper_eval_chunks(
+  ffi.Pointer<mtmd_context> ctx,
+  ffi.Pointer<llama_context> lctx,
+  ffi.Pointer<mtmd_input_chunks> chunks,
+  int n_past,
+  int seq_id,
+  int n_batch,
+  bool logits_last,
+  ffi.Pointer<llama_pos> new_n_past,
+);
+
+/// works like mtmd_helper_eval_chunks(), but only for a single chunk
+/// this function is NOT thread-safe
+@ffi.Native<
+  ffi.Int32 Function(
+    ffi.Pointer<mtmd_context>,
+    ffi.Pointer<llama_context>,
+    ffi.Pointer<mtmd_input_chunk>,
+    llama_pos,
+    llama_seq_id,
+    ffi.Int32,
+    ffi.Bool,
+    ffi.Pointer<llama_pos>,
+  )
+>()
+external int mtmd_helper_eval_chunk_single(
+  ffi.Pointer<mtmd_context> ctx,
+  ffi.Pointer<llama_context> lctx,
+  ffi.Pointer<mtmd_input_chunk> chunk,
+  int n_past,
+  int seq_id,
+  int n_batch,
+  bool logits_last,
+  ffi.Pointer<llama_pos> new_n_past,
+);
+
+/// helper function to decode an image whose embeddings have already been calculated
+/// this helper will handle batching and pre/post decoding setup (for ex. gemma 3 requires non-causal attention)
+/// ret 0 on success, -1 on chunk not being a valid image chunk, 1 on decode failure
+@ffi.Native<
+  ffi.Int32 Function(
+    ffi.Pointer<mtmd_context>,
+    ffi.Pointer<llama_context>,
+    ffi.Pointer<mtmd_input_chunk>,
+    ffi.Pointer<ffi.Float>,
+    llama_pos,
+    llama_seq_id,
+    ffi.Int32,
+    ffi.Pointer<llama_pos>,
+  )
+>()
+external int mtmd_helper_decode_image_chunk(
+  ffi.Pointer<mtmd_context> ctx,
+  ffi.Pointer<llama_context> lctx,
+  ffi.Pointer<mtmd_input_chunk> chunk,
+  ffi.Pointer<ffi.Float> encoded_embd,
+  int n_past,
+  int seq_id,
+  int n_batch,
+  ffi.Pointer<llama_pos> new_n_past,
+);
+
 /// C interface
 ///
 /// TODO: show sample usage
@@ -10202,6 +10627,82 @@ typedef Dartggml_backend_eval_callbackFunction =
 typedef ggml_backend_eval_callback =
     ffi.Pointer<ffi.NativeFunction<ggml_backend_eval_callbackFunction>>;
 
+enum mtmd_input_chunk_type {
+  MTMD_INPUT_CHUNK_TYPE_TEXT(0),
+  MTMD_INPUT_CHUNK_TYPE_IMAGE(1),
+  MTMD_INPUT_CHUNK_TYPE_AUDIO(2);
+
+  final int value;
+  const mtmd_input_chunk_type(this.value);
+
+  static mtmd_input_chunk_type fromValue(int value) => switch (value) {
+    0 => MTMD_INPUT_CHUNK_TYPE_TEXT,
+    1 => MTMD_INPUT_CHUNK_TYPE_IMAGE,
+    2 => MTMD_INPUT_CHUNK_TYPE_AUDIO,
+    _ => throw ArgumentError('Unknown value for mtmd_input_chunk_type: $value'),
+  };
+}
+
+/// opaque types
+final class mtmd_context extends ffi.Opaque {}
+
+final class mtmd_bitmap extends ffi.Opaque {}
+
+final class mtmd_image_tokens extends ffi.Opaque {}
+
+final class mtmd_input_chunk extends ffi.Opaque {}
+
+final class mtmd_input_chunks extends ffi.Opaque {}
+
+final class mtmd_input_text extends ffi.Struct {
+  external ffi.Pointer<ffi.Char> text;
+
+  @ffi.Bool()
+  external bool add_special;
+
+  @ffi.Bool()
+  external bool parse_special;
+}
+
+final class mtmd_context_params extends ffi.Struct {
+  @ffi.Bool()
+  external bool use_gpu;
+
+  @ffi.Bool()
+  external bool print_timings;
+
+  @ffi.Int()
+  external int n_threads;
+
+  /// deprecated, use media_marker instead
+  external ffi.Pointer<ffi.Char> image_marker;
+
+  external ffi.Pointer<ffi.Char> media_marker;
+
+  @ffi.Int()
+  external int flash_attn_typeAsInt;
+
+  llama_flash_attn_type get flash_attn_type =>
+      llama_flash_attn_type.fromValue(flash_attn_typeAsInt);
+
+  /// whether to run a warmup encode pass after initialization
+  @ffi.Bool()
+  external bool warmup;
+
+  /// minimum number of tokens for image input (default: read from metadata)
+  @ffi.Int()
+  external int image_min_tokens;
+
+  /// maximum number of tokens for image input (default: read from metadata)
+  @ffi.Int()
+  external int image_max_tokens;
+
+  /// callback function passed over to mtmd proper
+  external ggml_backend_sched_eval_callback cb_eval;
+
+  external ffi.Pointer<ffi.Void> cb_eval_user_data;
+}
+
 const int LLAMA_DEFAULT_SEED = 4294967295;
 
 const int LLAMA_TOKEN_NULL = -1;
@@ -10267,3 +10768,5 @@ const int GGML_ROPE_TYPE_IMROPE = 40;
 const int GGML_MROPE_SECTIONS = 4;
 
 const int GGML_N_TASKS_MAX = -1;
+
+const String MTMD_DEFAULT_IMAGE_MARKER = '<__image__>';

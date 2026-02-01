@@ -92,6 +92,60 @@ class SettingsSheet extends StatelessWidget {
                     ),
                   ),
                 ),
+                const SizedBox(height: 16),
+                _buildSettingItem(
+                  context,
+                  title: 'Multimodal Projector (mmproj)',
+                  child: InkWell(
+                    onTap: () {
+                      provider.selectMmprojFile();
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.extension_outlined,
+                            size: 20,
+                            color: Theme.of(context).colorScheme.secondary,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              provider.settings.mmprojPath?.split('/').last ??
+                                  'None',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (provider.settings.mmprojPath != null)
+                            IconButton(
+                              onPressed: () => provider.updateMmprojPath(''),
+                              icon: const Icon(Icons.clear, size: 16),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            )
+                          else
+                            Icon(
+                              Icons.file_upload_outlined,
+                              size: 16,
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 24),
                 _buildSettingItem(
                   context,

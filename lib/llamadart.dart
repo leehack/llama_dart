@@ -5,6 +5,8 @@ library;
 export 'src/models/model_params.dart';
 export 'src/models/generation_params.dart';
 export 'src/models/llama_chat_message.dart';
+export 'src/models/llama_content_part.dart';
+export 'src/models/llama_chat_role.dart';
 export 'src/models/llama_chat_template_result.dart';
 export 'src/models/llama_log_level.dart';
 export 'src/models/gpu_backend.dart';

@@ -29,9 +29,9 @@ The project follows a modular, decoupled architecture:
 
 This project follows a **Zero-Patch Strategy** for external submodules (like `llama.cpp` and `Vulkan-Headers`):
 
-*   **No Direct Modifications**: We never modify the source code inside `third_party/llama_cpp`.
+*   **Zero Direct Modifications**: We never modify the source code inside `third_party/llama_cpp`.
 *   **Upgradability**: This allows us to update the core engine by simply bumping the submodule pointer.
-*   **Wrappers & Hooks**: Any necessary changes should be implemented in `third_party/CMakeLists.txt` or through compiler flags in the build scripts.
+*   **Wrappers & Hooks**: Any necessary changes should be implemented in `third_party/CMakeLists.txt` or through compiler flags in the build scripts. We also consolidate experimental modules like `mtmd` by linking them into the core `llamadart` binary.
 
 ## 🏗️ Architecture: Native Assets & CI
 

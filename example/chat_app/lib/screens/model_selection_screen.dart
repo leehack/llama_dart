@@ -74,16 +74,26 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
     );
   }
 
-  void _selectModel(String pathOrUrl) {
-    context.read<ChatProvider>().updateModelPath(pathOrUrl);
-    context.read<ChatProvider>().loadModel();
+  void _selectModel(DownloadableModel model) {
+    final pathOrUrl = kIsWeb ? model.url : '${_modelsDir!}/${model.filename}';
+    final provider = context.read<ChatProvider>();
+
+    provider.updateModelPath(pathOrUrl);
+
+    if (!kIsWeb && model.isMultimodal && model.mmprojFilename != null) {
+      provider.updateMmprojPath('${_modelsDir!}/${model.mmprojFilename}');
+    } else {
+      provider.updateMmprojPath(''); // Clear if not multimodal
+    }
+
+    provider.loadModel();
     Navigator.of(context).pop();
   }
 
-  Future<void> _deleteModel(String filename) async {
+  Future<void> _deleteModel(DownloadableModel model) async {
     if (_modelsDir == null) return;
-    await _modelService.deleteModel(_modelsDir!, filename);
-    setState(() => _downloadedFiles.remove(filename));
+    await _modelService.deleteModel(_modelsDir!, model);
+    setState(() => _downloadedFiles.remove(model.filename));
   }
 
   @override
@@ -102,11 +112,9 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
             isDownloading: _isDownloading[model.filename] ?? false,
             progress: _downloadProgress[model.filename] ?? 0.0,
             isWeb: kIsWeb,
-            onSelect: () => _selectModel(
-              kIsWeb ? model.url : '${_modelsDir!}/${model.filename}',
-            ),
+            onSelect: () => _selectModel(model),
             onDownload: () => _downloadModel(model),
-            onDelete: () => _deleteModel(model.filename),
+            onDelete: () => _deleteModel(model),
           );
         },
       ),

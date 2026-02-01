@@ -6,13 +6,18 @@ headers:
     - 'third_party/llama_cpp/include/llama.h'
     - 'third_party/llama_cpp/ggml/include/ggml.h'
     - 'third_party/llama_cpp/ggml/include/ggml-backend.h'
+    - 'third_party/llama_cpp/tools/mtmd/mtmd.h'
+    - 'third_party/llama_cpp/tools/mtmd/mtmd-helper.h'
   include-directives:
     - 'third_party/llama_cpp/include/llama.h'
     - 'third_party/llama_cpp/ggml/include/ggml.h'
     - 'third_party/llama_cpp/ggml/include/ggml-backend.h'
+    - 'third_party/llama_cpp/tools/mtmd/mtmd.h'
+    - 'third_party/llama_cpp/tools/mtmd/mtmd-helper.h'
 compiler-opts:
   - '-Ithird_party/llama_cpp/ggml/include'
   - '-Ithird_party/llama_cpp/include'
+  - '-Ithird_party/llama_cpp/tools/mtmd'
 preamble: |
   // ignore_for_file: always_specify_types, unused_field
   // ignore_for_file: camel_case_types

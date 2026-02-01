@@ -4,6 +4,7 @@ import '../models/chat_settings.dart';
 
 class SettingsService {
   static const _keyModelPath = 'model_path';
+  static const _keyMmprojPath = 'mmproj_path';
   static const _keyBackend = 'preferred_backend';
   static const _keyTemp = 'temperature';
   static const _keyTopK = 'top_k';
@@ -15,6 +16,7 @@ class SettingsService {
     final prefs = await SharedPreferences.getInstance();
     return ChatSettings(
       modelPath: prefs.getString(_keyModelPath),
+      mmprojPath: prefs.getString(_keyMmprojPath),
       preferredBackend: GpuBackend.values[prefs.getInt(_keyBackend) ?? 0],
       temperature: prefs.getDouble(_keyTemp) ?? 0.7,
       topK: prefs.getInt(_keyTopK) ?? 40,
@@ -29,6 +31,11 @@ class SettingsService {
     final prefs = await SharedPreferences.getInstance();
     if (settings.modelPath != null) {
       await prefs.setString(_keyModelPath, settings.modelPath!);
+    }
+    if (settings.mmprojPath != null) {
+      await prefs.setString(_keyMmprojPath, settings.mmprojPath!);
+    } else {
+      await prefs.remove(_keyMmprojPath);
     }
     await prefs.setInt(_keyBackend, settings.preferredBackend.index);
     await prefs.setDouble(_keyTemp, settings.temperature);

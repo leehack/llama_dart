@@ -25,8 +25,9 @@ class MockLlamaBackend implements LlamaBackend {
   Stream<List<int>> generate(
     int contextHandle,
     String prompt,
-    GenerationParams params,
-  ) async* {
+    GenerationParams params, {
+    List<LlamaContentPart>? parts,
+  }) async* {
     yield [72, 105, 32, 116, 104, 101, 114, 101]; // "Hi there"
   }
 
@@ -75,6 +76,21 @@ class MockLlamaBackend implements LlamaBackend {
   Future<void> setLogLevel(LlamaLogLevel level) async {}
   @override
   Future<void> dispose() async {}
+
+  @override
+  Future<int?> multimodalContextCreate(
+    int modelHandle,
+    String mmProjPath,
+  ) async => 1;
+
+  @override
+  Future<void> multimodalContextFree(int mmContextHandle) async {}
+
+  @override
+  Future<bool> supportsAudio(int mmContextHandle) async => false;
+
+  @override
+  Future<bool> supportsVision(int mmContextHandle) async => false;
 }
 
 class MockLlamaEngine extends LlamaEngine {

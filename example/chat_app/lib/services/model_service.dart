@@ -24,7 +24,14 @@ class ModelService {
 
     for (var model in models) {
       final file = File(p.join(modelsDirPath, model.filename));
-      if (file.existsSync() && file.lengthSync() > 0) {
+      bool exists = file.existsSync() && file.lengthSync() > 0;
+
+      if (exists && model.isMultimodal && model.mmprojFilename != null) {
+        final mmFile = File(p.join(modelsDirPath, model.mmprojFilename!));
+        exists = mmFile.existsSync() && mmFile.lengthSync() > 0;
+      }
+
+      if (exists) {
         downloaded.add(model.filename);
       }
     }
@@ -41,30 +48,69 @@ class ModelService {
     final savePath = p.join(modelsDir, model.filename);
 
     try {
+      // 1. Download base model
       await _dio.download(
         model.url,
         savePath,
         onReceiveProgress: (received, total) {
           if (total != -1) {
-            onProgress(received / total);
+            // If multimodal, this is 70% of progress
+            double baseProgress = received / total;
+            if (model.isMultimodal) {
+              onProgress(baseProgress * 0.7);
+            } else {
+              onProgress(baseProgress);
+            }
           }
         },
       );
+
+      // 2. Download mmproj if needed
+      if (model.isMultimodal &&
+          model.mmprojUrl != null &&
+          model.mmprojFilename != null) {
+        final mmSavePath = p.join(modelsDir, model.mmprojFilename!);
+        await _dio.download(
+          model.mmprojUrl!,
+          mmSavePath,
+          onReceiveProgress: (received, total) {
+            if (total != -1) {
+              // Remaining 30%
+              onProgress(0.7 + (received / total * 0.3));
+            }
+          },
+        );
+      }
+
       onSuccess(model.filename);
     } catch (e) {
       final file = File(savePath);
       if (file.existsSync()) {
         file.deleteSync();
       }
+      if (model.mmprojFilename != null) {
+        final mmFile = File(p.join(modelsDir, model.mmprojFilename!));
+        if (mmFile.existsSync()) {
+          mmFile.deleteSync();
+        }
+      }
       onError(e);
     }
   }
 
-  Future<void> deleteModel(String modelsDir, String filename) async {
-    final path = p.join(modelsDir, filename);
+  Future<void> deleteModel(String modelsDir, DownloadableModel model) async {
+    final path = p.join(modelsDir, model.filename);
     final file = File(path);
     if (file.existsSync()) {
       await file.delete();
+    }
+
+    if (model.mmprojFilename != null) {
+      final mmPath = p.join(modelsDir, model.mmprojFilename!);
+      final mmFile = File(mmPath);
+      if (mmFile.existsSync()) {
+        await mmFile.delete();
+      }
     }
   }
 }

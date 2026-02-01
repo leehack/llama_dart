@@ -10,6 +10,7 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
 # Add llama.cpp as a subdirectory
 set(LLAMA_BUILD_NUMBER 0 CACHE STRING "Llama build number" FORCE)
 set(LLAMA_INSTALL_VERSION 0.0.0 CACHE STRING "Llama install version" FORCE)
+
 set(LLAMA_BUILD_COMMON OFF CACHE BOOL "Build llama.cpp common library" FORCE)
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Build llama.cpp tests" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Build llama.cpp examples" FORCE)
