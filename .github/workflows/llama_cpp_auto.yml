@@ -34,10 +34,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Fetch llama.cpp
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.inputs.llama_cpp_tag }}"
           if [ -z "$TAG" ] || [ "$TAG" == "latest" ]; then
-            TAG=$(curl -s https://api.github.com/repos/ggerganov/llama.cpp/releases/latest | jq -r .tag_name)
+            TAG=$(gh api repos/ggerganov/llama.cpp/releases/latest --jq '.tag_name')
           fi
           echo "Selected Tag: $TAG"
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git llama_cpp
@@ -75,10 +77,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Fetch llama.cpp
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.inputs.llama_cpp_tag }}"
           if [ -z "$TAG" ] || [ "$TAG" == "latest" ]; then
-            TAG=$(curl -s https://api.github.com/repos/ggerganov/llama.cpp/releases/latest | jq -r .tag_name)
+            TAG=$(gh api repos/ggerganov/llama.cpp/releases/latest --jq '.tag_name')
           fi
           echo "Selected Tag: $TAG"
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git llama_cpp
@@ -113,10 +117,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Fetch llama.cpp
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.inputs.llama_cpp_tag }}"
           if [ -z "$TAG" ] || [ "$TAG" == "latest" ]; then
-            TAG=$(curl -s https://api.github.com/repos/ggerganov/llama.cpp/releases/latest | jq -r .tag_name)
+            TAG=$(gh api repos/ggerganov/llama.cpp/releases/latest --jq '.tag_name')
           fi
           echo "Selected Tag: $TAG"
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git llama_cpp
@@ -193,10 +199,12 @@ jobs:
           channel: 'stable'
       - name: Fetch llama.cpp for Headers
         id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.inputs.llama_cpp_tag }}"
           if [ -z "$TAG" ] || [ "$TAG" == "latest" ]; then
-            TAG=$(curl -s https://api.github.com/repos/ggerganov/llama.cpp/releases/latest | jq -r .tag_name)
+            TAG=$(gh api repos/ggerganov/llama.cpp/releases/latest --jq '.tag_name')
           fi
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git third_party/llama_cpp
