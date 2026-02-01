@@ -1,12 +1,14 @@
 name: llama.cpp Auto Update & Release
 
 on:
+  push:
+    branches: [ infra/automate-llama-cpp-release ]
   workflow_dispatch:
     inputs:
       llama_cpp_tag:
         description: 'llama.cpp tag to build (e.g., b4500)'
         required: true
-        default: 'latest'
+        default: 'b4600'
 
 permissions:
   contents: write
