@@ -340,13 +340,7 @@ jobs:
           api-level: 29
           arch: x86_64
           target: default
-          script: |
-            cd example/chat_app
-            flutter pub get
-            # Download model
-            mkdir -p models
-            curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf
-            flutter test integration_test/smoke_test.dart
+          script: cd example/chat_app && flutter pub get && mkdir -p models && curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf && flutter test integration_test/smoke_test.dart
 
   test-ios:
     needs: [build-apple, codegen]
