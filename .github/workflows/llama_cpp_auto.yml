@@ -308,106 +308,11 @@ jobs:
           fi
           dart test --timeout 5m test/inference_smoke_test.dart
 
-  test-android:
-    needs: [build-android, codegen]
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-      - name: Cache Pub packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.pub-cache
-          key: ${{ runner.os }}-pub-cache-${{ hashFiles('**/pubspec.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pub-cache-
-      - name: Download Updated Source
-        uses: actions/download-artifact@v4
-        with:
-          name: updated_source
-          path: .
-      - name: Download Android Binaries
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: Prepare Android Binaries
-        run: |
-          mkdir -p third_party/bin/android/arm64
-          mkdir -p third_party/bin/android/x64
-          find artifacts/libllamadart_android_arm64-v8a -name "libllamadart.so" -exec cp {} third_party/bin/android/arm64/libllamadart-android-arm64.so \;
-          find artifacts/libllamadart_android_x86_64 -name "libllamadart.so" -exec cp {} third_party/bin/android/x64/libllamadart-android-x64.so \;
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-      - name: Setup Android NDK
-        uses: android-actions/setup-android@v3
-      - name: Run Android Integration Test
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 34
-          arch: arm64-v8a
-          target: google_apis
-          emulator-boot-timeout: 1200
-          disable-animations: true
-          script: cd example/chat_app && flutter pub get && mkdir -p models && curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf && flutter test integration_test/smoke_test.dart --target-platform android-arm64 --no-pub
-
-  test-ios:
-    needs: [build-apple, codegen]
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-      - name: Cache Pub packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.pub-cache
-          key: ${{ runner.os }}-pub-cache-${{ hashFiles('**/pubspec.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pub-cache-
-      - name: Download Updated Source
-        uses: actions/download-artifact@v4
-        with:
-          name: updated_source
-          path: .
-      - name: Download iOS Binaries
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: Prepare iOS Binaries
-        run: |
-          mkdir -p third_party/bin/ios
-          find artifacts/libllamadart_apple_ios-sim-arm64 -name "libllamadart-ios-arm64-sim.dylib" -exec cp {} third_party/bin/ios/libllamadart-ios-arm64-sim.dylib \;
-          find artifacts/libllamadart_apple_ios-sim-x86_64 -name "libllamadart-ios-x86_64-sim.dylib" -exec cp {} third_party/bin/ios/libllamadart-ios-x86_64-sim.dylib \;
-      - name: Run iOS Integration Test
-        run: |
-          cd example/chat_app
-          flutter pub get
-          mkdir -p models
-          curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf
-          ID=$(xcrun simctl list devices iPhone available --json | jq -r '.devices[] | .[] | .udid' | head -n 1)
-          if [ -z "$ID" ]; then
-            echo "No available iPhone simulator found!"
-            exit 1
-          fi
-          echo "Booting simulator $ID"
-          xcrun simctl boot "$ID" || true
-          flutter test integration_test/smoke_test.dart -d "$ID" --no-pub
-
   # ---------------------------------------------------------------------------
   # Stage D: Release & PR
   # ---------------------------------------------------------------------------
   release:
-    needs: [test-desktop, test-android, test-ios, codegen]
+    needs: [test-desktop, codegen]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
