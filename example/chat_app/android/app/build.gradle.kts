@@ -8,7 +8,6 @@ plugins {
 android {
     namespace = "com.example.llamadart_chat_example"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "29.0.14206865"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
