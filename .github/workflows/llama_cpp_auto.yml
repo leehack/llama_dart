@@ -310,7 +310,6 @@ jobs:
 
   test-android:
     needs: [build-android, codegen]
-    # Use macOS for Android tests to get hardware acceleration (HAXM)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -351,7 +350,7 @@ jobs:
       - name: Run Android Integration Test
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 29
+          api-level: 31
           arch: x86_64
           target: default
           emulator-boot-timeout: 600
@@ -392,10 +391,8 @@ jobs:
         run: |
           cd example/chat_app
           flutter pub get
-          # Download model
           mkdir -p models
           curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf
-          # Start a standard simulator
           ID=$(xcrun simctl list devices iPhone available --json | jq -r '.devices[] | .[] | .udid' | head -n 1)
           if [ -z "$ID" ]; then
             echo "No available iPhone simulator found!"
