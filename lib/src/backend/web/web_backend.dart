@@ -72,13 +72,12 @@ class WebLlamaBackend implements LlamaBackend {
     script.type = 'module';
     script.text =
         '''
-      try {
-        import { Wllama } from "$_wllamaJsUrl";
-        window.Wllama = Wllama;
+      import("$_wllamaJsUrl").then(mod => {
+        window.Wllama = mod.Wllama;
         if (window.$callbackName) window.$callbackName();
-      } catch (e) {
+      }).catch(e => {
         console.error("WebLlamaBackend: Failed to import Wllama", e);
-      }
+      });
     ''';
 
     script.addEventListener(

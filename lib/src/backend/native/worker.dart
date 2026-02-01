@@ -806,11 +806,13 @@ void _handleMultimodalContextCreate(
   try {
     final mmProjPathPtr = request.mmProjPath.toNativeUtf8();
     final ctxParams = mtmd_context_params_default();
+    print('Worker: Loading multimodal projector: ${request.mmProjPath}');
     final mmCtx = mtmd_init_from_file(
       mmProjPathPtr.cast(),
       model.pointer,
       ctxParams,
     );
+    print('Worker: Multimodal context created: ${mmCtx.address}');
     malloc.free(mmProjPathPtr);
 
     if (mmCtx == nullptr) {
