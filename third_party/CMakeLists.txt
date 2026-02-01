@@ -72,4 +72,5 @@ endif()
 set_target_properties(llamadart_lib PROPERTIES 
     OUTPUT_NAME llamadart
     LIBRARY_OUTPUT_NAME llamadart
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
 )
