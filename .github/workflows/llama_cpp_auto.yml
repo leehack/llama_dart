@@ -213,11 +213,17 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git third_party/llama_cpp
       - name: Install LLVM
-        run: sudo apt-get update && sudo apt-get install -y libllvm15 libclang-15-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm-dev libclang-dev clang
+      - name: Check llama.cpp Headers
+        run: |
+          ls -R third_party/llama_cpp/include
+          ls -R third_party/llama_cpp/ggml/include
       - name: Run ffigen
         run: |
           flutter pub get
-          dart run ffigen
+          dart run ffigen --verbose
       - name: Update hook/build.dart
         run: |
           TAG=${{ steps.tag.outputs.tag }}
