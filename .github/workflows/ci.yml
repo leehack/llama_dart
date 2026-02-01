@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  analyze:
+    name: Analyze & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Verify formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze project source
+        run: dart analyze
+
+      - name: Pub Publish Dry Run
+        run: flutter pub publish --dry-run
+
+      - name: Install Pana
+        run: flutter pub global activate pana
+
+      - name: Check Pana Score
+        run: flutter pub global run pana . --exit-code-threshold 0
+
+  test-native:
+    name: Native Test (${{ matrix.os }})
+    needs: analyze
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install Coverage tool
+        run: dart pub global activate coverage
+
+      - name: Run native tests with coverage
+        run: dart test --coverage=coverage
+
+      - name: Format coverage
+        run: |
+          dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib
+
+      - name: Check Coverage Threshold (80%)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          COVERAGE=$(awk '/^SF:.*generated/ {skip=1} /^LF:/ {if (!skip) found += substr($0, 4)} /^LH:/ {if (!skip) hit += substr($0, 4)} /^end_of_record/ {skip=0} END {if (found > 0) print (hit/found * 100); else print 0}' coverage/lcov.info)
+          echo "Core Coverage: $COVERAGE%"
+          awk -v cov="$COVERAGE" 'BEGIN { if (cov < 80) { print "Error: Coverage " cov "% is below threshold (80%)"; exit 1 } }'
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/lcov.info
+          flags: ${{ matrix.os }}
+          name: codecov-umbrella
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  test-web:
+    name: Web Test
+    needs: analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install Coverage tool
+        run: dart pub global activate coverage
+
+      - name: Run web tests
+        run: dart test -p chrome --coverage=coverage
+
+      - name: Format coverage
+        run: |
+          dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/lcov.info
+          flags: web
+          name: codecov-umbrella
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
