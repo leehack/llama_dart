@@ -223,7 +223,7 @@ jobs:
       - name: Run ffigen
         run: |
           flutter pub get
-          dart run ffigen --verbose
+          dart run ffigen --config ffigen.yaml --verbose
       - name: Update hook/build.dart
         run: |
           TAG=${{ steps.tag.outputs.tag }}
