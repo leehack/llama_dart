@@ -32,22 +32,24 @@ void main() {
 
   group('ChatTemplateProcessor (Integration)', () {
     late File modelFile;
-    late NativeLlamaBackend backend;
-    late int modelHandle;
+    late LlamaBackend backend;
+    int? modelHandle;
     late ChatTemplateProcessor processor;
 
     setUpAll(() async {
       modelFile = await TestHelper.getTestModel();
-      backend = NativeLlamaBackend();
+      backend = LlamaBackend();
       modelHandle = await backend.modelLoad(
         modelFile.path,
         const ModelParams(),
       );
-      processor = ChatTemplateProcessor(backend, modelHandle);
+      processor = ChatTemplateProcessor(backend, modelHandle!);
     });
 
     tearDownAll(() async {
-      await backend.modelFree(modelHandle);
+      if (modelHandle != null) {
+        await backend.modelFree(modelHandle!);
+      }
       await backend.dispose();
     });
 

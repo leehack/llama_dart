@@ -35,22 +35,24 @@ void main() {
 
   group('LlamaTokenizer (Integration)', () {
     late File modelFile;
-    late NativeLlamaBackend backend;
-    late int modelHandle;
+    late LlamaBackend backend;
+    int? modelHandle;
     late LlamaTokenizer tokenizer;
 
     setUpAll(() async {
       modelFile = await TestHelper.getTestModel();
-      backend = NativeLlamaBackend();
+      backend = LlamaBackend();
       modelHandle = await backend.modelLoad(
         modelFile.path,
         const ModelParams(),
       );
-      tokenizer = LlamaTokenizer(backend, modelHandle);
+      tokenizer = LlamaTokenizer(backend, modelHandle!);
     });
 
     tearDownAll(() async {
-      await backend.modelFree(modelHandle);
+      if (modelHandle != null) {
+        await backend.modelFree(modelHandle!);
+      }
       await backend.dispose();
     });
 
