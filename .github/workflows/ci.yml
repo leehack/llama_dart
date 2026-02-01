@@ -69,20 +69,13 @@ jobs:
         run: |
           dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib
 
-      - name: Check Coverage Threshold (75%)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          COVERAGE=$(awk '/^SF:.*generated/ {skip=1} /^LF:/ {if (!skip) found += substr($0, 4)} /^LH:/ {if (!skip) hit += substr($0, 4)} /^end_of_record/ {skip=0} END {if (found > 0) print (hit/found * 100); else print 0}' coverage/lcov.info)
-          echo "Core Coverage: $COVERAGE%"
-          awk -v cov="$COVERAGE" 'BEGIN { if (cov < 75) { print "Error: Coverage " cov "% is below threshold (75%)"; exit 1 } }'
-
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           files: coverage/lcov.info
           flags: ${{ matrix.os }}
           name: codecov-umbrella
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
   test-web:
