@@ -21,6 +21,10 @@ void main(List<String> arguments) async {
         abbr: 'i',
         help: 'Start in interactive conversation mode.',
         defaultsTo: true)
+    ..addFlag('log',
+        abbr: 'g',
+        help: 'Enable native engine logging output.',
+        defaultsTo: false)
     ..addFlag('help',
         abbr: 'h', help: 'Show this help message.', negatable: false);
 
@@ -45,9 +49,14 @@ void main(List<String> arguments) async {
 
     final loraPaths = results['lora'] as List<String>;
     final loras = loraPaths.map((p) => LoraAdapterConfig(path: p)).toList();
+    final enableLog = results['log'] as bool;
 
     print('Initializing engine...');
-    await llamaService.init(modelFile.path, loras: loras);
+    await llamaService.init(
+      modelFile.path,
+      loras: loras,
+      logLevel: enableLog ? LlamaLogLevel.info : LlamaLogLevel.none,
+    );
     print('Model loaded successfully.\n');
 
     if (singlePrompt != null) {
@@ -58,6 +67,7 @@ void main(List<String> arguments) async {
   } catch (e) {
     print('\nError: $e');
   } finally {
+    // CRITICAL: Always dispose resources to prevent memory leaks and native process hangs
     await llamaService.dispose();
     exit(0);
   }

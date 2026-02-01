@@ -6,6 +6,7 @@ class WelcomeView extends StatelessWidget {
   final String? error;
   final String? modelPath;
   final bool isLoaded;
+  final double loadingProgress;
   final VoidCallback onRetry;
   final VoidCallback onSelectModel;
 
@@ -15,6 +16,7 @@ class WelcomeView extends StatelessWidget {
     required this.error,
     required this.modelPath,
     required this.isLoaded,
+    this.loadingProgress = 0.0,
     required this.onRetry,
     required this.onSelectModel,
   });
@@ -26,10 +28,18 @@ class WelcomeView extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(),
+            if (loadingProgress > 0)
+              SizedBox(
+                width: 200,
+                child: LinearProgressIndicator(value: loadingProgress),
+              )
+            else
+              const CircularProgressIndicator(),
             const SizedBox(height: 24),
             Text(
-              'Loading Model...',
+              loadingProgress > 0
+                  ? 'Loading Model: ${(loadingProgress * 100).toStringAsFixed(0)}%'
+                  : 'Loading Model...',
               style: GoogleFonts.outfit(
                 fontSize: 18,
                 color: Theme.of(context).colorScheme.secondary,

@@ -1,0 +1,175 @@
+import 'dart:async';
+import 'package:llamadart/llamadart.dart';
+import 'package:llamadart_chat_example/models/chat_settings.dart';
+import 'package:llamadart_chat_example/services/chat_service.dart';
+import 'package:llamadart_chat_example/services/settings_service.dart';
+
+class MockLlamaBackend implements LlamaBackend {
+  @override
+  bool get isReady => true;
+  @override
+  Future<int> modelLoad(String path, ModelParams params) async => 1;
+  @override
+  Future<int> modelLoadFromUrl(
+    String url,
+    ModelParams params, {
+    Function(double progress)? onProgress,
+  }) async => 1;
+  @override
+  Future<void> modelFree(int modelHandle) async {}
+  @override
+  Future<int> contextCreate(int modelHandle, ModelParams params) async => 1;
+  @override
+  Future<void> contextFree(int contextHandle) async {}
+  @override
+  Stream<List<int>> generate(
+    int contextHandle,
+    String prompt,
+    GenerationParams params,
+  ) async* {
+    yield [72, 105, 32, 116, 104, 101, 114, 101]; // "Hi there"
+  }
+
+  @override
+  void cancelGeneration() {}
+  @override
+  Future<List<int>> tokenize(
+    int modelHandle,
+    String text, {
+    bool addSpecial = true,
+  }) async => [1, 2, 3];
+  @override
+  Future<String> detokenize(
+    int modelHandle,
+    List<int> tokens, {
+    bool special = false,
+  }) async => "mock";
+  @override
+  Future<Map<String, String>> modelMetadata(int modelHandle) async => {
+    "llama.context_length": "2048",
+  };
+  @override
+  Future<LlamaChatTemplateResult> applyChatTemplate(
+    int modelHandle,
+    List<LlamaChatMessage> messages, {
+    bool addAssistant = true,
+  }) async =>
+      const LlamaChatTemplateResult(prompt: "mock prompt", stopSequences: []);
+  @override
+  Future<void> setLoraAdapter(
+    int contextHandle,
+    String path,
+    double scale,
+  ) async {}
+  @override
+  Future<void> removeLoraAdapter(int contextHandle, String path) async {}
+  @override
+  Future<void> clearLoraAdapters(int contextHandle) async {}
+  @override
+  Future<String> getBackendName() async => "Mock";
+  @override
+  bool get supportsUrlLoading => false;
+  @override
+  Future<bool> isGpuSupported() async => true;
+  @override
+  Future<void> setLogLevel(LlamaLogLevel level) async {}
+  @override
+  Future<void> dispose() async {}
+}
+
+class MockLlamaEngine extends LlamaEngine {
+  bool initialized = false;
+
+  MockLlamaEngine() : super(MockLlamaBackend());
+
+  @override
+  bool get isReady => initialized;
+
+  @override
+  Future<void> loadModel(
+    String path, {
+    ModelParams modelParams = const ModelParams(),
+  }) async {
+    initialized = true;
+  }
+
+  @override
+  Future<void> loadModelFromUrl(
+    String url, {
+    ModelParams modelParams = const ModelParams(),
+    Function(double progress)? onProgress,
+  }) async {
+    initialized = true;
+  }
+
+  @override
+  Stream<String> chat(
+    List<LlamaChatMessage> messages, {
+    GenerationParams? params,
+  }) async* {
+    yield "Hi there";
+  }
+
+  @override
+  Future<int> getContextSize() async => 2048;
+
+  @override
+  Future<int> getTokenCount(String text) async => 5;
+}
+
+class MockSettingsService implements SettingsService {
+  ChatSettings settings = const ChatSettings(modelPath: "mock.gguf");
+
+  @override
+  Future<ChatSettings> loadSettings() async => settings;
+
+  @override
+  Future<void> saveSettings(ChatSettings newSettings) async {
+    settings = newSettings;
+  }
+}
+
+class MockChatService extends ChatService {
+  final MockLlamaEngine mockEngine;
+
+  MockChatService({MockLlamaEngine? engine})
+    : mockEngine = engine ?? MockLlamaEngine(),
+      super(engine: engine ?? MockLlamaEngine());
+
+  @override
+  LlamaEngine get engine => mockEngine;
+
+  @override
+  LlamaEngine get llama => mockEngine;
+
+  @override
+  Future<void> init(
+    ChatSettings settings, {
+    Function(double progress)? onProgress,
+  }) async {
+    if (settings.modelPath == null || settings.modelPath!.isEmpty) {
+      throw Exception("Invalid model path");
+    }
+    await mockEngine.loadModel(settings.modelPath!);
+  }
+
+  @override
+  Stream<String> generate(
+    List<LlamaChatMessage> messages,
+    ChatSettings settings,
+  ) async* {
+    yield "Hi there";
+  }
+
+  @override
+  Future<LlamaChatTemplateResult> buildPrompt(
+    dynamic messages,
+    int maxTokens, {
+    int safetyMargin = 1024,
+  }) async {
+    return const LlamaChatTemplateResult(prompt: "prompt", stopSequences: []);
+  }
+
+  @override
+  String cleanResponse(String response) => response;
+}

@@ -48,6 +48,7 @@ dart run -- -p "What is the capital of France?"
 - `-m, --model`: Path or URL to the GGUF model file.
 - `-p, --prompt`: Prompt for single response mode.
 - `-i, --interactive`: Start in interactive mode (default if no prompt provided).
+- `-g, --log`: Enable native engine logging output (defaults to off).
 - `-h, --help`: Show help message.
 
 ## Project Structure

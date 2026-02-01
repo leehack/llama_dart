@@ -16,12 +16,14 @@ Before you begin, ensure you have the following installed:
 
 ## Project Structure
 
-The project maps closely to the `llama.cpp` structure:
+The project follows a modular, decoupled architecture:
 
--   `lib/`: Dart source code and FFI bindings.
--   `third_party/`: `llama.cpp` core engine, dependencies (submodules), and build infrastructure.
--   `example/`: Usage examples, Flutter app, and LoRA training notebook.
--   `hook/`: Native Assets build hook for automatic binary management.
+-   `lib/src/engine/`: Core orchestration (LlamaEngine, Tokenizer, Template Processor).
+-   `lib/src/backend/`: Platform-agnostic interfaces and concrete implementations (Native, Web).
+-   `lib/src/models/`: Shared data models (Params, Messages, etc.).
+-   `lib/src/common/`: Shared utilities (Exceptions, Loaders).
+-   `lib/src/compat/`: Backward compatibility layer (LlamaService).
+-   `third_party/`: `llama.cpp` core engine and build infrastructure.
 
 ## 🛡️ Zero-Patch Strategy
 
@@ -61,8 +63,9 @@ When a user adds `llamadart` as a dependency and runs their app:
     cd llamadart
     ```
 
-2.  **Clone submodules**:
+2.  **Initialize**:
     ```bash
+    dart pub get
     git submodule update --init --recursive
     ```
 
@@ -73,6 +76,45 @@ When a user adds `llamadart` as a dependency and runs their app:
     dart run
     ```
     The `hook/build.dart` will automatically download the correct pre-compiled binaries for your platform.
+
+## 🧪 Testing
+
+We take testing seriously. This project maintains **80%+ global test coverage**.
+
+### 1. Native Tests (VM)
+Native tests require a GGUF model for integration. The test suite automatically downloads a tiny (15M) model from Hugging Face during the first run.
+
+```bash
+# Run all native tests
+dart test
+```
+
+### 2. Web Tests (Chrome)
+Web tests require Google Chrome and test the `WebLlamaBackend` logic and JS interop.
+
+```bash
+# Run all web tests
+dart test -p chrome
+```
+
+### 3. Coverage
+To collect and view coverage reports:
+
+```bash
+# 1. Collect VM coverage
+dart test --coverage=coverage
+
+# 2. Collect Web coverage
+dart test -p chrome --coverage=coverage
+
+# 3. Format into LCOV (requires coverage package)
+dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib
+```
+
+### 4. Testing Standards
+- **Refactoring**: If you refactor shared logic, ensure both Native and Web tests pass.
+- **New Features**: Every new public API or feature must include unit or integration tests.
+- **Platform-Safety**: `LlamaEngine` must remain `dart:ffi` and `dart:io` free to maintain web support.
 
 ## Maintainer: Building Binaries
 

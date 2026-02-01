@@ -14,29 +14,40 @@
 - ⚡ **GPU Acceleration**:
   - **Apple**: Metal (macOS/iOS)
   - **Android/Linux/Windows**: Vulkan
-- 🧠 **LoRA Support**: Apply fine-tuned adapters (GGUF) dynamically at runtime.
-- 🌐 **Web Support**: Run inference in the browser via WASM (powered by `wllama`).
-- 💎 **Dart-First API**: Streamlined FFI bindings with a clean, isolate-safe Dart interface.
-- 🔇 **Logging Control**: Granular control over native engine output (debug, info, warn, error, none).
+-  **LoRA Support**: Apply fine-tuned adapters (GGUF) dynamically at runtime.
+- 🌐 **Web Support**: Run inference in the browser via WASM (powered by `wllama` v2).
+- 💎 **Dart-First API**: Streamlined architecture with decoupled backends.
+- 🔇 **Logging Control**: Toggle native engine output or use granular filtering on Web.
+- 🧪 **High Coverage**: Robust test suite with 80%+ global core coverage.
 
 ---
 
-## 📊 Compatibility & Test Status
+## 🏗️ Architecture
+
+llamadart 0.3.0+ uses a modern, decoupled architecture designed for flexibility and platform independence:
+
+- **LlamaEngine**: The primary high-level orchestrator. It handles model lifecycle, tokenization, chat templating, and manages the inference stream.
+- **LlamaBackend**: A platform-agnostic interface that allows swapping implementation details:
+  - `NativeLlamaBackend`: Uses Dart FFI and background Isolates for high-performance desktop/mobile inference.
+  - `WebLlamaBackend`: Uses WebAssembly and the `wllama` JS library for in-browser inference.
+- **LlamaBackendFactory**: Automatically selects the appropriate backend for your current platform.
+
+---
+
+## 🚀 Quick Start
 
 | Platform | Architecture(s) | GPU Backend | Status |
 |----------|-----------------|-------------|--------|
 | **macOS** | arm64, x86_64 | Metal | ✅ Tested |
 | **iOS** | arm64 (Device), x86_64 (Sim) | Metal (Device), CPU (Sim) | ✅ Tested |
 | **Android** | arm64-v8a, x86_64 | Vulkan | ✅ Tested |
-| **Linux** | arm64, x86_64 | Vulkan | ⚠️ Expected (Vulkan Untested) |
+| **Linux** | arm64, x86_64 | Vulkan | ✅ Tested |
 | **Windows** | x64 | Vulkan | ✅ Tested |
 | **Web** | WASM | CPU | ✅ Tested |
 
 ---
 
-## 🚀 Quick Start
-
-### 1. Installation
+## 📦 Installation
 
 Add `llamadart` to your `pubspec.yaml`:
 
@@ -45,49 +56,90 @@ dependencies:
   llamadart: ^0.3.0
 ```
 
-### 2. Zero Setup (Native Assets)
+### Zero Setup (Native Assets)
 
 `llamadart` leverages the **Dart Native Assets** (build hooks) system. When you run your app for the first time (`dart run` or `flutter run`), the package automatically:
 1. Detects your target platform and architecture.
-2. Downloads the appropriate pre-compiled stable binary from GitHub.
+2. Downloads the appropriate pre-compiled binary from GitHub.
 3. Bundles it seamlessly into your application.
 
-No manual binary downloads or CMake configuration are needed.
+No manual binary downloads, CMake configuration, or platform-specific project changes are needed.
 
-### 3. Basic Usage
+---
+
+## 🛠️ Usage
+
+### 1. Simple Usage
+
+The easiest way to get started is by using the default `LlamaBackend`.
 
 ```dart
-import 'dart:io';
 import 'package:llamadart/llamadart.dart';
 
 void main() async {
-  // 1. Create the service
-  final service = LlamaService();
+  // Automatically selects Native or Web backend
+  final engine = LlamaEngine(LlamaBackend());
 
-  // 2. Initialize with a GGUF model and optional LoRA adapters
-  // This loads the model and prepares the native backend (GPU/CPU)
-  await service.init(
-    'path/to/your_model.gguf',
-    modelParams: ModelParams(
-      loras: [
-        LoraAdapterConfig(path: 'path/to/style.lora.gguf', scale: 0.8),
-      ],
-    ),
-  );
+  try {
+    // Initialize with a local GGUF model
+    await engine.loadModel('path/to/model.gguf');
 
-  // 3. You can also update or add LoRA adapters dynamically (Native platforms)
-  await service.setLoraAdapter('path/to/emotional_shift.lora.gguf', scale: 1.2);
-
-  // 4. Generate text (streaming)
-  final stream = service.generate('The capital of France is');
-  
-  await for (final token in stream) {
-    stdout.write(token);
-    await stdout.flush();
+    // Generate text (streaming)
+    await for (final token in engine.generate('The capital of France is')) {
+      print(token);
+    }
+  } finally {
+    // CRITICAL: Always dispose the engine to release native resources
+    await engine.dispose();
   }
-  
-  // 4. Clean up resources
-  service.dispose();
+}
+```
+
+### 2. Advanced Usage (Decoupled Engine)
+
+Use `LlamaEngine` directly for more granular control, such as swapping backends or manual context management.
+
+```dart
+import 'package:llamadart/llamadart.dart';
+
+void main() async {
+  // Explicitly select Native or Web backend
+  final backend = NativeLlamaBackend(); 
+  final engine = LlamaEngine(backend);
+
+  try {
+    await engine.loadModel('model.gguf');
+
+    // High-level Chat interface (handles templates and stop sequences)
+    final messages = [
+      LlamaChatMessage(role: 'system', content: 'You are a poetic assistant.'),
+      LlamaChatMessage(role: 'user', content: 'Tell a story about a cat.'),
+    ];
+
+    await for (final text in engine.chat(messages)) {
+      print(text);
+    }
+  } finally {
+    await engine.dispose();
+  }
+}
+```
+
+---
+
+## 🧹 Resource Management
+
+Since `llamadart` allocates significant native memory and manages background worker Isolates/Threads, it is essential to manage its lifecycle correctly.
+
+- **Explicit Disposal**: Always call `await engine.dispose()` when you are finished with an engine instance. 
+- **Native Stability**: On mobile and desktop, failing to dispose can lead to "hanging" background processes or memory pressure.
+- **Hot Restart Support**: In Flutter, placing the engine inside a `Provider` or `State` and calling `dispose()` in the appropriate lifecycle method ensures stability across Hot Restarts.
+
+```dart
+@override
+void dispose() {
+  _engine.dispose();
+  super.dispose();
 }
 ```
 
@@ -95,35 +147,31 @@ void main() async {
 
 ## 🎨 Low-Rank Adaptation (LoRA)
 
-`llamadart` supports applying one or multiple LoRA adapters to your base model. This allows you to customize the model's style, persona, or domain knowledge without replacing the entire 7B+ parameter model.
+`llamadart` supports applying multiple LoRA adapters dynamically at runtime.
 
-- **Dynamic Scaling**: Adjust the strength (`scale`) of each adapter at runtime.
-- **Isolate-Safe**: Adapters are loaded and managed in the background Isolate.
-- **Resource Efficient**: Multiple LoRAs share the memory of a single base model.
+- **Dynamic Scaling**: Adjust the strength (`scale`) of each adapter on the fly.
+- **Isolate-Safe**: Native adapters are managed in a background Isolate to prevent UI jank.
+- **Efficient**: Multiple LoRAs share the memory of a single base model.
 
-### Training your own LoRA
-Check out our [LoRA Training Notebook](example/training_notebook/lora_training.ipynb) to learn how to:
-1. Fine-tune a small model (like Qwen2.5-0.5B) using Hugging Face tools.
-2. Convert the adapter to GGUF format using `llama.cpp`.
-3. Run it in your Flutter app with `llamadart`.
+Check out our [LoRA Training Notebook](example/training_notebook/lora_training.ipynb) to learn how to train and convert your own adapters.
 
 ---
 
-## 📂 Examples
+## 🧪 Testing & Quality
 
-Explore the `example/` directory for full implementations:
-- **`basic_app`**: A lightweight CLI example for quick verification. Supports loading LoRA adapters via `--lora`.
-- **`chat_app`**: A feature-rich Flutter chat application with streaming UI and model management.
-- **`training_notebook`**: A Jupyter Notebook demonstrating how to train your own LoRA adapters and convert them to GGUF.
+This project maintains a high standard of quality with **80%+ global test coverage**.
 
----
+- **Native Tests**: Integration tests using real GGUF models via FFI.
+- **Web Tests**: Browser-based unit and integration tests using Chrome.
+- **CI/CD**: Automatic analysis, linting, and cross-platform test execution on every PR.
 
-## 🏗️ Architecture
+```bash
+# Run all native tests
+dart test
 
-This package follows the "Pure Native Asset" philosophy:
-- **Maintenance**: All native build logic and submodules are isolated in `third_party/`.
-- **Distribution**: Binaries are produced via GitHub Actions and hosted on GitHub Releases.
-- **Integration**: The `hook/build.dart` manages the lifecycle of native dependencies, keeping your project root clean.
+# Run web tests (requires Chrome)
+dart test -p chrome test/web_backend_unit_test.dart
+```
 
 ---
 

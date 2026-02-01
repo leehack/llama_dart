@@ -68,7 +68,12 @@ class _ChatInputState extends State<ChatInput> {
                       maxLines: 6,
                       minLines: 1,
                       textCapitalization: TextCapitalization.sentences,
-                      textInputAction: TextInputAction.newline,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) {
+                        if (enabled) {
+                          widget.onSend();
+                        }
+                      },
                       decoration: const InputDecoration(
                         hintText: 'Type a message...',
                         border: InputBorder.none,

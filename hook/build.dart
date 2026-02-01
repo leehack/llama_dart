@@ -34,7 +34,20 @@ void main(List<String> args) async {
   final log = Logger('${_packageName}_hook');
 
   await build(args, (input, output) async {
-    final code = input.config.code;
+    CodeConfig? code;
+    try {
+      code = input.config.code;
+    } catch (_) {
+      // In some experimental versions or platforms (Web), accessing .code
+      // might throw or return null if native assets are not supported.
+    }
+
+    if (code == null) {
+      log.info(
+        'Hook: Skipping native asset build for non-native platform (Web).',
+      );
+      return;
+    }
     final (os, arch) = (code.targetOS, code.targetArchitecture);
 
     log.info('Hook Start: $os-$arch');
