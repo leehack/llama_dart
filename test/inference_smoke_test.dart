@@ -47,12 +47,20 @@ void main() {
         print('Running 1-token generation check...');
         final stream = engine.generate(
           'Hello',
-          params: const GenerationParams(maxTokens: 1),
+          params: const GenerationParams(
+            maxTokens: 5,
+          ), // Increased to 5 for better check
         );
-        final tokens = await stream.toList();
 
+        final tokens = <String>[];
+        await for (final token in stream) {
+          print('Token received: "$token"');
+          tokens.add(token);
+        }
+
+        print('Total tokens: ${tokens.length}');
         print('Inference output: ${tokens.join()}');
-        expect(tokens, isNotEmpty);
+        expect(tokens, isNotEmpty, reason: 'No tokens were generated');
 
         await engine.dispose();
         llama_backend_free();

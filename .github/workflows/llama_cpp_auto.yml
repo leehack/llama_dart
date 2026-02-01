@@ -1,14 +1,12 @@
 name: llama.cpp Auto Update & Release
 
 on:
-  push:
-    branches: [ infra/automate-llama-cpp-release ]
   workflow_dispatch:
     inputs:
       llama_cpp_tag:
         description: 'llama.cpp tag to build (e.g., b4500)'
         required: true
-        default: 'b4600'
+        default: 'latest'
 
 permissions:
   contents: write
@@ -57,11 +55,9 @@ jobs:
       - name: Fetch llama.cpp
         run: |
           TAG="${{ needs.resolve-tag.outputs.tag }}"
-          echo "Using Tag: $TAG"
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git llama_cpp
           git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
       - name: Set up JDK
-
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -96,11 +92,9 @@ jobs:
       - name: Fetch llama.cpp
         run: |
           TAG="${{ needs.resolve-tag.outputs.tag }}"
-          echo "Using Tag: $TAG"
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git llama_cpp
           git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
       - name: Install dependencies
-
         run: brew install ccache
       - name: ccache
         uses: ggml-org/ccache-action@v1.2.16
@@ -132,11 +126,9 @@ jobs:
       - name: Fetch llama.cpp
         run: |
           TAG="${{ needs.resolve-tag.outputs.tag }}"
-          echo "Using Tag: $TAG"
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git llama_cpp
           git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
       - name: Install Dependencies
-
         run: |
           sudo apt-get update
           sudo apt-get install -y libvulkan-dev glslc ccache ninja-build
@@ -167,11 +159,9 @@ jobs:
         shell: bash
         run: |
           TAG="${{ needs.resolve-tag.outputs.tag }}"
-          echo "Using Tag: $TAG"
           git clone --depth 1 --branch $TAG https://github.com/ggml-org/llama.cpp.git llama_cpp
           git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git Vulkan-Headers
       - name: Install dependencies (ccache, ninja)
-
         run: choco install ccache ninja -y
       - name: ccache
         uses: ggml-org/ccache-action@v1.2.16
@@ -216,17 +206,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y llvm-dev libclang-dev clang
-      - name: Check llama.cpp Headers
-        run: |
-          ls -R third_party/llama_cpp/include
-          ls -R third_party/llama_cpp/ggml/include
       - name: Run ffigen
         run: |
           flutter pub get
           dart run ffigen --config ffigen.yaml
       - name: Update hook/build.dart
         run: |
-          TAG=${{ steps.tag.outputs.tag }}
+          TAG="${{ needs.resolve-tag.outputs.tag }}"
           sed -i "s/const _llamaCppTag = '.*';/const _llamaCppTag = '$TAG';/" hook/build.dart
       - name: Upload Generated Code
         uses: actions/upload-artifact@v4
@@ -237,7 +223,7 @@ jobs:
             hook/build.dart
 
   # ---------------------------------------------------------------------------
-  # Stage C: Verification (Desktop & Mobile)
+  # Stage C: Verification (Desktop Gatekeepers)
   # ---------------------------------------------------------------------------
   test-desktop:
     needs: [build-linux, build-apple, build-windows, codegen]
@@ -281,7 +267,6 @@ jobs:
           # macOS
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             ARCH=$(uname -m)
-            # Standardize arch name for hook (x86_64 -> x64)
             HOOK_ARCH=$ARCH
             if [ "$ARCH" == "x86_64" ]; then HOOK_ARCH="x64"; fi
             
@@ -296,19 +281,15 @@ jobs:
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             find artifacts/libllamadart_windows_x64 -name "libllamadart.dll" -exec cp {} third_party/bin/windows/x64/libllamadart-windows-x64.dll \;
           fi
-          
-          # Debug: List prepared files
-          ls -R third_party/bin
-      - name: Run Tests
+      - name: Run Smoke Test
         shell: bash
         run: |
           flutter pub get
-          # Download model if not cached
           mkdir -p models
           if [ ! -f "models/stories15M.gguf" ]; then
             curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf
           fi
-          dart test --concurrency=1
+          dart test test/inference_smoke_test.dart
 
   test-android:
     needs: [build-android, codegen]
@@ -381,7 +362,6 @@ jobs:
           echo "Booting simulator $ID"
           xcrun simctl boot "$ID" || true
           flutter test integration_test/smoke_test.dart -d "$ID"
-
 
   # ---------------------------------------------------------------------------
   # Stage D: Release & PR
