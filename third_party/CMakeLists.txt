@@ -47,8 +47,9 @@ elseif (MSVC)
         endif()
     endforeach()
 
-    add_library(llamadart_lib SHARED "llamadart_empty.cpp" ${COMBINED_OBJECTS})
+    add_library(llamadart_lib SHARED "llamadart_windows.cpp" ${COMBINED_OBJECTS})
     target_link_libraries(llamadart_lib PUBLIC ${ACTIVE_LIBS})
+    target_compile_definitions(llamadart_lib PRIVATE LLAMA_SHARED GGML_SHARED LLAMA_BUILD GGML_BUILD)
 elseif (CMAKE_SYSTEM_NAME MATCHES "Android|Linux" OR MINGW)
     add_library(llamadart_lib SHARED "llamadart_empty.cpp")
     if (MINGW)
@@ -72,5 +73,4 @@ endif()
 set_target_properties(llamadart_lib PROPERTIES 
     OUTPUT_NAME llamadart
     LIBRARY_OUTPUT_NAME llamadart
-    WINDOWS_EXPORT_ALL_SYMBOLS ON
 )
