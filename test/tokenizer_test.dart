@@ -36,7 +36,7 @@ void main() {
   group('LlamaTokenizer (Integration)', () {
     late File modelFile;
     late LlamaBackend backend;
-    late int modelHandle;
+    int? modelHandle;
     late LlamaTokenizer tokenizer;
 
     setUpAll(() async {
@@ -46,11 +46,13 @@ void main() {
         modelFile.path,
         const ModelParams(),
       );
-      tokenizer = LlamaTokenizer(backend, modelHandle);
+      tokenizer = LlamaTokenizer(backend, modelHandle!);
     });
 
     tearDownAll(() async {
-      await backend.modelFree(modelHandle);
+      if (modelHandle != null) {
+        await backend.modelFree(modelHandle!);
+      }
       await backend.dispose();
     });
 

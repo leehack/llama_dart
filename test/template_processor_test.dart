@@ -33,7 +33,7 @@ void main() {
   group('ChatTemplateProcessor (Integration)', () {
     late File modelFile;
     late LlamaBackend backend;
-    late int modelHandle;
+    int? modelHandle;
     late ChatTemplateProcessor processor;
 
     setUpAll(() async {
@@ -43,11 +43,13 @@ void main() {
         modelFile.path,
         const ModelParams(),
       );
-      processor = ChatTemplateProcessor(backend, modelHandle);
+      processor = ChatTemplateProcessor(backend, modelHandle!);
     });
 
     tearDownAll(() async {
-      await backend.modelFree(modelHandle);
+      if (modelHandle != null) {
+        await backend.modelFree(modelHandle!);
+      }
       await backend.dispose();
     });
 

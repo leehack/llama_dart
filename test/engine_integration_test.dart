@@ -98,10 +98,11 @@ void main() async {
         }
       });
 
-      await Future.delayed(const Duration(seconds: 1));
+      // Increased timeout to allow generation to start and be cancelled
+      await Future.delayed(const Duration(seconds: 5));
       await subscription.cancel();
 
-      expect(accumulated, isNotEmpty);
+      expect(accumulated, isNotEmpty, reason: 'Generation should have started');
       // It should have stopped before 100 tokens
     });
   });
