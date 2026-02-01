@@ -1,3 +1,9 @@
+## 0.3.1
+*   **ChatSession Manager**: Introduced a new high-level `ChatSession` class to automatically manage conversation history and system prompts.
+*   **Context Window Management**: `ChatSession` now implements an automated sliding window to truncate history when the model's context limit is approached.
+*   **Example Update**: Updated the `basic_app` CLI example to use `ChatSession` for a more robust interactive mode.
+*   **Improved Documentation**: Added comprehensive DartDocs and README examples for stateful chat sessions.
+
 ## 0.3.0
 *   **[BREAKING] Removal of `LlamaService`**: The legacy `LlamaService` facade has been removed. Use `LlamaEngine` with `LlamaBackend()` instead for all platforms.
 *   **LoRA Support**: Added full support for Low-Rank Adaptation (LoRA) on all native platforms (iOS, Android, macOS, Linux, Windows).

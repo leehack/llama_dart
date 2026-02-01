@@ -27,6 +27,7 @@
 llamadart 0.3.0+ uses a modern, decoupled architecture designed for flexibility and platform independence:
 
 - **LlamaEngine**: The primary high-level orchestrator. It handles model lifecycle, tokenization, chat templating, and manages the inference stream.
+- **ChatSession**: A stateful wrapper for `LlamaEngine` that automatically manages conversation history, system prompts, and enforces context window limits (sliding window).
 - **LlamaBackend**: A platform-agnostic interface that allows swapping implementation details:
   - `NativeLlamaBackend`: Uses Dart FFI and background Isolates for high-performance desktop/mobile inference.
   - `WebLlamaBackend`: Uses WebAssembly and the `wllama` JS library for in-browser inference.
@@ -118,6 +119,37 @@ void main() async {
 
     await for (final text in engine.chat(messages)) {
       print(text);
+    }
+  } finally {
+    await engine.dispose();
+  }
+}
+```
+
+### 3. Stateful Chat (ChatSession)
+
+Use `ChatSession` for most chat applications. it automatically maintains history and manages the model's context window.
+
+```dart
+import 'package:llamadart/llamadart.dart';
+
+void main() async {
+  final engine = LlamaEngine(LlamaBackend());
+  
+  try {
+    await engine.loadModel('model.gguf');
+
+    // Create a session with an optional system prompt
+    final session = ChatSession(engine, systemPrompt: 'You are a helpful assistant.');
+
+    // Just send the user text, history is handled automatically
+    await for (final token in session.chat('What is the capital of Japan?')) {
+      stdout.write(token);
+    }
+
+    // Next message will include previous context
+    await for (final token in session.chat('And its population?')) {
+      stdout.write(token);
     }
   } finally {
     await engine.dispose();

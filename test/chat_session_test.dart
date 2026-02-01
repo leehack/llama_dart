@@ -54,6 +54,20 @@ void main() {
       expect(session.history, isEmpty);
     });
 
+    test('Reset session', () {
+      session.systemPrompt = "System";
+      session.addMessage(const LlamaChatMessage(role: 'user', content: 'test'));
+
+      // Default reset (keeps system prompt)
+      session.reset();
+      expect(session.history, isEmpty);
+      expect(session.systemPrompt, "System");
+
+      // Full reset
+      session.reset(keepSystemPrompt: false);
+      expect(session.systemPrompt, isNull);
+    });
+
     test('History immutability via getter', () {
       expect(
         () => session.history.add(

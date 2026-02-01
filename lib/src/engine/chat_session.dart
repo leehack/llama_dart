@@ -4,42 +4,71 @@ import '../models/llama_chat_message.dart';
 import '../models/generation_params.dart';
 
 /// Manages a chat session, including history and context window management.
+///
+/// [ChatSession] provides a stateful interface over [LlamaEngine], handling
+/// conversation history and automatically ensuring that the total token count
+/// stays within the model's context window limits by truncating older messages.
 class ChatSession {
   final LlamaEngine _engine;
   final List<LlamaChatMessage> _history = [];
-  String? _systemPrompt;
 
   /// The maximum number of tokens allowed in the context window.
-  /// If null, it will be fetched from the engine's metadata.
+  ///
+  /// If null, this value will be automatically retrieved from the engine's
+  /// model metadata (e.g., `llama.context_length` or `n_ctx`).
   int? maxContextTokens;
 
   /// Creates a new [ChatSession] wrapping the given [engine].
-  ChatSession(this._engine, {this.maxContextTokens, String? systemPrompt}) {
-    _systemPrompt = systemPrompt;
-  }
+  ///
+  /// Optionally sets [maxContextTokens] to override the model's default limit,
+  /// and [systemPrompt] to define the initial persona or instructions.
+  ChatSession(this._engine, {this.maxContextTokens, this.systemPrompt});
 
-  /// The current message history.
+  /// The current message history, excluding the [systemPrompt].
+  ///
+  /// Returns an unmodifiable list of [LlamaChatMessage].
   List<LlamaChatMessage> get history => List.unmodifiable(_history);
 
-  /// Sets or updates the system prompt.
-  /// This will persist across the session and be included in every request.
-  set systemPrompt(String? prompt) => _systemPrompt = prompt;
+  /// The system prompt for this session.
+  ///
+  /// If set, this prompt is automatically prepended to the message list
+  /// during every [chat] request. It persists until manually changed or
+  /// cleared via [reset].
+  String? systemPrompt;
 
-  /// Gets the current system prompt.
-  String? get systemPrompt => _systemPrompt;
-
-  /// Adds a message to the history.
+  /// Adds a custom [message] directly to the history.
+  ///
+  /// Useful for pre-seeding a conversation or restoring a previous state.
   void addMessage(LlamaChatMessage message) {
     _history.add(message);
   }
 
-  /// Clears the chat history, optionally keeping the system prompt.
+  /// Clears all messages from the conversation history.
+  ///
+  /// Note: This does not affect the [systemPrompt]. Use [reset] for a full cleanup.
   void clearHistory() {
     _history.clear();
   }
 
-  /// Sends a message and returns a stream of tokens.
-  /// Automatically manages history and context window.
+  /// Resets the session state.
+  ///
+  /// By default, [keepSystemPrompt] is true, meaning only the message history
+  /// is cleared. Set it to false to also clear the [systemPrompt].
+  void reset({bool keepSystemPrompt = true}) {
+    _history.clear();
+    if (!keepSystemPrompt) {
+      systemPrompt = null;
+    }
+  }
+
+  /// Sends a user [text] message and returns a stream of generated response tokens.
+  ///
+  /// This method performs the following steps:
+  /// 1. Adds the user message to the internal history.
+  /// 2. Enforces the context limit by truncating older messages if necessary.
+  /// 3. Formats the full message list (including [systemPrompt]) using the model's template.
+  /// 4. Streams the response from the [LlamaEngine].
+  /// 5. Appends the full assistant response back into the history.
   Stream<String> chat(String text, {GenerationParams? params}) async* {
     _history.add(LlamaChatMessage(role: 'user', content: text));
 
@@ -59,7 +88,10 @@ class ChatSession {
     );
   }
 
-  /// Sends a message and returns the full response string.
+  /// Sends a user [text] message and returns the full response string.
+  ///
+  /// Wraps [chat] but waits for the entire generation to complete and
+  /// returns the concatenated tokens as a single trimmed string.
   Future<String> chatText(String text, {GenerationParams? params}) async {
     final buffer = StringBuffer();
     await for (final token in chat(text, params: params)) {
@@ -70,8 +102,8 @@ class ChatSession {
 
   List<LlamaChatMessage> _getMessagesForEngine() {
     final messages = <LlamaChatMessage>[];
-    if (_systemPrompt != null && _systemPrompt!.isNotEmpty) {
-      messages.add(LlamaChatMessage(role: 'system', content: _systemPrompt!));
+    if (systemPrompt != null && systemPrompt!.isNotEmpty) {
+      messages.add(LlamaChatMessage(role: 'system', content: systemPrompt!));
     }
     messages.addAll(_history);
     return messages;
