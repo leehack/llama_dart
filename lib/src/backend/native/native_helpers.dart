@@ -1,7 +1,7 @@
 import 'dart:ffi';
 import 'package:ffi/ffi.dart';
-import 'generated/llama_bindings.dart';
-import 'loader.dart';
+import '../../generated/llama_bindings.dart';
+import '../../common/loader.dart';
 
 /// Helper class to interact with native ggml backend functions.
 class NativeHelpers {

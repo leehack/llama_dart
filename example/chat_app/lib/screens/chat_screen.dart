@@ -86,7 +86,11 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
 
     context.read<ChatProvider>().sendMessage(text);
-    _controller.clear();
+
+    // Reset the controller completely to clear any composing state from the IME.
+    // Using TextEditingValue.empty is more robust than .clear() for some IMEs.
+    _controller.value = TextEditingValue.empty;
+
     _focusNode.requestFocus();
 
     Future.delayed(const Duration(milliseconds: 100), () {
@@ -139,6 +143,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       error: provider.error,
                       modelPath: provider.modelPath,
                       isLoaded: provider.isLoaded,
+                      loadingProgress: provider.loadingProgress,
                       onRetry: () => provider.loadModel(),
                       onSelectModel: _openModelSelection,
                     );

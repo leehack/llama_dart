@@ -1,9 +1,17 @@
 ## 0.3.0
+*   **[BREAKING] Removal of `LlamaService`**: The legacy `LlamaService` facade has been removed. Use `LlamaEngine` with `LlamaBackend()` instead for all platforms.
 *   **LoRA Support**: Added full support for Low-Rank Adaptation (LoRA) on all native platforms (iOS, Android, macOS, Linux, Windows).
-*   **Dynamic Adapters**: Implemented APIs to dynamically add, update scale, or remove LoRA adapters at runtime without reloading the base model.
+*   **Web Improvements**: Significantly enhanced the web implementation using `wllama` v2 features, including native chat templating and threading info.
+*   **Logging Refactor**: Implemented a unified logging architecture.
+    *   **Native Platforms**: Simplified to an on/off toggle to ensure stability. `LlamaLogLevel.none` suppresses all output; other levels enable default stderr logging.
+    *   **Web**: Supports full granular filtering (Debug, Info, Warn, Error).
+*   **Stability Fixes**: Resolved frequent "Cannot invoke native callback from a leaf call" crashes during Flutter Hot Restarts by refactoring native resource lifecycle.
+*   **Improved Lifecycle**: Removed `NativeFinalizer` dependency to avoid race conditions. Explicitly call `dispose()` to release native resources.
+*   **Robust Loading**: Improved model loading on all platforms with better instance cleanup, script injection, and URL-based loading support.
+*   **Dynamic Adapters**: Implemented APIs to dynamically add, update scale, or remove LoRA adapters at runtime.
 *   **LoRA Training Pipeline**: Added a comprehensive Jupyter Notebook for fine-tuning models and converting adapters to GGUF format.
+*   **API Enhancements**: Updated `ModelParams` to include initial LoRA configurations and introduced `supportsUrlLoading` for better platform abstraction.
 *   **CLI Tooling**: Updated the `basic_app` example to support testing LoRA adapters via the `--lora` flag.
-*   **API Enhancements**: Updated `ModelParams` to include initial LoRA configurations.
 
 ## 0.2.0+b7883
 

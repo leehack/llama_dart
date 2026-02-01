@@ -8,8 +8,8 @@ import '../services/chat_service.dart';
 import '../services/settings_service.dart';
 
 class ChatProvider extends ChangeNotifier {
-  final ChatService _chatService = ChatService();
-  final SettingsService _settingsService = SettingsService();
+  final ChatService _chatService;
+  final SettingsService _settingsService;
 
   final List<ChatMessage> _messages = [];
   ChatSettings _settings = const ChatSettings();
@@ -17,6 +17,7 @@ class ChatProvider extends ChangeNotifier {
   String _activeBackend = "Unknown";
   bool _gpuSupported = false;
   bool _isInitializing = false;
+  double _loadingProgress = 0.0;
   bool _isLoaded = false;
   bool _isGenerating = false;
   String? _error;
@@ -26,7 +27,6 @@ class ChatProvider extends ChangeNotifier {
   int _currentTokens = 0;
   bool _isPruning = false;
 
-  List<String> _autoStopSequences = [];
   List<String> _availableDevices = [];
 
   // Getters
@@ -37,6 +37,7 @@ class ChatProvider extends ChangeNotifier {
   String get activeBackend => _activeBackend;
   bool get gpuSupported => _gpuSupported;
   bool get isInitializing => _isInitializing;
+  double get loadingProgress => _loadingProgress;
   bool get isLoaded => _isLoaded;
   bool get isGenerating => _isGenerating;
   String? get error => _error;
@@ -51,14 +52,22 @@ class ChatProvider extends ChangeNotifier {
 
   bool get isReady => _error == null && !_isInitializing && _isLoaded;
 
-  ChatProvider() {
-    _init();
+  ChatProvider({
+    ChatService? chatService,
+    SettingsService? settingsService,
+    ChatSettings? initialSettings,
+  }) : _chatService = chatService ?? ChatService(),
+       _settingsService = settingsService ?? SettingsService(),
+       _settings = initialSettings ?? const ChatSettings() {
+    if (chatService == null && settingsService == null) {
+      _init();
+    }
   }
 
   Future<void> _init() async {
     _settings = await _settingsService.loadSettings();
     try {
-      _availableDevices = await LlamaService.getAvailableDevices();
+      _availableDevices = [await _chatService.engine.getBackendName()];
     } catch (e) {
       debugPrint("Error fetching devices: $e");
     }
@@ -76,25 +85,28 @@ class ChatProvider extends ChangeNotifier {
     _isInitializing = true;
     _isLoaded = false;
     _error = null;
+    _loadingProgress = 0.0;
     _activeBackend = "Refreshing...";
     notifyListeners();
 
     try {
-      await _chatService.init(_settings);
+      await _chatService.engine.setLogLevel(_settings.logLevel);
+      await _chatService.init(
+        _settings,
+        onProgress: (progress) {
+          _loadingProgress = progress;
+          _activeBackend =
+              "Loading Model: ${(progress * 100).toStringAsFixed(0)}%";
+          notifyListeners();
+        },
+      );
 
-      final rawBackend = await _chatService.llama.getBackendName();
-      _activeBackend = _settings.preferredBackend == GpuBackend.cpu
-          ? "CPU"
-          : (_settings.preferredBackend == GpuBackend.blas
-                ? "CPU (BLAS)"
-                : rawBackend);
+      final rawBackend = await _chatService.engine.getBackendName();
+      _activeBackend = rawBackend;
 
-      _maxTokens = await _chatService.llama.getContextSize();
+      _maxTokens = await _chatService.engine.getContextSize();
 
-      final metadata = await _chatService.llama.getAllMetadata();
-      _autoStopSequences = _chatService.detectStopSequences(metadata);
-
-      final libSupported = await _chatService.llama.isGpuSupported();
+      final libSupported = await _chatService.engine.isGpuSupported();
 
       _gpuSupported =
           libSupported ||
@@ -144,11 +156,7 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final prompt = await _chatService.buildPrompt(
-        _messages,
-        _settings.modelPath!,
-        _maxTokens,
-      );
+      await _chatService.buildPrompt(_messages, _maxTokens);
 
       final responseMessageIndex = _messages.length;
       _messages.add(ChatMessage(text: "...", isUser: false));
@@ -157,10 +165,23 @@ class ChatProvider extends ChangeNotifier {
       String fullResponse = "";
       DateTime lastUpdate = DateTime.now();
 
+      final List<LlamaChatMessage> conversationMessages = _messages
+          .where(
+            (m) =>
+                m.text != 'Model loaded successfully! Ready to chat.' &&
+                m.text != '...',
+          )
+          .map(
+            (m) => LlamaChatMessage(
+              role: m.isUser ? 'user' : 'assistant',
+              content: m.text,
+            ),
+          )
+          .toList();
+
       await for (final token in _chatService.generate(
-        prompt,
+        conversationMessages,
         _settings,
-        _autoStopSequences,
       )) {
         if (!_isGenerating) break;
         fullResponse += token;
@@ -181,7 +202,7 @@ class ChatProvider extends ChangeNotifier {
 
       // Final update to ensure UI is in sync and token counts are refreshed for next turn
       if (_messages.length > responseMessageIndex) {
-        _messages[responseMessageIndex].tokenCount = await _chatService.llama
+        _messages[responseMessageIndex].tokenCount = await _chatService.engine
             .getTokenCount(_messages[responseMessageIndex].text);
       }
     } catch (e) {
@@ -214,8 +235,10 @@ class ChatProvider extends ChangeNotifier {
       _updateSettings(_settings.copyWith(topP: value));
   void updateContextSize(int value) =>
       _updateSettings(_settings.copyWith(contextSize: value));
-  void updateLogLevel(LlamaLogLevel value) =>
-      _updateSettings(_settings.copyWith(logLevel: value));
+  void updateLogLevel(LlamaLogLevel value) {
+    _updateSettings(_settings.copyWith(logLevel: value));
+    _chatService.engine.setLogLevel(value);
+  }
 
   void updateModelPath(String path) {
     _settings = _settings.copyWith(modelPath: path);

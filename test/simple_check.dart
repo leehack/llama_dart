@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:ffi/ffi.dart';
-import 'package:llamadart/src/loader.dart';
+import 'package:llamadart/src/common/loader.dart';
 
 void main() {
   print('Loading cpp...');

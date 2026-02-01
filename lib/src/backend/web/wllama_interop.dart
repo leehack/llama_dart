@@ -25,25 +25,38 @@ extension type Wllama._(JSObject _) implements JSObject {
 
   /// Get metadata from the model.
   /// If [key] is provided, returns specific value. Otherwise returns full object.
-  external JSAny getMetadata([String? key]);
+  external JSAny? getMetadata([String? key]);
 
   /// Get model metadata (Wllama v2)
-  external JSAny getModelMetadata([String? key]);
+  external JSObject? getModelMetadata([String? key]);
 
   /// Metadata property (Wllama v2)
-  external JSObject get metadata;
+  external JSObject? get metadata;
 
   /// Exits the Wllama instance.
   external JSPromise<JSAny?>? exit();
 
-  /// Utility functions.
-  external WllamaUtils get utils;
-
   /// Tokenize the given text.
-  external JSPromise<JSAny>? tokenize(String text);
+  external JSPromise<JSAny>? tokenize(String text, [bool? special]);
 
   /// Detokenize the given tokens.
   external JSPromise<JSString>? detokenize(JSArray tokens);
+
+  /// Apply chat template to a list of messages.
+  external JSPromise<JSString> formatChat(
+    JSArray messages,
+    bool addAssistant, [
+    String? template,
+  ]);
+
+  /// Get the jinja chat template.
+  external String? getChatTemplate();
+
+  /// Check if a given token is an end-of-generation token.
+  external bool isTokenEOG(int token);
+
+  /// Check if we're currently using multi-thread build.
+  external bool isMultithread();
 }
 
 /// Utility functions for Wllama.
@@ -60,8 +73,23 @@ extension type WllamaUtils._(JSObject _) implements JSObject {
 extension type WllamaConfig._(JSObject _) implements JSObject {
   /// Creates a new configuration.
   external factory WllamaConfig({
-    bool? suppressNativeLog,
-    // Add other fields as needed
+    @JS('suppressNativeLog') bool? suppressNativeLog,
+    @JS('logger') WllamaLogger? logger,
+    @JS('allowOffline') bool? allowOffline,
+    @JS('parallelDownloads') int? parallelDownloads,
+  });
+}
+
+/// Logger interface for Wllama.
+@JS()
+@anonymous
+extension type WllamaLogger._(JSObject _) implements JSObject {
+  /// The variable name 'debug' isn't a lowerCamelCase identifier.
+  external factory WllamaLogger({
+    JSFunction? debug,
+    JSFunction? log,
+    JSFunction? warn,
+    JSFunction? error,
   });
 }
 
@@ -70,7 +98,14 @@ extension type WllamaConfig._(JSObject _) implements JSObject {
 @anonymous
 extension type LoadModelOptions._(JSObject _) implements JSObject {
   /// Creates new load model options.
-  external factory LoadModelOptions({bool? useCache, JSFunction? onProgress});
+  external factory LoadModelOptions({
+    bool? useCache,
+    JSFunction? progressCallback,
+    @JS('n_ctx') int? nCtx,
+    @JS('n_threads') int? nThreads,
+    @JS('n_batch') int? nBatch,
+    bool? embeddings,
+  });
 }
 
 /// Options for completion.
