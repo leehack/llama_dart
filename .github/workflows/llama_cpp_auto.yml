@@ -196,6 +196,14 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+      - name: Cache Pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-cache-${{ hashFiles('**/pubspec.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-cache-
       - name: Fetch llama.cpp for Headers
         id: tag
         run: |
@@ -238,6 +246,14 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+      - name: Cache Pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-cache-${{ hashFiles('**/pubspec.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-cache-
       - name: Download Updated Source
         uses: actions/download-artifact@v4
         with:
@@ -267,6 +283,7 @@ jobs:
           # macOS
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             ARCH=$(uname -m)
+            # Standardize arch name for hook (x86_64 -> x64)
             HOOK_ARCH=$ARCH
             if [ "$ARCH" == "x86_64" ]; then HOOK_ARCH="x64"; fi
             
@@ -301,6 +318,14 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+      - name: Cache Pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-cache-${{ hashFiles('**/pubspec.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-cache-
       - name: Download Updated Source
         uses: actions/download-artifact@v4
         with:
@@ -316,13 +341,25 @@ jobs:
           mkdir -p third_party/bin/android/x64
           find artifacts/libllamadart_android_arm64-v8a -name "libllamadart.so" -exec cp {} third_party/bin/android/arm64/libllamadart-android-arm64.so \;
           find artifacts/libllamadart_android_x86_64 -name "libllamadart.so" -exec cp {} third_party/bin/android/x64/libllamadart-android-x64.so \;
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v3
       - name: Run Android Integration Test
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 29
           arch: x86_64
           target: default
-          script: cd example/chat_app && flutter pub get && mkdir -p models && curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf && flutter test integration_test/smoke_test.dart
+          script: |
+            cd example/chat_app
+            flutter pub get
+            mkdir -p models
+            curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf
+            flutter test integration_test/smoke_test.dart
 
   test-ios:
     needs: [build-apple, codegen]
@@ -333,6 +370,14 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+      - name: Cache Pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-cache-${{ hashFiles('**/pubspec.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-cache-
       - name: Download Updated Source
         uses: actions/download-artifact@v4
         with:
