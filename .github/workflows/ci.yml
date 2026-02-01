@@ -45,7 +45,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
@@ -64,7 +63,7 @@ jobs:
         run: dart pub global activate coverage
 
       - name: Run native tests with coverage
-        run: dart test --coverage=coverage
+        run: dart test --concurrency=1 --coverage=coverage
 
       - name: Format coverage
         run: |
