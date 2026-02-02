@@ -18,18 +18,14 @@ export 'src/engine/llama_tokenizer.dart';
 export 'src/engine/chat_template_processor.dart';
 export 'src/engine/chat_session.dart';
 
-// Backends - hide createBackend to avoid conflict with factory export
+// Backends - User only needs the interface and the factory hidden within it.
+// Internal classes like NativeLlamaBackend are hidden to prevent accidental misuse.
 export 'src/backend/llama_backend_interface.dart';
-export 'src/backend/native/native_backend.dart'
-    if (dart.library.js_interop) 'src/backend/web/web_backend.dart'
-    hide createBackend;
-
-// Factory
-export 'src/backend/llama_backend_factory.dart'
-    if (dart.library.ffi) 'src/backend/native/native_backend.dart'
-    if (dart.library.js_interop) 'src/backend/web/web_backend.dart';
 
 // Common
 export 'src/common/exceptions.dart';
+
+// Bindings - Primary entry point for native symbols.
+// Web builds get the stub to avoid dart:ffi issues.
 export 'src/generated/llama_bindings.dart'
     if (dart.library.js_interop) 'src/generated/llama_bindings_stub.dart';

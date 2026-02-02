@@ -7,7 +7,7 @@ void main() async {
   const imagePath = 'test_assets/toy.jpg';
 
   print('--- Repro Moondream Issue ---');
-  final engine = LlamaEngine(NativeLlamaBackend());
+  final engine = LlamaEngine(LlamaBackend());
 
   try {
     print('Loading model...');

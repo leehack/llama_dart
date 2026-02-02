@@ -2,7 +2,7 @@ import 'package:llamadart/llamadart.dart';
 
 /// Service for interacting with the Llama engine in a CLI environment.
 class LlamaCliService {
-  final LlamaEngine _engine = LlamaEngine(NativeLlamaBackend());
+  final LlamaEngine _engine = LlamaEngine(LlamaBackend());
   late final ChatSession _session;
 
   /// Creates a new [LlamaCliService].

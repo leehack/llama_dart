@@ -258,7 +258,19 @@ class WebLlamaBackend implements LlamaBackend {
   }
 
   @override
-  Future<int> getContextSize(int contextHandle) async => _lastNCtx ?? 0;
+  Future<int> getContextSize(int contextHandle) async {
+    if (_wllama != null) {
+      try {
+        final info = _wllama!.getLoadedContextInfo();
+        if (info.nCtx > 0) return info.nCtx;
+      } catch (_) {}
+
+      try {
+        if (_wllama!.nCtx > 0) return _wllama!.nCtx;
+      } catch (_) {}
+    }
+    return _lastNCtx ?? 0;
+  }
 
   @override
   void cancelGeneration() {
@@ -362,9 +374,13 @@ class WebLlamaBackend implements LlamaBackend {
     for (int i = 0; i < keys.length; i++) {
       final key = (keys.getProperty(i.toJS) as JSString).toDart;
       final val = jsMeta.getProperty(key.toJS);
-      result[key] = val.isA<JSString>()
-          ? (val as JSString).toDart
-          : val.toString();
+      if (val.isA<JSString>()) {
+        result[key] = (val as JSString).toDart;
+      } else if (val.isA<JSNumber>()) {
+        result[key] = (val as JSNumber).toDartInt.toString();
+      } else {
+        result[key] = val.toString();
+      }
     }
     return result;
   }

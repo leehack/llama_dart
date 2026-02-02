@@ -1,5 +1,4 @@
 import 'package:test/test.dart';
-import 'package:llamadart/llamadart.dart';
 import 'package:llamadart/src/backend/native/native_helpers.dart';
 import 'package:llamadart/src/backend/native/native_backend.dart';
 import 'package:llamadart/src/common/loader.dart';

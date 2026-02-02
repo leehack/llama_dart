@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:llamadart_chat_example/models/downloadable_model.dart';
-import 'package:llamadart_chat_example/services/model_service.dart';
+import 'package:dio/dio.dart';
+import 'package:llamadart_chat_example/services/model_service_base.dart';
+import 'package:llamadart_chat_example/services/model_service_io.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
@@ -96,6 +98,7 @@ void main() {
     await service.downloadModel(
       model: model,
       modelsDir: tempDir.path,
+      cancelToken: CancelToken(),
       onProgress: (p) {},
       onSuccess: (path) {},
       onError: (e) => fail('Download failed: $e'),
@@ -129,6 +132,7 @@ void main() {
       await service.downloadModel(
         model: model,
         modelsDir: tempDir.path,
+        cancelToken: CancelToken(),
         onProgress: (val) {
           if (val > 0.3 && !simulatedCrash) {
             simulatedCrash = true;
@@ -158,6 +162,7 @@ void main() {
     await service.downloadModel(
       model: model,
       modelsDir: tempDir.path,
+      cancelToken: CancelToken(),
       onProgress: (p) {},
       onSuccess: (path) {},
       onError: (e) => fail('Resume failed: $e'),
@@ -204,7 +209,7 @@ void main() {
   });
 }
 
-class TestModelService extends ModelService {
+class TestModelService extends ModelServiceIO {
   final Directory testDir;
   TestModelService(this.testDir);
 

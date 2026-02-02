@@ -57,6 +57,30 @@ extension type Wllama._(JSObject _) implements JSObject {
 
   /// Check if we're currently using multi-thread build.
   external bool isMultithread();
+
+  /// Current context size (Wllama v2)
+  @JS('nCtx')
+  external int get nCtx;
+
+  /// Get info about the loaded context (Wllama v2)
+  external LoadedContextInfo getLoadedContextInfo();
+}
+
+/// Information about the loaded context.
+@JS()
+@anonymous
+extension type LoadedContextInfo._(JSObject _) implements JSObject {
+  /// Current context size.
+  @JS('n_ctx')
+  external int get nCtx;
+
+  /// Current batch size.
+  @JS('n_batch')
+  external int get nBatch;
+
+  /// Current number of threads.
+  @JS('n_threads')
+  external int get nThreads;
 }
 
 /// Utility functions for Wllama.

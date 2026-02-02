@@ -24,7 +24,7 @@ void main() async {
   }
 
   print('--- Initializing Llama Engine (Gemma 3 ISWA) ---');
-  final engine = LlamaEngine(NativeLlamaBackend());
+  final engine = LlamaEngine(LlamaBackend());
 
   try {
     print('Loading model: $modelPath...');

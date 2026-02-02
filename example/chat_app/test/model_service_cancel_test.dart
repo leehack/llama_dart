@@ -3,11 +3,11 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:llamadart_chat_example/models/downloadable_model.dart';
-import 'package:llamadart_chat_example/services/model_service.dart';
+import 'package:llamadart_chat_example/services/model_service_io.dart';
 import 'package:path/path.dart' as p;
 
 // Mock ModelService to override getModelsDirectory
-class TestModelService extends ModelService {
+class TestModelService extends ModelServiceIO {
   final Directory testDir;
 
   TestModelService(this.testDir);

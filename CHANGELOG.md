@@ -1,4 +1,13 @@
 ## 0.3.1
+*   **Cross-Platform Architecture**: 
+    *   Refactored `LlamaBackend` for strict Web isolation using "Native-First" conditional exports, ensuring native performance and full web safety.
+    *   Standardized backend instantiation via a unified `LlamaBackend()` factory across all examples and scripts.
+*   **Web & Context Stability**:
+    *   Resolved "Max Tokens is 0" on Web by implementing `getLoadedContextInfo()` and robust GGUF metadata fallback in `LlamaEngine`.
+    *   Improved numeric metadata extraction on Web for better compatibility with varied GGUF exporters.
+*   **Project Hygiene**:
+    *   Achieved 100% clean `dart analyze` across the core library and all example applications.
+    *   Replaced legacy stubs in the chat application with a clean, interface-based `ModelService` architecture.
 *   **Resumable Downloads**: 
     *   Implemented robust resumable downloads for large models using HTTP Range requests.
     *   Added persistent `.meta` files to track download progress across app restarts.

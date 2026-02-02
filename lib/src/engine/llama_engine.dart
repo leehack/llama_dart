@@ -301,11 +301,18 @@ class LlamaEngine {
   /// Returns the actual context size being used by the current session.
   Future<int> getContextSize() async {
     if (_isReady && _contextHandle != null) {
-      return await _backend.getContextSize(_contextHandle!);
+      final size = await _backend.getContextSize(_contextHandle!);
+      if (size > 0) return size;
     }
     final meta = await getMetadata();
-    return int.tryParse(meta['llama.context_length'] ?? meta['n_ctx'] ?? "0") ??
-        0;
+    // Try common context length keys in metadata
+    final ctx =
+        meta['llm.context_length'] ??
+        meta['llama.context_length'] ??
+        meta['model.context_length'] ??
+        meta['n_ctx'] ??
+        "0";
+    return int.tryParse(ctx) ?? 0;
   }
 
   /// Utility to count the number of tokens in [text] without running inference.
