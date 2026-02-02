@@ -240,16 +240,20 @@ void _handleContextCreate(
     ctxParams.n_batch = nCtx;
     ctxParams.n_ubatch = nCtx;
 
-    // Configure embeddings if enabled
+    // Configure embeddings pooling type if enabled
     if (request.params.enableEmbeddings) {
       ctxParams.pooling_typeAsInt = request.params.poolingType;
-      ctxParams.embeddings = true;
     }
 
     final ctxPtr = llama_init_from_model(model.pointer, ctxParams);
     if (ctxPtr == nullptr) {
       request.sendPort.send(ErrorResponse("Failed to create context"));
       return;
+    }
+
+    // Enable embeddings output if requested
+    if (request.params.enableEmbeddings) {
+      llama_set_embeddings(ctxPtr, true);
     }
 
     final handle = state._getHandle();
@@ -954,9 +958,9 @@ void _handleEmbeddings(
       return;
     }
 
-    // Get the embeddings
+    // Get the embeddings using the sequence-based API (for pooled embeddings)
     final nEmbd = llama_n_embd(model.pointer);
-    final embPtr = llama_get_embeddings(ctx.pointer);
+    final embPtr = llama_get_embeddings_seq(ctx.pointer, 0);
 
     if (embPtr == nullptr) {
       request.sendPort.send(
