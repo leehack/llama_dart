@@ -244,16 +244,15 @@ Check out our [LoRA Training Notebook](example/training_notebook/lora_training.i
 
 This project maintains a high standard of quality with **80%+ global test coverage**.
 
-- **Native Tests**: Integration tests using real GGUF models via FFI.
-- **Web Tests**: Browser-based unit and integration tests using Chrome.
+- **Multi-Platform Testing**: Run all tests across VM and Chrome automatically.
 - **CI/CD**: Automatic analysis, linting, and cross-platform test execution on every PR.
 
 ```bash
-# Run all native tests
+# Run all tests (VM and Chrome)
 dart test
 
-# Run web tests (requires Chrome)
-dart test -p chrome test/web_backend_unit_test.dart
+# Run tests with coverage
+dart test --coverage=coverage
 ```
 
 ---

@@ -1,3 +1,6 @@
+@TestOn('vm')
+library;
+
 import 'package:test/test.dart';
 import 'package:llamadart/src/backend/native/native_helpers.dart';
 import 'package:llamadart/src/backend/native/native_backend.dart';

@@ -5,6 +5,15 @@
 *   **Web & Context Stability**:
     *   Resolved "Max Tokens is 0" on Web by implementing `getLoadedContextInfo()` and robust GGUF metadata fallback in `LlamaEngine`.
     *   Improved numeric metadata extraction on Web for better compatibility with varied GGUF exporters.
+*   **GBNF Grammar Stability**:
+    *   Resolved "Unexpected empty grammar stack" crash by reordering the sampler chain (filtering tokens via GBNF *before* performing probability-based sampling).
+*   **Test Suite Overhaul**:
+    *   Pivoted from mock-based unit tests to real-world integration tests using the actual `llama.cpp` native backend.
+    *   Ensured full verification of model loading, tokenization, text generation, and grammar constraints against physical models.
+    *   **Multi-Platform Configuration**: Introduced `dart_test.yaml` and `@TestOn` tags to enable seamless execution of all tests across VM and Chrome with a single `dart test` command.
+*   **Robust Log Silencing**:
+    *   Implemented FD-level redirection (`dup2` to `/dev/null`) for `LlamaLogLevel.none` on native platforms.
+    *   This provides a crash-free alternative to FFI-based log callbacks, which were unstable during low-level native initialization (e.g., Metal).
 *   **Project Hygiene**:
     *   Achieved 100% clean `dart analyze` across the core library and all example applications.
     *   Replaced legacy stubs in the chat application with a clean, interface-based `ModelService` architecture.

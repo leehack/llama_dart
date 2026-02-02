@@ -316,6 +316,7 @@ class WebLlamaBackend implements LlamaBackend {
         topK: params.topK,
         topP: params.topP,
         repeatPenalty: params.penalty,
+        grammar: params.grammar,
       ),
       seed: params.seed ?? DateTime.now().millisecondsSinceEpoch,
       onNewToken: onNewToken as JSFunction,

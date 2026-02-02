@@ -3,6 +3,8 @@ import 'llama_engine.dart';
 import '../models/llama_chat_message.dart';
 import '../models/llama_chat_role.dart';
 import '../models/generation_params.dart';
+import '../models/llama_tool.dart';
+import '../common/json_schema_to_gbnf.dart';
 
 /// Manages a chat session, including history and context window management.
 ///
@@ -75,7 +77,14 @@ class ChatSession {
   /// 3. Formats the full message list (including [systemPrompt]) using the model's template.
   /// 4. Streams the response from the [LlamaEngine].
   /// 5. Appends the full assistant response back into the history.
-  Stream<String> chat(String text, {GenerationParams? params}) async* {
+  ///
+  /// If [tools] are provided, a GBNF grammar will be generated to force the
+  /// model to output a tool call matching one of the tools.
+  Stream<String> chat(
+    String text, {
+    GenerationParams? params,
+    List<LlamaTool>? tools,
+  }) async* {
     _history.add(
       LlamaChatMessage.text(role: LlamaChatRole.user, content: text),
     );
@@ -84,9 +93,67 @@ class ChatSession {
     await _enforceContextLimit();
 
     final messages = _getMessagesForEngine();
+
+    // If tools are provided, generate grammar and attach to params
+    GenerationParams? effectiveParams = params;
+    List<LlamaChatMessage>? toolMessages;
+    if (tools != null && tools.isNotEmpty) {
+      final toolGrammar = JsonSchemaToGbnf.generateToolGrammar(tools);
+      effectiveParams = (params ?? const GenerationParams()).copyWith(
+        grammar: toolGrammar,
+      );
+
+      // Build a tool prompt to guide the model to use proper JSON format
+      final toolDescriptions = tools
+          .map((t) {
+            final paramNames =
+                (t.parameters['properties'] as Map<String, dynamic>?)?.keys
+                    .toList() ??
+                [];
+            final requiredParams =
+                (t.parameters['required'] as List?)?.cast<String>() ?? [];
+            final paramInfo = paramNames
+                .map((p) {
+                  final isRequired = requiredParams.contains(p);
+                  return '    - $p${isRequired ? " (required)" : " (optional)"}';
+                })
+                .join('\n');
+            return '''${t.name}: ${t.description}
+  Parameters:
+$paramInfo''';
+          })
+          .join('\n\n');
+
+      final toolSystemPrompt =
+          '''You are a helpful assistant that uses tools to answer questions.
+
+Available tools:
+$toolDescriptions
+
+IMPORTANT: You must respond ONLY with a JSON tool call. Use the exact parameter names shown above.
+Format: {"type": "function", "function": {"name": "<tool_name>", "parameters": {"<param_name>": "<value>", ...}}}
+
+Do not include any explanatory text. Output only the JSON.''';
+
+      // Create messages with tool prompt prepended
+      toolMessages = [
+        LlamaChatMessage.text(
+          role: LlamaChatRole.system,
+          content: toolSystemPrompt,
+        ),
+        ..._getMessagesForEngine(),
+      ];
+    }
+
     String fullResponse = "";
 
-    await for (final token in _engine.chat(messages, params: params)) {
+    // Use tool messages if tools were provided, otherwise use regular messages
+    final chatMessages = toolMessages ?? messages;
+
+    await for (final token in _engine.chat(
+      chatMessages,
+      params: effectiveParams,
+    )) {
       fullResponse += token;
       yield token;
     }
@@ -103,9 +170,13 @@ class ChatSession {
   ///
   /// Wraps [chat] but waits for the entire generation to complete and
   /// returns the concatenated tokens as a single trimmed string.
-  Future<String> chatText(String text, {GenerationParams? params}) async {
+  Future<String> chatText(
+    String text, {
+    GenerationParams? params,
+    List<LlamaTool>? tools,
+  }) async {
     final buffer = StringBuffer();
-    await for (final token in chat(text, params: params)) {
+    await for (final token in chat(text, params: params, tools: tools)) {
       buffer.write(token);
     }
     return buffer.toString().trim();

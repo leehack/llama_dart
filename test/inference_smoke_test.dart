@@ -1,3 +1,4 @@
+@TestOn('vm')
 @Timeout(Duration(minutes: 5))
 library;
 

@@ -1,3 +1,4 @@
+@TestOn('vm')
 @Timeout(Duration(minutes: 5))
 library;
 
@@ -26,7 +27,10 @@ void main() async {
       // 1. Load Model
       await engine.loadModel(
         modelFile.path,
-        modelParams: const ModelParams(contextSize: 128),
+        modelParams: const ModelParams(
+          contextSize: 256,
+          logLevel: LlamaLogLevel.none,
+        ),
       );
       expect(engine.isReady, isTrue);
       expect(engine.modelHandle, isNotNull);
@@ -57,17 +61,38 @@ void main() async {
       // 6. Backend Info
       expect(await engine.getBackendName(), isNotEmpty);
       expect(await engine.isGpuSupported(), isA<bool>());
+
+      // 7. Context Size
+      final ctxSize = await engine.getContextSize();
+      expect(ctxSize, 256);
+
+      // 8. Chat Template
+      final messages = [
+        const LlamaChatMessage.text(role: LlamaChatRole.user, content: 'Hi'),
+      ];
+      final templateResult = await engine.chatTemplate(messages);
+      expect(templateResult.prompt, isNotEmpty);
+      expect(templateResult.tokenCount, greaterThan(0));
+
+      // 9. Token Count
+      final count = await engine.getTokenCount('Once upon a time');
+      expect(count, greaterThan(0));
     });
 
     test('Chat interface', () async {
       if (!engine.isReady) {
         await engine.loadModel(
           modelFile.path,
-          modelParams: const ModelParams(contextSize: 128),
+          modelParams: const ModelParams(
+            contextSize: 256,
+            logLevel: LlamaLogLevel.none,
+          ),
         );
       }
 
-      final messages = [const LlamaChatMessage(role: 'user', content: 'Hi')];
+      final messages = [
+        const LlamaChatMessage.text(role: LlamaChatRole.user, content: 'Hi'),
+      ];
       final stream = engine.chat(
         messages,
         params: const GenerationParams(maxTokens: 10),
@@ -81,7 +106,10 @@ void main() async {
       if (!engine.isReady) {
         await engine.loadModel(
           modelFile.path,
-          modelParams: const ModelParams(contextSize: 128),
+          modelParams: const ModelParams(
+            contextSize: 256,
+            logLevel: LlamaLogLevel.none,
+          ),
         );
       }
 
@@ -103,7 +131,33 @@ void main() async {
       await subscription.cancel();
 
       expect(accumulated, isNotEmpty, reason: 'Generation should have started');
-      // It should have stopped before 100 tokens
+    });
+
+    test('loadModelFromUrl throws Unimplemented on Native', () async {
+      expect(engine.loadModelFromUrl('http://test'), throwsUnimplementedError);
+    });
+
+    test('getContextSize prefers active context over metadata', () async {
+      // Force reload with a new context size to verify dynamic reporting
+      await engine.loadModel(
+        modelFile.path,
+        modelParams: const ModelParams(
+          contextSize: 512,
+          logLevel: LlamaLogLevel.none,
+        ),
+      );
+      final size = await engine.getContextSize();
+      expect(size, 512);
+    });
+
+    test('Error when not initialized', () async {
+      final freshBackend = LlamaBackend();
+      final freshEngine = LlamaEngine(freshBackend);
+      expect(
+        freshEngine.generate('test'),
+        emitsError(isA<LlamaContextException>()),
+      );
+      await freshEngine.dispose();
     });
   });
 }

@@ -82,19 +82,22 @@ When a user adds `llamadart` as a dependency and runs their app:
 
 We take testing seriously. This project maintains **80%+ global test coverage**.
 
-### 1. Native Tests (VM)
-Native tests require a GGUF model for integration. The test suite automatically downloads a tiny (15M) model from Hugging Face during the first run.
+### 1. Unified Test Runner
+We use `dart_test.yaml` and `@TestOn` tags to manage multi-platform execution. Running `dart test` without arguments will automatically run all compatible tests for your environment (VM and/or Chrome).
 
 ```bash
-# Run all native tests
+# Run all compatible tests
 dart test
 ```
 
-### 2. Web Tests (Chrome)
-Web tests require Google Chrome and test the `WebLlamaBackend` logic and JS interop.
+### 2. Manual Platform Selection
+You can still target specific platforms if needed:
 
 ```bash
-# Run all web tests
+# Run only VM tests
+dart test -p vm
+
+# Run only Chrome tests
 dart test -p chrome
 ```
 
@@ -102,13 +105,10 @@ dart test -p chrome
 To collect and view coverage reports:
 
 ```bash
-# 1. Collect VM coverage
+# 1. Run all tests with coverage
 dart test --coverage=coverage
 
-# 2. Collect Web coverage
-dart test -p chrome --coverage=coverage
-
-# 3. Format into LCOV (requires coverage package)
+# 2. Format into LCOV (requires coverage package)
 dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib
 ```
 
@@ -149,7 +149,7 @@ If you need to build binaries for a new release:
 
 -   **Code Style**: We follow standard Dart linting rules. Run `dart format .` before committing.
 -   **Native Assets**: The package uses the modern **Dart Native Assets** (hooks) mechanism.
--   **Testing**: Add unit tests for new features where possible. Use `dart run test/simple_check.dart` for quick verification.
+-   **Testing**: Add unit tests for new features where possible. Use `dart test` for full integration and unit verification.
 
 ## Submitting a Pull Request
 

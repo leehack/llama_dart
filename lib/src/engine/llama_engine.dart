@@ -48,6 +48,7 @@ class LlamaEngine {
     } catch (_) {}
 
     try {
+      await _backend.setLogLevel(modelParams.logLevel);
       _modelHandle = await _backend.modelLoad(path, modelParams);
       _contextHandle = await _backend.contextCreate(_modelHandle!, modelParams);
 

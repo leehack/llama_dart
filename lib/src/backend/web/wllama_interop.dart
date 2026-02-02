@@ -155,6 +155,7 @@ extension type WllamaSamplingConfig._(JSObject _) implements JSObject {
     @JS('top_k') int topK,
     @JS('top_p') double topP,
     @JS('repeat_penalty') double repeatPenalty,
+    String? grammar,
   });
 
   /// Creates a sampling configuration with Dart-style usage.
@@ -163,12 +164,14 @@ extension type WllamaSamplingConfig._(JSObject _) implements JSObject {
     required int topK,
     required double topP,
     required double repeatPenalty,
+    String? grammar,
   }) {
     return WllamaSamplingConfig._raw(
       temp: temp,
       topK: topK,
       topP: topP,
       repeatPenalty: repeatPenalty,
+      grammar: grammar,
     );
   }
 }

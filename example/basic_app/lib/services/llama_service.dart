@@ -31,13 +31,23 @@ class LlamaCliService {
   }
 
   /// Sends a message and returns the full response.
-  Future<String> chat(String text) async {
-    return _session.chatText(text);
+  Future<String> chat(String text,
+      {GenerationParams? params, List<LlamaTool>? tools}) async {
+    return _session.chatText(
+      text,
+      params: params,
+      tools: tools,
+    );
   }
 
   /// Sends a message and returns a stream of tokens.
-  Stream<String> chatStream(String text) {
-    return _session.chat(text);
+  Stream<String> chatStream(String text,
+      {GenerationParams? params, List<LlamaTool>? tools}) {
+    return _session.chat(
+      text,
+      params: params,
+      tools: tools,
+    );
   }
 
   /// Disposes the underlying engine resources.

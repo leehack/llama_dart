@@ -1,20 +1,40 @@
+@TestOn('vm')
+@Timeout(Duration(minutes: 5))
+library;
+
+import 'dart:io';
 import 'package:test/test.dart';
 import 'package:llamadart/llamadart.dart';
-import 'engine_test.dart'; // To reuse MockLlamaBackend
+import 'test_helper.dart';
 
-void main() {
+void main() async {
+  late File modelFile;
   late LlamaEngine engine;
-  late MockLlamaBackend backend;
+  late LlamaBackend backend;
   late ChatSession session;
 
-  setUp(() async {
-    backend = MockLlamaBackend();
+  setUpAll(() async {
+    modelFile = await TestHelper.getTestModel();
+    backend = LlamaBackend();
     engine = LlamaEngine(backend);
-    await engine.loadModel('mock_path');
+    await engine.loadModel(
+      modelFile.path,
+      modelParams: const ModelParams(
+        contextSize: 256,
+        logLevel: LlamaLogLevel.none,
+      ),
+    );
+  });
+
+  setUp(() {
     session = ChatSession(engine);
   });
 
-  group('ChatSession Unit Tests', () {
+  tearDownAll(() async {
+    await engine.dispose();
+  });
+
+  group('ChatSession Integration Tests', () {
     test('Initial state', () {
       expect(session.history, isEmpty);
       expect(session.systemPrompt, isNull);
@@ -22,21 +42,21 @@ void main() {
 
     test('Add message to history', () {
       session.addMessage(
-        const LlamaChatMessage(role: 'user', content: 'hello'),
+        const LlamaChatMessage.text(role: LlamaChatRole.user, content: 'hello'),
       );
       expect(session.history.length, 1);
       expect(session.history.first.content, 'hello');
     });
 
     test('Chat updates history', () async {
-      final response = await session.chatText('How are you?');
+      final response = await session.chatText('Once upon a time');
 
-      expect(response, 'Hello world');
+      expect(response, isNotEmpty);
       expect(session.history.length, 2);
       expect(session.history[0].role, LlamaChatRole.user);
-      expect(session.history[0].content, 'How are you?');
+      expect(session.history[0].content, 'Once upon a time');
       expect(session.history[1].role, LlamaChatRole.assistant);
-      expect(session.history[1].content, 'Hello world');
+      expect(session.history[1].content, isNotEmpty);
     });
 
     test('System prompt persistence', () async {
@@ -49,14 +69,18 @@ void main() {
     });
 
     test('Clear history', () {
-      session.addMessage(const LlamaChatMessage(role: 'user', content: 'test'));
+      session.addMessage(
+        const LlamaChatMessage.text(role: LlamaChatRole.user, content: 'test'),
+      );
       session.clearHistory();
       expect(session.history, isEmpty);
     });
 
     test('Reset session', () {
       session.systemPrompt = "System";
-      session.addMessage(const LlamaChatMessage(role: 'user', content: 'test'));
+      session.addMessage(
+        const LlamaChatMessage.text(role: LlamaChatRole.user, content: 'test'),
+      );
 
       // Default reset (keeps system prompt)
       session.reset();
@@ -71,7 +95,7 @@ void main() {
     test('History immutability via getter', () {
       expect(
         () => session.history.add(
-          const LlamaChatMessage(role: 'user', content: 'x'),
+          const LlamaChatMessage.text(role: LlamaChatRole.user, content: 'x'),
         ),
         throwsUnsupportedError,
       );

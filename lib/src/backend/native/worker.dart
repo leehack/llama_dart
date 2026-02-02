@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 import 'package:ffi/ffi.dart';
 import '../../common/loader.dart';
 import '../../models/llama_log_level.dart';
@@ -62,10 +63,64 @@ class _LlamaContextWrapper {
   }
 }
 
-// --- Global for Logging ---
-NativeCallable<ggml_log_callbackFunction>? _noOpLogCallback;
+// --- Global for Logging redirection ---
 
-void _noOpCallback(int level, Pointer<Char> text, Pointer<Void> userData) {}
+class _Libc {
+  late final int Function(Pointer<Utf8>, int) open;
+  late final int Function(int, int) dup2;
+  late final int Function(int) dup;
+  late final int Function(int) close;
+
+  _Libc() {
+    final dylib = Platform.isMacOS
+        ? DynamicLibrary.open('libSystem.B.dylib')
+        : DynamicLibrary.process();
+
+    open = dylib
+        .lookupFunction<
+          Int32 Function(Pointer<Utf8>, Int32),
+          int Function(Pointer<Utf8>, int)
+        >('open');
+    dup2 = dylib
+        .lookupFunction<Int32 Function(Int32, Int32), int Function(int, int)>(
+          'dup2',
+        );
+    dup = dylib.lookupFunction<Int32 Function(Int32), int Function(int)>('dup');
+    close = dylib.lookupFunction<Int32 Function(Int32), int Function(int)>(
+      'close',
+    );
+  }
+}
+
+class _StderrSilencer {
+  static final _Libc _libc = _Libc();
+  static int? _savedStderr;
+  static int? _nullFd;
+
+  static void silence() {
+    if (_savedStderr != null) return;
+    try {
+      final path = "/dev/null".toNativeUtf8();
+      _nullFd = _libc.open(path, 1); // O_WRONLY
+      malloc.free(path);
+
+      if (_nullFd == -1) return;
+      _savedStderr = _libc.dup(2);
+      _libc.dup2(_nullFd!, 2);
+    } catch (_) {}
+  }
+
+  static void restore() {
+    if (_savedStderr == null) return;
+    try {
+      _libc.dup2(_savedStderr!, 2);
+      _libc.close(_savedStderr!);
+      if (_nullFd != null && _nullFd != -1) _libc.close(_nullFd!);
+    } catch (_) {}
+    _savedStderr = null;
+    _nullFd = null;
+  }
+}
 
 /// Entry point for the llama worker isolate.
 void llamaWorkerEntry(SendPort initialSendPort) {
@@ -93,22 +148,18 @@ void llamaWorkerEntry(SendPort initialSendPort) {
   ggml_backend_load_all();
   llama_backend_init();
 
-  _noOpLogCallback ??= NativeCallable<ggml_log_callbackFunction>.listener(
-    _noOpCallback,
-  );
-
   receivePort.listen((message) {
     if (message is WorkerHandshake) {
     } else if (message is ModelLoadRequest) {
       _handleModelLoad(message, state);
     } else if (message is LogLevelRequest) {
       if (message.logLevel == LlamaLogLevel.none) {
-        llama_log_set(_noOpLogCallback!.nativeFunction, nullptr);
-        ggml_log_set(_noOpLogCallback!.nativeFunction, nullptr);
+        _StderrSilencer.silence();
       } else {
-        llama_log_set(nullptr, nullptr);
-        ggml_log_set(nullptr, nullptr);
+        _StderrSilencer.restore();
       }
+      llama_log_set(nullptr, nullptr);
+      ggml_log_set(nullptr, nullptr);
       message.sendPort.send(DoneResponse());
     } else if (message is ModelFreeRequest) {
       _handleModelFree(message, state);
@@ -158,12 +209,13 @@ void llamaWorkerEntry(SendPort initialSendPort) {
 void _handleModelLoad(ModelLoadRequest request, _LlamaWorkerState state) {
   try {
     if (request.modelParams.logLevel == LlamaLogLevel.none) {
-      llama_log_set(_noOpLogCallback!.nativeFunction, nullptr);
-      ggml_log_set(_noOpLogCallback!.nativeFunction, nullptr);
+      _StderrSilencer.silence();
     } else {
-      llama_log_set(nullptr, nullptr);
-      ggml_log_set(nullptr, nullptr);
+      _StderrSilencer.restore();
     }
+    // Default to internal llama.cpp logger.
+    llama_log_set(nullptr, nullptr);
+    ggml_log_set(nullptr, nullptr);
 
     if (!File(request.modelPath).existsSync()) {
       request.sendPort.send(
@@ -270,7 +322,7 @@ void _freeContext(int handle, _LlamaWorkerState state) {
   state.activeLoras.remove(handle);
   state.contextParams.remove(handle);
   final sampler = state.samplers.remove(handle);
-  if (sampler != null) llama_sampler_free(sampler);
+  if (sampler != null && sampler != nullptr) llama_sampler_free(sampler);
   final batch = state.batches.remove(handle);
   if (batch != null) llama_batch_free(batch);
   state.contexts.remove(handle)?.dispose();
@@ -300,37 +352,26 @@ void _handleGenerate(GenerateRequest request, _LlamaWorkerState state) {
   ctx = newCtx;
 
   final vocab = llama_model_get_vocab(model.pointer);
-  final oldSampler = state.samplers[request.contextHandle]!;
   final b = state.batches[request.contextHandle]!;
   final nCtx = llama_n_ctx(ctx.pointer);
 
-  llama_sampler_free(oldSampler);
-  final sampler = llama_sampler_chain_init(
-    llama_sampler_chain_default_params(),
-  );
-  state.samplers[request.contextHandle] = sampler;
-  llama_sampler_chain_add(
-    sampler,
-    llama_sampler_init_penalties(64, request.params.penalty, 0.0, 0.0),
-  );
-  llama_sampler_chain_add(
-    sampler,
-    llama_sampler_init_top_k(request.params.topK),
-  );
-  llama_sampler_chain_add(
-    sampler,
-    llama_sampler_init_top_p(request.params.topP, 1),
-  );
-  llama_sampler_chain_add(
-    sampler,
-    llama_sampler_init_temp(request.params.temp),
-  );
-  llama_sampler_chain_add(
-    sampler,
-    llama_sampler_init_dist(
-      request.params.seed ?? DateTime.now().millisecondsSinceEpoch,
-    ),
-  );
+  // Sampler will be initialized after prompt is processed
+  // to correctly handle grammar and penalties.
+
+  // Delay adding grammar sampler until after prompt is processed
+  Pointer<llama_sampler> grammarSampler = nullptr;
+  Pointer<Utf8> grammarPtr = nullptr;
+  Pointer<Utf8> rootPtr = nullptr;
+
+  if (request.params.grammar != null) {
+    grammarPtr = request.params.grammar!.toNativeUtf8();
+    rootPtr = request.params.grammarRoot.toNativeUtf8();
+    grammarSampler = llama_sampler_init_grammar(
+      vocab,
+      grammarPtr.cast(),
+      rootPtr.cast(),
+    );
+  }
 
   final tokensPtr = malloc<Int32>(nCtx);
   final pieceBuf = malloc<Uint8>(256);
@@ -439,6 +480,7 @@ void _handleGenerate(GenerateRequest request, _LlamaWorkerState state) {
           request.sendPort.send(ErrorResponse("mtmd_tokenize failed: $res"));
           return;
         }
+
         malloc.free(promptPtr);
         malloc.free(inputText);
       } finally {
@@ -483,51 +525,177 @@ void _handleGenerate(GenerateRequest request, _LlamaWorkerState state) {
         request.sendPort.send(ErrorResponse("Initial decode failed"));
         return;
       }
+
       initialTokens = nTokens;
     }
 
+    // --- INITIALIZE SAMPLER ---
+    // We handle samplers manually in the loop below.
+
+    // Create a base chain for stateful processing (penalties)
+    final baseSampler = llama_sampler_chain_init(
+      llama_sampler_chain_default_params(),
+    );
+    llama_sampler_chain_add(
+      baseSampler,
+      llama_sampler_init_penalties(64, request.params.penalty, 0.0, 0.0),
+    );
+
+    // Create a second chain for distribution filters (top-k, top-p, temp)
+    final filterSampler = llama_sampler_chain_init(
+      llama_sampler_chain_default_params(),
+    );
+    llama_sampler_chain_add(
+      filterSampler,
+      llama_sampler_init_top_k(request.params.topK),
+    );
+    llama_sampler_chain_add(
+      filterSampler,
+      llama_sampler_init_top_p(request.params.topP, 1),
+    );
+    llama_sampler_chain_add(
+      filterSampler,
+      llama_sampler_init_temp(request.params.temp),
+    );
+
+    // Accept prompt tokens into the base chain ONLY
+    if (tokensPtr != nullptr && initialTokens > 0) {
+      for (int i = 0; i < initialTokens; i++) {
+        llama_sampler_accept(baseSampler, tokensPtr[i]);
+      }
+    }
+
     int currentPos = initialTokens;
+    final nVocab = llama_vocab_n_tokens(vocab);
+    final random = Random(
+      request.params.seed ?? DateTime.now().millisecondsSinceEpoch,
+    );
+
     for (int i = 0; i < request.params.maxTokens; i++) {
       if (cancelToken.value == 1) break;
       if (currentPos >= nCtx) break;
 
-      // Sample from the last token
-      final tokenId = llama_sampler_sample(sampler, ctx.pointer, -1);
+      final logits = llama_get_logits(ctx.pointer);
+      final dataArray = malloc<llama_token_data_array>();
+      final data = malloc<llama_token_data>(nVocab);
 
-      if (llama_vocab_is_eog(vocab, tokenId)) break;
-      final n = llama_token_to_piece(
-        vocab,
-        tokenId,
-        pieceBuf.cast(),
-        256,
-        0,
-        false,
-      );
-      if (n > 0) {
-        final bytes = pieceBuf.asTypedList(n).toList();
-        request.sendPort.send(TokenResponse(bytes));
+      try {
+        for (int j = 0; j < nVocab; j++) {
+          data[j].id = j;
+          data[j].logit = logits[j];
+          data[j].p = 0.0;
+        }
 
-        if (request.params.stopSequences.isNotEmpty) {
-          final piece = utf8.decode(bytes, allowMalformed: true);
-          if (piece.contains('<|im_end|>') || piece.contains('<|endoftext|>')) {
-            break;
+        dataArray.ref.data = data;
+        dataArray.ref.size = nVocab;
+        dataArray.ref.sorted = false;
+
+        // Apply standard samplers
+        // 1. Penalties (Stateful, need to see all tokens)
+        llama_sampler_apply(baseSampler, dataArray);
+
+        // 2. Grammar (Filter)
+        if (grammarSampler != nullptr) {
+          llama_sampler_apply(grammarSampler, dataArray);
+        }
+
+        // 3. Distribution filters (top-k, top-p, temp)
+        llama_sampler_apply(filterSampler, dataArray);
+
+        // Final selection logic
+        int selectedToken = -1;
+        if (request.params.temp <= 0) {
+          // Greedy: find max logit
+          double maxLogit = -double.infinity;
+          for (int j = 0; j < dataArray.ref.size; j++) {
+            if (dataArray.ref.data[j].logit > maxLogit) {
+              maxLogit = dataArray.ref.data[j].logit;
+              selectedToken = dataArray.ref.data[j].id;
+            }
+          }
+        } else {
+          // Distribution: weighted random
+          double maxLogit = -double.infinity;
+          for (int j = 0; j < dataArray.ref.size; j++) {
+            if (dataArray.ref.data[j].logit > maxLogit) {
+              maxLogit = dataArray.ref.data[j].logit;
+            }
+          }
+
+          double sum = 0.0;
+          for (int j = 0; j < dataArray.ref.size; j++) {
+            double p = exp(dataArray.ref.data[j].logit - maxLogit);
+            dataArray.ref.data[j].p = p;
+            sum += p;
+          }
+
+          if (sum > 0) {
+            double r = random.nextDouble() * sum;
+            double acc = 0.0;
+            for (int j = 0; j < dataArray.ref.size; j++) {
+              acc += dataArray.ref.data[j].p;
+              if (r <= acc) {
+                selectedToken = dataArray.ref.data[j].id;
+                break;
+              }
+            }
           }
         }
+
+        if (selectedToken == -1 || llama_vocab_is_eog(vocab, selectedToken)) {
+          break;
+        }
+
+        final n = llama_token_to_piece(
+          vocab,
+          selectedToken,
+          pieceBuf.cast(),
+          256,
+          0,
+          false,
+        );
+        if (n > 0) {
+          final bytes = pieceBuf.asTypedList(n).toList();
+          request.sendPort.send(TokenResponse(bytes));
+
+          // Accept the token into all stateful samplers
+          llama_sampler_accept(baseSampler, selectedToken);
+          if (grammarSampler != nullptr) {
+            llama_sampler_accept(grammarSampler, selectedToken);
+          }
+
+          if (request.params.stopSequences.isNotEmpty) {
+            final piece = utf8.decode(bytes, allowMalformed: true);
+            if (piece.contains('<|im_end|>') ||
+                piece.contains('<|endoftext|>')) {
+              break;
+            }
+          }
+        }
+
+        // Decode for next iteration
+        b.n_tokens = 1;
+        b.token[0] = selectedToken;
+        b.pos[0] = currentPos++;
+        b.n_seq_id[0] = 1;
+        b.seq_id[0][0] = 0;
+        b.logits[0] = 1;
+        if (llama_decode(ctx.pointer, b) != 0) break;
+      } finally {
+        malloc.free(data);
+        malloc.free(dataArray);
       }
-      b.n_tokens = 1;
-      b.token[0] = tokenId;
-      b.pos[0] = currentPos++;
-      b.n_seq_id[0] = 1;
-      b.seq_id[0][0] = 0;
-      b.logits[0] = 1;
-      if (llama_decode(ctx.pointer, b) != 0) break;
     }
+    llama_sampler_free(baseSampler);
+    llama_sampler_free(filterSampler);
     request.sendPort.send(DoneResponse());
   } catch (e) {
     request.sendPort.send(ErrorResponse(e.toString()));
   } finally {
     malloc.free(tokensPtr);
     malloc.free(pieceBuf);
+    if (grammarPtr != nullptr) malloc.free(grammarPtr);
+    if (rootPtr != nullptr) malloc.free(rootPtr);
   }
 }
 

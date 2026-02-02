@@ -83,3 +83,4 @@ third_party/llama_cpp/
 third_party/Vulkan-Headers/
 
 coverage/
+*.log
