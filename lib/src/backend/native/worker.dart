@@ -978,6 +978,8 @@ void _handleEmbeddings(
 
     request.sendPort.send(EmbeddingsResponse(embeddings));
   } catch (e) {
-    request.sendPort.send(ErrorResponse("Embeddings error: ${e.toString()}"));
+    request.sendPort.send(
+      ErrorResponse("Embeddings error: ${e.toString()}"),
+    );
   }
 }
