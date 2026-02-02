@@ -71,7 +71,7 @@ class MockLlamaBackend implements LlamaBackend {
     int modelHandle,
     List<int> tokens, {
     bool special = false,
-  }) async => "mock text";
+  }) async => 'mock text';
   @override
   Future<Map<String, String>> modelMetadata(int modelHandle) async => {};
   @override

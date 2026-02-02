@@ -11,7 +11,7 @@ void main() {
       processor = ChatTemplateProcessor(backend, 1);
     });
 
-    tearDown() async {
+    tearDown(() async {
       await backend.dispose();
     });
 
@@ -68,7 +68,7 @@ class MockLlamaBackend implements LlamaBackend {
     int modelHandle,
     List<int> tokens, {
     bool special = false,
-  }) async => "";
+  }) async => '';
   @override
   Future<Map<String, String>> modelMetadata(int modelHandle) async => {};
   @override
@@ -77,8 +77,8 @@ class MockLlamaBackend implements LlamaBackend {
     List<LlamaChatMessage> messages, {
     bool addAssistant = true,
   }) async => const LlamaChatTemplateResult(
-    prompt: "mock prompt",
-    stopSequences: ["</s>"],
+    prompt: 'mock prompt',
+    stopSequences: ['</s>'],
   );
   @override
   Future<void> setLoraAdapter(
