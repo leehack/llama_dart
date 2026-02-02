@@ -7,7 +7,7 @@ import 'package:path/path.dart' as path;
 
 // Constants for release
 // This should match the pinned llama.cpp submodule tag in third_party/llama_cpp
-const _llamaCppTag = 'b7898';
+const _llamaCppTag = 'b7910';
 const _baseUrl =
     'https://github.com/leehack/llamadart/releases/download/$_llamaCppTag';
 
