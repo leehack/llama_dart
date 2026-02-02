@@ -17,6 +17,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          cache: true
 
       - name: Install dependencies
         run: |
@@ -50,6 +51,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          cache: true
 
       - name: Install dependencies
         run: flutter pub get
@@ -57,11 +59,8 @@ jobs:
       - name: Install Coverage tool
         run: dart pub global activate coverage
 
-      - name: Run native tests
-        run: dart test -p vm --concurrency=1 --coverage=coverage
-
-      - name: Run web tests
-        run: dart test -p chrome --coverage=coverage
+      - name: Run tests
+        run: dart test --coverage=coverage
 
       - name: Format coverage
         run: |
@@ -92,6 +91,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          cache: true
 
       - name: Install dependencies
         run: flutter pub get
