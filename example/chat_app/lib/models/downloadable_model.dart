@@ -27,29 +27,18 @@ class DownloadableModel {
 
   static const List<DownloadableModel> defaultModels = [
     DownloadableModel(
-      name: 'Moondream 2 (Official)',
-      description: 'Ultra-fast vision model. Excellent for image description.',
+      name: 'SmolVLM 500M Instruct',
+      description:
+          'Ultra-tiny vision model (~640MB total). Best for mobile devices.',
       url:
-          'https://huggingface.co/moondream/moondream2-gguf/resolve/main/moondream2-text-model-f16.gguf?download=true',
-      filename: 'moondream2-text-f16.gguf',
+          'https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/SmolVLM-500M-Instruct-Q8_0.gguf?download=true',
+      filename: 'SmolVLM-500M-Instruct-Q8_0.gguf',
       mmprojUrl:
-          'https://huggingface.co/moondream/moondream2-gguf/resolve/main/moondream2-mmproj-f16.gguf?download=true',
-      mmprojFilename: 'moondream2-mmproj-f16.gguf',
+          'https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/mmproj-SmolVLM-500M-Instruct-f16.gguf?download=true',
+      mmprojFilename: 'mmproj-SmolVLM-500M-Instruct-f16.gguf',
       supportsVision: true,
-      sizeBytes: 3200000000, // ~3.2GB (F16)
-    ),
-    DownloadableModel(
-      name: 'Gemma 3 4B (IT)',
-      description: 'Google native multimodal model (Vision + Audio support).',
-      url:
-          'https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf?download=true',
-      filename: 'gemma-3-4b-it-Q4_K_M.gguf',
-      mmprojUrl:
-          'https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/mmproj-model-f16.gguf?download=true',
-      mmprojFilename: 'gemma-3-mmproj-f16.gguf',
-      supportsVision: true,
-      supportsAudio: true,
-      sizeBytes: 2500000000, // ~2.5GB
+      sizeBytes:
+          636000000, // ~436MB (Model) + ~200MB (Projector) = ~640MB Total
     ),
     DownloadableModel(
       name: 'Ultravox v0.5 1B',
@@ -62,14 +51,6 @@ class DownloadableModel {
       mmprojFilename: 'ultravox-v0.5-mmproj-f16.gguf',
       supportsAudio: true,
       sizeBytes: 1100000000, // ~1.1GB
-    ),
-    DownloadableModel(
-      name: 'Qwen 2.5 0.5B',
-      description: 'Tiny and fast text-only model. Ideal for older devices.',
-      url:
-          'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true',
-      filename: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
-      sizeBytes: 398000000,
     ),
     DownloadableModel(
       name: 'LFM 2.5 1.2B',
@@ -86,6 +67,14 @@ class DownloadableModel {
           'https://huggingface.co/bartowski/google_gemma-3-1b-it-GGUF/resolve/main/google_gemma-3-1b-it-Q4_K_M.gguf?download=true',
       filename: 'google_gemma-3-1b-it-Q4_K_M.gguf',
       sizeBytes: 850000000,
+    ),
+    DownloadableModel(
+      name: 'Qwen 2.5 0.5B',
+      description: 'Tiny and fast text-only model. Ideal for older devices.',
+      url:
+          'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true',
+      filename: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+      sizeBytes: 398000000,
     ),
   ];
 }

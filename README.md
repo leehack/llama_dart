@@ -16,6 +16,7 @@
   - **Apple**: Metal (macOS/iOS)
   - **Android/Linux/Windows**: Vulkan
 - 🖼️ **Multimodal Support**: Run vision and audio models (LLaVA, Gemma 3, Qwen2-VL) with integrated media processing.
+- ⏬ **Resumable Downloads**: Robust background-safe model downloads with parallel chunking and persistence using `.meta` tracking.
 - **LoRA Support**: Apply fine-tuned adapters (GGUF) dynamically at runtime.
 - 🌐 **Web Support**: Run inference in the browser via WASM (powered by `wllama` v2).
 - 💎 **Dart-First API**: Streamlined architecture with decoupled backends.
@@ -56,7 +57,7 @@ Add `llamadart` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  llamadart: ^0.3.0
+  llamadart: ^0.3.1
 ```
 
 ### Zero Setup (Native Assets)

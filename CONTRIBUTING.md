@@ -12,7 +12,8 @@ Before you begin, ensure you have the following installed:
 -   **C++ Compiler**:
     -   **macOS**: Xcode Command Line Tools (`xcode-select --install`)
     -   **Linux**: GCC/G++ (`build-essential`) or Clang
-    -   **Windows**: Visual Studio 2022 (Desktop development with C++)
+    -   **Windows**: Visual Studio 2022 (Desktop development with C++). 
+        -   *Tip*: Install `ccache` or `sccache` via `choco install sccache` to speed up local builds.
 
 ## Project Structure
 

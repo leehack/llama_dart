@@ -112,17 +112,20 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showModelSettings() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (context) =>
-          SettingsSheet(onOpenModelSelection: _openModelSelection),
-    );
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        showDragHandle: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        builder: (context) =>
+            SettingsSheet(onOpenModelSelection: _openModelSelection),
+      );
+    });
   }
 
   @override

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:llamadart/llamadart.dart';
 import '../models/chat_message.dart';
 import '../models/chat_settings.dart';
@@ -43,7 +44,13 @@ class ChatService {
     }
 
     if (settings.mmprojPath != null && settings.mmprojPath!.isNotEmpty) {
-      await _engine.loadMultimodalProjector(settings.mmprojPath!);
+      try {
+        await _engine.loadMultimodalProjector(settings.mmprojPath!);
+        debugPrint("Loaded multimodal projector from ${settings.mmprojPath}");
+      } catch (e) {
+        debugPrint("Warning: Failed to load multimodal projector: $e");
+        // Do not rethrow; proceed without vision if projector fails
+      }
     }
   }
 

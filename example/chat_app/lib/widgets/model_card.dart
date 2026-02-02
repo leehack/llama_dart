@@ -11,6 +11,7 @@ class ModelCard extends StatelessWidget {
   final VoidCallback onSelect;
   final VoidCallback onDownload;
   final VoidCallback onDelete;
+  final VoidCallback? onCancel;
 
   const ModelCard({
     super.key,
@@ -22,6 +23,7 @@ class ModelCard extends StatelessWidget {
     required this.onSelect,
     required this.onDownload,
     required this.onDelete,
+    this.onCancel,
   });
 
   @override
@@ -33,7 +35,7 @@ class ModelCard extends StatelessWidget {
         color: colorScheme.surfaceContainer,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+          color: colorScheme.outlineVariant.withValues(alpha: 0.1),
         ),
       ),
       padding: const EdgeInsets.all(20),
@@ -151,14 +153,16 @@ class ModelCard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (isDownloaded && !isWeb)
+              if (!isWeb && (isDownloaded || (progress > 0 && !isDownloaded)))
                 IconButton(
                   icon: Icon(
                     Icons.delete_outline_rounded,
                     color: colorScheme.error,
                   ),
                   onPressed: onDelete,
-                  tooltip: 'Delete Model',
+                  tooltip: progress > 0 && !isDownloaded
+                      ? 'Cancel & Discard'
+                      : 'Delete Model',
                 ),
             ],
           ),
@@ -172,7 +176,7 @@ class ModelCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          if (isDownloading) ...[
+          if (isDownloading || (progress > 0 && !isDownloaded)) ...[
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: LinearProgressIndicator(
@@ -185,16 +189,51 @@ class ModelCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Downloading...',
-                  style: TextStyle(fontSize: 12, color: colorScheme.primary),
+                  isDownloading ? 'Downloading...' : 'Paused',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDownloading ? colorScheme.primary : Colors.orange,
+                  ),
                 ),
-                Text(
-                  '${(progress * 100).toStringAsFixed(0)}%',
-                  style: TextStyle(fontSize: 12, color: colorScheme.primary),
+                Row(
+                  children: [
+                    Text(
+                      '${(progress * 100).toStringAsFixed(0)}%',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDownloading
+                            ? colorScheme.primary
+                            : Colors.orange,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: IconButton(
+                        padding: EdgeInsets.zero,
+                        iconSize: 18,
+                        icon: Icon(
+                          isDownloading
+                              ? Icons.pause_circle_outline_rounded
+                              : Icons.play_circle_outline_rounded,
+                          color: isDownloading
+                              ? colorScheme.primary
+                              : Colors.orange,
+                        ),
+                        onPressed: isDownloading ? onCancel : onDownload,
+                        tooltip: isDownloading
+                            ? 'Pause Download'
+                            : 'Resume Download',
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ] else ...[
+          ],
+          if (!isDownloading) ...[
+            const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
               child: isDownloaded || isWeb
@@ -211,8 +250,15 @@ class ModelCard extends StatelessWidget {
                     )
                   : OutlinedButton.icon(
                       onPressed: onDownload,
-                      icon: const Icon(Icons.download_rounded, size: 18),
-                      label: const Text('Download to Device'),
+                      icon: Icon(
+                        progress > 0
+                            ? Icons.play_arrow_rounded
+                            : Icons.download_rounded,
+                        size: 18,
+                      ),
+                      label: Text(
+                        progress > 0 ? 'Resume Download' : 'Download to Device',
+                      ),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
