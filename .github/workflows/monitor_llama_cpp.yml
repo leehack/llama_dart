@@ -2,7 +2,7 @@ name: Monitor llama.cpp
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # Every 6 hours
+    - cron: '0 0 * * 0' # Weekly (Sunday at 00:00)
   workflow_dispatch: # Allow manual trigger
 
 permissions:

@@ -350,11 +350,21 @@ jobs:
           find artifacts/libllamadart_android_arm64-v8a -name "*.so" -exec cp {} release_assets/libllamadart-android-arm64.so \;
           find artifacts/libllamadart_android_x86_64 -name "*.so" -exec cp {} release_assets/libllamadart-android-x64.so \;
           ls -R release_assets
+      - name: Fetch Release Notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.codegen.outputs.tag }}"
+          # Try to get release notes, if it fails, fallback to simple message
+          if ! gh api "repos/ggerganov/llama.cpp/releases/tags/$TAG" --jq '.body' > release_notes.md 2>/dev/null; then
+            echo "Automated build for llama.cpp $TAG" > release_notes.md
+          fi
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.codegen.outputs.tag }}
           files: release_assets/*
+          body_path: release_notes.md
           draft: false
           prerelease: false
       - name: Cleanup Old Automation PRs
