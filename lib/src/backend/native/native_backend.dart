@@ -382,4 +382,16 @@ class NativeLlamaBackend implements LlamaBackend {
     rp.close();
     return res as bool;
   }
+
+  @override
+  Future<List<double>> getEmbeddings(int contextHandle, String text) async {
+    await _ensureIsolate();
+    final rp = ReceivePort();
+    _sendPort!.send(EmbeddingsRequest(contextHandle, text, rp.sendPort));
+    final res = await rp.first;
+    rp.close();
+    if (res is EmbeddingsResponse) return res.embeddings;
+    if (res is ErrorResponse) throw Exception(res.message);
+    throw Exception("Embeddings request failed");
+  }
 }

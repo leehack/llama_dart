@@ -19,6 +19,12 @@ class ModelParams {
   /// Initial LoRA adapters to load along with the model.
   final List<LoraAdapterConfig> loras;
 
+  /// Whether to enable embeddings output.
+  final bool enableEmbeddings;
+
+  /// Pooling type for embeddings (1=MEAN, 2=CLS, 3=LAST).
+  final int poolingType;
+
   /// Creates configuration for the model.
   const ModelParams({
     this.contextSize = 0,
@@ -26,6 +32,8 @@ class ModelParams {
     this.preferredBackend = GpuBackend.auto,
     this.logLevel = LlamaLogLevel.warn,
     this.loras = const [],
+    this.enableEmbeddings = false,
+    this.poolingType = 1,
   });
 
   /// Creates a copy of this [ModelParams] with updated fields.
@@ -35,6 +43,8 @@ class ModelParams {
     GpuBackend? preferredBackend,
     LlamaLogLevel? logLevel,
     List<LoraAdapterConfig>? loras,
+    bool? enableEmbeddings,
+    int? poolingType,
   }) {
     return ModelParams(
       contextSize: contextSize ?? this.contextSize,
@@ -42,6 +52,8 @@ class ModelParams {
       preferredBackend: preferredBackend ?? this.preferredBackend,
       logLevel: logLevel ?? this.logLevel,
       loras: loras ?? this.loras,
+      enableEmbeddings: enableEmbeddings ?? this.enableEmbeddings,
+      poolingType: poolingType ?? this.poolingType,
     );
   }
 }

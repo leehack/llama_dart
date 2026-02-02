@@ -567,4 +567,10 @@ class WebLlamaBackend implements LlamaBackend {
   Future<bool> supportsVision(int mmContextHandle) async {
     return false;
   }
+
+  @override
+  Future<List<double>> getEmbeddings(int contextHandle, String text) async {
+    // wllama v2 doesn't have direct embeddings API yet
+    throw UnimplementedError('Embeddings are not supported on web backend yet');
+  }
 }

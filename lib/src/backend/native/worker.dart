@@ -149,6 +149,8 @@ void llamaWorkerEntry(SendPort initialSendPort) {
       _handleSupportsVision(message, state);
     } else if (message is SupportsAudioRequest) {
       _handleSupportsAudio(message, state);
+    } else if (message is EmbeddingsRequest) {
+      _handleEmbeddings(message, state);
     }
   });
 }
@@ -237,6 +239,12 @@ void _handleContextCreate(
     ctxParams.n_ctx = nCtx;
     ctxParams.n_batch = nCtx;
     ctxParams.n_ubatch = nCtx;
+
+    // Configure embeddings if enabled
+    if (request.params.enableEmbeddings) {
+      ctxParams.pooling_typeAsInt = request.params.poolingType;
+      ctxParams.embeddings = true;
+    }
 
     final ctxPtr = llama_init_from_model(model.pointer, ctxParams);
     if (ctxPtr == nullptr) {
@@ -872,4 +880,96 @@ void _handleSupportsAudio(
     return;
   }
   request.sendPort.send(mtmd_support_audio(mmCtx));
+}
+
+void _handleEmbeddings(
+  EmbeddingsRequest request,
+  _LlamaWorkerState state,
+) {
+  final ctx = state.contexts[request.contextHandle];
+  final modelHandle = state.contextToModel[request.contextHandle];
+  final model = modelHandle != null ? state.models[modelHandle] : null;
+
+  if (ctx == null || model == null) {
+    request.sendPort.send(ErrorResponse("Invalid context or model handle"));
+    return;
+  }
+
+  try {
+    final vocab = llama_model_get_vocab(model.pointer);
+    final textPtr = request.text.toNativeUtf8();
+
+    // Tokenize the input text
+    final n = -llama_tokenize(
+      vocab,
+      textPtr.cast(),
+      textPtr.length,
+      nullptr,
+      0,
+      true,
+      true,
+    );
+
+    if (n <= 0) {
+      malloc.free(textPtr);
+      request.sendPort.send(ErrorResponse("Tokenization failed"));
+      return;
+    }
+
+    final tokensPtr = malloc<Int32>(n);
+    final actual = llama_tokenize(
+      vocab,
+      textPtr.cast(),
+      textPtr.length,
+      tokensPtr,
+      n,
+      true,
+      true,
+    );
+    malloc.free(textPtr);
+
+    if (actual <= 0) {
+      malloc.free(tokensPtr);
+      request.sendPort.send(ErrorResponse("Tokenization failed"));
+      return;
+    }
+
+    // Create a batch for the tokens
+    final batch = state.batches[request.contextHandle]!;
+    batch.n_tokens = actual;
+
+    for (int i = 0; i < actual; i++) {
+      batch.token[i] = tokensPtr[i];
+      batch.pos[i] = i;
+      batch.n_seq_id[i] = 1;
+      batch.seq_id[i][0] = 0;
+      batch.logits[i] = 0; // We don't need logits for embeddings
+    }
+
+    malloc.free(tokensPtr);
+
+    // Decode the batch to get embeddings
+    if (llama_decode(ctx.pointer, batch) != 0) {
+      request.sendPort.send(ErrorResponse("Decode failed"));
+      return;
+    }
+
+    // Get the embeddings
+    final nEmbd = llama_n_embd(model.pointer);
+    final embPtr = llama_get_embeddings(ctx.pointer);
+
+    if (embPtr == nullptr) {
+      request.sendPort.send(
+        ErrorResponse("Embeddings not available. Enable embeddings in ModelParams."),
+      );
+      return;
+    }
+
+    // Copy the embeddings to a Dart list
+    final embeddings = List<double>.generate(nEmbd, (i) => embPtr[i]);
+
+    request.sendPort.send(EmbeddingsResponse(embeddings));
+  } catch (e) {
+    request.sendPort.send(ErrorResponse("Embeddings error: ${e.toString()}"));
+  }
 }

@@ -113,4 +113,7 @@ abstract class LlamaBackend {
 
   /// Checks if the model supports audio input.
   Future<bool> supportsAudio(int mmContextHandle);
+
+  /// Gets embeddings for the given text from the context.
+  Future<List<double>> getEmbeddings(int contextHandle, String text);
 }

@@ -131,6 +131,11 @@ class MockLlamaBackend implements LlamaBackend {
 
   @override
   Future<bool> supportsVision(int mmContextHandle) async => false;
+
+  @override
+  Future<List<double>> getEmbeddings(int contextHandle, String text) async {
+    return List.generate(384, (i) => i * 0.001); // Mock 384-dim embedding
+  }
 }
 
 void main() {
@@ -238,6 +243,22 @@ void main() {
     test('Error when not initialized', () {
       expect(engine.generate('test'), emitsError(isA<LlamaContextException>()));
     });
+
+    test('getEmbeddings returns vector', () async {
+      await engine.loadModel('mock_path');
+      final embeddings = await engine.getEmbeddings('test text');
+      expect(embeddings, isNotEmpty);
+      expect(embeddings.length, 384); // Mock returns 384-dim vector
+      expect(embeddings.first, 0.0);
+      expect(embeddings[1], 0.001);
+    });
+
+    test('getEmbeddings throws when not initialized', () {
+      expect(
+        () => engine.getEmbeddings('test'),
+        throwsA(isA<LlamaContextException>()),
+      );
+    });
   });
 
   group('LlamaTokenizer Unit Tests', () {
@@ -265,6 +286,16 @@ void main() {
       final updated = params.copyWith(gpuLayers: 10);
       expect(updated.contextSize, 1024);
       expect(updated.gpuLayers, 10);
+    });
+
+    test('ModelParams embeddings fields', () {
+      const params = ModelParams(enableEmbeddings: true, poolingType: 2);
+      expect(params.enableEmbeddings, true);
+      expect(params.poolingType, 2);
+
+      final updated = params.copyWith(poolingType: 3);
+      expect(updated.enableEmbeddings, true);
+      expect(updated.poolingType, 3);
     });
 
     test('GenerationParams copyWith', () {

@@ -251,6 +251,18 @@ class SupportsAudioRequest extends WorkerRequest {
   SupportsAudioRequest(this.mmContextHandle, super.sendPort);
 }
 
+/// Request to get embeddings for text.
+class EmbeddingsRequest extends WorkerRequest {
+  /// The handle of the context.
+  final int contextHandle;
+
+  /// The text to get embeddings for.
+  final String text;
+
+  /// Creates a new [EmbeddingsRequest].
+  EmbeddingsRequest(this.contextHandle, this.text, super.sendPort);
+}
+
 /// Response containing a resource handle.
 class HandleResponse {
   /// The unique handle.
@@ -342,6 +354,15 @@ class GpuSupportResponse {
 
   /// Creates a new [GpuSupportResponse].
   GpuSupportResponse(this.support);
+}
+
+/// Response containing embeddings.
+class EmbeddingsResponse {
+  /// The embeddings vector.
+  final List<double> embeddings;
+
+  /// Creates a new [EmbeddingsResponse].
+  EmbeddingsResponse(this.embeddings);
 }
 
 /// Response indicating an operation has completed.

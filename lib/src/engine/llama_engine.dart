@@ -278,6 +278,19 @@ class LlamaEngine {
     return _backend.clearLoraAdapters(_contextHandle!);
   }
 
+  /// Gets embeddings for the given [text].
+  /// 
+  /// The model must be loaded with embeddings enabled by setting
+  /// [ModelParams.enableEmbeddings] to `true`.
+  /// 
+  /// Returns a list of doubles representing the embedding vector.
+  Future<List<double>> getEmbeddings(String text) {
+    if (!_isReady || _contextHandle == null) {
+      throw LlamaContextException("Engine not ready. Call loadModel first.");
+    }
+    return _backend.getEmbeddings(_contextHandle!, text);
+  }
+
   /// Immediately cancels any ongoing generation process.
   void cancelGeneration() {
     _backend.cancelGeneration();
