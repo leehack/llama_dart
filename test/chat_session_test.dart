@@ -21,6 +21,7 @@ void main() async {
       modelFile.path,
       modelParams: const ModelParams(
         contextSize: 256,
+        gpuLayers: 0, // Disable GPU for stability on CI
         logLevel: LlamaLogLevel.none,
       ),
     );
@@ -49,7 +50,10 @@ void main() async {
     });
 
     test('Chat updates history', () async {
-      final response = await session.chatText('Once upon a time');
+      final response = await session.chatText(
+        'Once upon a time',
+        params: const GenerationParams(maxTokens: 50),
+      );
 
       expect(response, isNotEmpty);
       expect(session.history.length, 2);
@@ -63,7 +67,10 @@ void main() async {
       session.systemPrompt = "You are a helpful assistant.";
       expect(session.systemPrompt, "You are a helpful assistant.");
 
-      await session.chatText('Hi');
+      await session.chatText(
+        'Hi',
+        params: const GenerationParams(maxTokens: 50),
+      );
       // History should only contain user/assistant messages, system prompt is handled internally
       expect(session.history.length, 2);
     });
