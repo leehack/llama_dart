@@ -963,7 +963,7 @@ void _handleDispose(
   for (final m in state.mtmdContexts.values) {
     mtmd_free(m);
   }
-  llama_backend_free();
+  // llama_backend_free(); // DISABLED: Prevents race conditions with other isolates
   request.sendPort.send(null);
   rp.close();
   Isolate.exit();
