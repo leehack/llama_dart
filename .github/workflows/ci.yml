@@ -69,6 +69,12 @@ jobs:
         run: |
           dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib
 
+      - name: Normalize coverage paths
+        shell: bash
+        run: |
+          # Use perl for cross-platform in-place editing (works on Linux, macOS, Windows)
+          perl -i -pe "s|SF:\Q$(pwd)\E/|SF:|g" coverage/lcov.info
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
@@ -105,11 +111,19 @@ jobs:
             test/chat_session_test.dart \
             test/models_test.dart \
             test/engine_test.dart \
+            test/tokenizer_unit_test.dart \
+            test/template_processor_unit_test.dart \
             --coverage=coverage
 
       - name: Format coverage
         run: |
           dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib
+
+      - name: Normalize coverage paths
+        shell: bash
+        run: |
+          # Use perl for cross-platform in-place editing
+          perl -i -pe "s|SF:\Q$(pwd)\E/|SF:|g" coverage/lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -117,5 +131,5 @@ jobs:
           files: coverage/lcov.info
           flags: web
           name: codecov-umbrella
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
