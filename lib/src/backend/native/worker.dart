@@ -904,6 +904,7 @@ void _handleEmbeddings(
     final textPtr = request.text.toNativeUtf8();
 
     // Tokenize the input text
+    // First call with nullptr returns negative token count to allocate buffer
     final n = -llama_tokenize(
       vocab,
       textPtr.cast(),
@@ -945,9 +946,10 @@ void _handleEmbeddings(
     for (int i = 0; i < actual; i++) {
       batch.token[i] = tokensPtr[i];
       batch.pos[i] = i;
-      batch.n_seq_id[i] = 1;
-      batch.seq_id[i][0] = 0;
-      batch.logits[i] = 0; // We don't need logits for embeddings
+      batch.n_seq_id[i] = 1; // Number of sequences this token belongs to
+      batch.seq_id[i][0] = 0; // Sequence ID is 0 (single sequence)
+      // Don't request logits for embeddings - we only need the hidden states
+      batch.logits[i] = 0;
     }
 
     malloc.free(tokensPtr);
