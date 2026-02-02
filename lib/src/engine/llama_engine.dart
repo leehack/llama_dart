@@ -279,10 +279,10 @@ class LlamaEngine {
   }
 
   /// Gets embeddings for the given [text].
-  /// 
+  ///
   /// The model must be loaded with embeddings enabled by setting
   /// [ModelParams.enableEmbeddings] to `true`.
-  /// 
+  ///
   /// Returns a list of doubles representing the embedding vector.
   Future<List<double>> getEmbeddings(String text) {
     if (!_isReady || _contextHandle == null) {

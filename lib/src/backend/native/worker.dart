@@ -966,7 +966,9 @@ void _handleEmbeddings(
 
     if (embPtr == nullptr) {
       request.sendPort.send(
-        ErrorResponse("Embeddings not available. Enable embeddings in ModelParams."),
+        ErrorResponse(
+          "Embeddings not available. Enable embeddings in ModelParams.",
+        ),
       );
       return;
     }
