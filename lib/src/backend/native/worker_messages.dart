@@ -2,6 +2,7 @@ import 'dart:isolate';
 import '../../models/model_params.dart';
 import '../../models/generation_params.dart';
 import '../../models/llama_chat_message.dart';
+import '../../models/llama_content_part.dart';
 import '../../models/llama_log_level.dart';
 
 /// Base class for all worker requests.
@@ -69,14 +70,18 @@ class GenerateRequest extends WorkerRequest {
   /// Address of the cancel token.
   final int cancelTokenAddress;
 
+  /// Multimodal content parts.
+  final List<LlamaContentPart>? parts;
+
   /// Creates a new [GenerateRequest].
   GenerateRequest(
     this.contextHandle,
     this.prompt,
     this.params,
     this.cancelTokenAddress,
-    super.sendPort,
-  );
+    super.sendPort, {
+    this.parts,
+  });
 }
 
 /// Request to tokenize text.
@@ -194,6 +199,58 @@ class LogLevelRequest extends WorkerRequest {
   LogLevelRequest(this.logLevel, super.sendPort);
 }
 
+/// Request to get the actual context size.
+class GetContextSizeRequest extends WorkerRequest {
+  /// The handle of the context.
+  final int contextHandle;
+
+  /// Creates a new [GetContextSizeRequest].
+  GetContextSizeRequest(this.contextHandle, super.sendPort);
+}
+
+/// Request to create a multimodal context.
+class MultimodalContextCreateRequest extends WorkerRequest {
+  /// The handle of the text model.
+  final int modelHandle;
+
+  /// Path to the multimodal projector file (mmproj).
+  final String mmProjPath;
+
+  /// Creates a new [MultimodalContextCreateRequest].
+  MultimodalContextCreateRequest(
+    this.modelHandle,
+    this.mmProjPath,
+    super.sendPort,
+  );
+}
+
+/// Request to free a multimodal context.
+class MultimodalContextFreeRequest extends WorkerRequest {
+  /// The handle of the multimodal context.
+  final int mmContextHandle;
+
+  /// Creates a new [MultimodalContextFreeRequest].
+  MultimodalContextFreeRequest(this.mmContextHandle, super.sendPort);
+}
+
+/// Request to check for vision support.
+class SupportsVisionRequest extends WorkerRequest {
+  /// The handle of the multimodal context.
+  final int mmContextHandle;
+
+  /// Creates a new [SupportsVisionRequest].
+  SupportsVisionRequest(this.mmContextHandle, super.sendPort);
+}
+
+/// Request to check for audio support.
+class SupportsAudioRequest extends WorkerRequest {
+  /// The handle of the multimodal context.
+  final int mmContextHandle;
+
+  /// Creates a new [SupportsAudioRequest].
+  SupportsAudioRequest(this.mmContextHandle, super.sendPort);
+}
+
 /// Response containing a resource handle.
 class HandleResponse {
   /// The unique handle.
@@ -249,6 +306,15 @@ class ApplyTemplateResponse {
 
   /// Creates a new [ApplyTemplateResponse].
   ApplyTemplateResponse(this.prompt, this.stopSequences);
+}
+
+/// Response containing the context size.
+class GetContextSizeResponse {
+  /// The context size.
+  final int size;
+
+  /// Creates a new [GetContextSizeResponse].
+  GetContextSizeResponse(this.size);
 }
 
 /// Response containing an error message.

@@ -1,6 +1,7 @@
 import '../models/model_params.dart';
 import '../models/generation_params.dart';
 import '../models/llama_chat_message.dart';
+import '../models/llama_content_part.dart';
 import '../models/llama_chat_template_result.dart';
 import '../models/llama_log_level.dart';
 
@@ -35,12 +36,16 @@ abstract class LlamaBackend {
   /// Releases the allocated [contextHandle].
   Future<void> contextFree(int contextHandle);
 
+  /// Returns the actual context size used by the given [contextHandle].
+  Future<int> getContextSize(int contextHandle);
+
   /// Generates a stream of token bytes for a given prompt and context.
   Stream<List<int>> generate(
     int contextHandle,
     String prompt,
-    GenerationParams params,
-  );
+    GenerationParams params, {
+    List<LlamaContentPart>? parts,
+  });
 
   /// Immediately cancels the current generation.
   void cancelGeneration();
@@ -95,4 +100,17 @@ abstract class LlamaBackend {
 
   /// Releases all allocated backend resources.
   Future<void> dispose();
+
+  // NEW: Multimodal context methods
+  /// Loads a multimodal projector for vision/audio support.
+  Future<int?> multimodalContextCreate(int modelHandle, String mmProjPath);
+
+  /// Frees the multimodal context.
+  Future<void> multimodalContextFree(int mmContextHandle);
+
+  /// Checks if the model supports vision input.
+  Future<bool> supportsVision(int mmContextHandle);
+
+  /// Checks if the model supports audio input.
+  Future<bool> supportsAudio(int mmContextHandle);
 }

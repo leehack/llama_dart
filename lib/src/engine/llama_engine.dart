@@ -8,6 +8,7 @@ import '../models/llama_log_level.dart';
 import '../models/model_params.dart';
 import '../models/generation_params.dart';
 import '../models/llama_chat_message.dart';
+import '../models/llama_content_part.dart';
 import '../models/llama_chat_template_result.dart';
 
 /// High-level engine that orchestrates models and contexts.
@@ -15,6 +16,7 @@ class LlamaEngine {
   final LlamaBackend _backend;
   int? _modelHandle;
   int? _contextHandle;
+  int? _mmContextHandle;
   bool _isReady = false;
 
   LlamaTokenizer? _tokenizer;
@@ -38,8 +40,6 @@ class LlamaEngine {
     ModelParams modelParams = const ModelParams(),
   }) async {
     // If backend supports URL loading (e.g. WASM), use it.
-    // We check this via a string for now to avoid potential initialization issues
-    // with some backends that might not be ready.
     try {
       final name = await _backend.getBackendName();
       if (name.startsWith("WASM")) {
@@ -66,7 +66,6 @@ class LlamaEngine {
     ModelParams modelParams = const ModelParams(),
     Function(double progress)? onProgress,
   }) async {
-    // If it's Web, wllama supports loading directly from URL.
     final backendName = await _backend.getBackendName();
     if (backendName.startsWith("WASM")) {
       _modelHandle = await _backend.modelLoadFromUrl(
@@ -81,33 +80,63 @@ class LlamaEngine {
       return;
     }
 
-    // For native, we still need to download to a file first.
-    // We'll use a platform-agnostic way to get a temp path if possible,
-    // or just use the backend's helper if we add one.
-    // For now, since LlamaEngine is meant to be shared, we keep the download logic
-    // but try to avoid dart:io if we can.
-    // Actually, LlamaEngine can still use dart:io if we use conditional imports.
-    // But to keep it simple and 100% web-safe, we'll let the user provide the path
-    // or move this to a helper.
-
-    // Let's implement a minimal download for Native without importing dart:io in the main path.
     throw UnimplementedError(
       "loadModelFromUrl for Native should be handled by the caller or a helper.",
     );
   }
 
+  /// Loads a multimodal projector model for vision/audio support.
+  Future<void> loadMultimodalProjector(String mmProjPath) async {
+    if (!_isReady || _modelHandle == null) {
+      throw LlamaContextException("Load model before loading projector.");
+    }
+    _mmContextHandle = await _backend.multimodalContextCreate(
+      _modelHandle!,
+      mmProjPath,
+    );
+  }
+
+  /// Whether the loaded model supports vision.
+  Future<bool> get supportsVision async =>
+      _mmContextHandle != null &&
+      await _backend.supportsVision(_mmContextHandle!);
+
+  /// Whether the loaded model supports audio.
+  Future<bool> get supportsAudio async =>
+      _mmContextHandle != null &&
+      await _backend.supportsAudio(_mmContextHandle!);
+
   /// Generates a stream of text tokens based on the provided [prompt].
   Stream<String> generate(
     String prompt, {
     GenerationParams params = const GenerationParams(),
+    List<LlamaContentPart>? parts,
   }) async* {
     if (!_isReady || _contextHandle == null) {
       throw LlamaContextException("Engine not ready. Call loadModel first.");
     }
 
-    final stream = _backend.generate(_contextHandle!, prompt, params);
+    // Safeguard: Inject markers if they are missing from the prompt but parts are provided.
+    final mediaCount =
+        parts
+            ?.where((p) => p is LlamaImageContent || p is LlamaAudioContent)
+            .length ??
+        0;
+    final markerCount = '<__media__>'.allMatches(prompt).length;
 
-    // Pipe through UTF-8 decoder to handle multi-byte characters correctly
+    String finalPrompt = prompt;
+    if (mediaCount > 0 && markerCount == 0) {
+      // Prepend missing markers at the start of the prompt
+      finalPrompt = ('<__media__>\n' * mediaCount) + prompt;
+    }
+
+    final stream = _backend.generate(
+      _contextHandle!,
+      finalPrompt,
+      params,
+      parts: parts,
+    );
+
     final controller = StreamController<List<int>>();
     final sub = stream.listen(
       (bytes) => controller.add(bytes),
@@ -133,14 +162,51 @@ class LlamaEngine {
       throw LlamaContextException("Engine not ready.");
     }
 
-    final result = await chatTemplate(messages);
+    // AUTOMATIC MARKER INJECTION:
+    // Ensure every message with media parts has the <__media__> markers in its text.
+    final processedMessages = messages.map((m) {
+      final mediaParts = m.parts.where(
+        (p) => p is LlamaImageContent || p is LlamaAudioContent,
+      );
+      if (mediaParts.isEmpty) return m;
+
+      // Count existing markers across all text parts of this message
+      final markerCount = m.parts.whereType<LlamaTextContent>().fold(
+        0,
+        (count, p) => count + '<__media__>'.allMatches(p.text).length,
+      );
+
+      if (markerCount < mediaParts.length) {
+        final missingMarkers = mediaParts.length - markerCount;
+        // IMPORTANT: Prepend markers with newlines to ensure they are on their own lines,
+        // which helps some multimodal models (like Moondream) distinguish them from text.
+        final injection = ('<__media__>\n' * missingMarkers);
+
+        final newParts = List<LlamaContentPart>.from(m.parts);
+        int textIndex = newParts.indexWhere((p) => p is LlamaTextContent);
+        if (textIndex != -1) {
+          final oldText = (newParts[textIndex] as LlamaTextContent).text;
+          newParts[textIndex] = LlamaTextContent('$injection$oldText');
+        } else {
+          newParts.insert(0, LlamaTextContent(injection.trim()));
+        }
+        return LlamaChatMessage.multimodal(role: m.role, parts: newParts);
+      }
+      return m;
+    }).toList();
+
+    final result = await chatTemplate(processedMessages);
     final stops = {...result.stopSequences, ...?params?.stopSequences}.toList();
+
+    // Collect all parts from all messages
+    final allParts = processedMessages.expand((m) => m.parts).toList();
 
     yield* generate(
       result.prompt,
       params: (params ?? const GenerationParams()).copyWith(
         stopSequences: stops,
       ),
+      parts: allParts,
     );
   }
 
@@ -148,11 +214,20 @@ class LlamaEngine {
   Future<LlamaChatTemplateResult> chatTemplate(
     List<LlamaChatMessage> messages, {
     bool addAssistant = true,
-  }) {
+  }) async {
     if (!_isReady || _templateProcessor == null) {
       throw LlamaContextException("Engine not ready.");
     }
-    return _templateProcessor!.apply(messages, addAssistant: addAssistant);
+    final result = await _templateProcessor!.apply(
+      messages,
+      addAssistant: addAssistant,
+    );
+    final tokens = await tokenize(result.prompt);
+    return LlamaChatTemplateResult(
+      prompt: result.prompt,
+      stopSequences: result.stopSequences,
+      tokenCount: tokens.length,
+    );
   }
 
   /// Encodes the given [text] into a list of token IDs.
@@ -225,10 +300,19 @@ class LlamaEngine {
 
   /// Returns the actual context size being used by the current session.
   Future<int> getContextSize() async {
+    if (_isReady && _contextHandle != null) {
+      final size = await _backend.getContextSize(_contextHandle!);
+      if (size > 0) return size;
+    }
     final meta = await getMetadata();
-    // Native uses llama.context_length, Web/wllama uses n_ctx
-    return int.tryParse(meta['llama.context_length'] ?? meta['n_ctx'] ?? "0") ??
-        0;
+    // Try common context length keys in metadata
+    final ctx =
+        meta['llm.context_length'] ??
+        meta['llama.context_length'] ??
+        meta['model.context_length'] ??
+        meta['n_ctx'] ??
+        "0";
+    return int.tryParse(ctx) ?? 0;
   }
 
   /// Utility to count the number of tokens in [text] without running inference.
@@ -239,6 +323,9 @@ class LlamaEngine {
 
   /// Releases all allocated resources.
   Future<void> dispose() async {
+    if (_mmContextHandle != null) {
+      await _backend.multimodalContextFree(_mmContextHandle!);
+    }
     if (_contextHandle != null) {
       await _backend.contextFree(_contextHandle!);
     }

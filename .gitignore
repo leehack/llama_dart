@@ -68,14 +68,17 @@ compile_commands.json
 *.gguf
 *.bin
 
-.scrum/
-.cache/
-.opencode/
+# Test Assets
+/test_assets/
+/models/
 
+# build outputs
 build-*/
 third_party/bin/
+artifacts/
+release_assets/
 
-# Exclude submodules source when cloned locally
+# Exclude submodules source
 third_party/llama_cpp/
 third_party/Vulkan-Headers/
 

@@ -3,10 +3,12 @@ import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'package:web/web.dart';
 import '../llama_backend_interface.dart';
+import '../../models/llama_content_part.dart';
 import '../../models/llama_log_level.dart';
 import '../../models/model_params.dart';
 import '../../models/generation_params.dart';
 import '../../models/llama_chat_message.dart';
+import '../../models/llama_chat_role.dart';
 import '../../models/llama_chat_template_result.dart';
 import 'wllama_interop.dart';
 
@@ -29,6 +31,7 @@ class WebLlamaBackend implements LlamaBackend {
   bool _isReady = false;
   AbortController? _abortController;
   LlamaLogLevel _logLevel = LlamaLogLevel.info;
+  int? _lastNCtx;
 
   /// Creates a new [WebLlamaBackend] with the given [wllamaPath] and [wasmPath].
   WebLlamaBackend({
@@ -70,13 +73,12 @@ class WebLlamaBackend implements LlamaBackend {
     script.type = 'module';
     script.text =
         '''
-      try {
-        import { Wllama } from "$_wllamaJsUrl";
-        window.Wllama = Wllama;
+      import("$_wllamaJsUrl").then(mod => {
+        window.Wllama = mod.Wllama;
         if (window.$callbackName) window.$callbackName();
-      } catch (e) {
+      }).catch(e => {
         console.error("WebLlamaBackend: Failed to import Wllama", e);
-      }
+      });
     ''';
 
     script.addEventListener(
@@ -120,6 +122,7 @@ class WebLlamaBackend implements LlamaBackend {
   }) async {
     console.log('WebLlamaBackend: modelLoadFromUrl called for $url'.toJS);
     _logLevel = params.logLevel;
+    _lastNCtx = params.contextSize;
     await _ensureLibrary();
     console.log('WebLlamaBackend: Library ensured'.toJS);
 
@@ -255,6 +258,21 @@ class WebLlamaBackend implements LlamaBackend {
   }
 
   @override
+  Future<int> getContextSize(int contextHandle) async {
+    if (_wllama != null) {
+      try {
+        final info = _wllama!.getLoadedContextInfo();
+        if (info.nCtx > 0) return info.nCtx;
+      } catch (_) {}
+
+      try {
+        if (_wllama!.nCtx > 0) return _wllama!.nCtx;
+      } catch (_) {}
+    }
+    return _lastNCtx ?? 0;
+  }
+
+  @override
   void cancelGeneration() {
     _abortController?.abort();
   }
@@ -263,8 +281,9 @@ class WebLlamaBackend implements LlamaBackend {
   Stream<List<int>> generate(
     int contextHandle,
     String prompt,
-    GenerationParams params,
-  ) {
+    GenerationParams params, {
+    List<LlamaContentPart>? parts,
+  }) {
     final controller = StreamController<List<int>>();
     _abortController = AbortController();
 
@@ -355,9 +374,13 @@ class WebLlamaBackend implements LlamaBackend {
     for (int i = 0; i < keys.length; i++) {
       final key = (keys.getProperty(i.toJS) as JSString).toDart;
       final val = jsMeta.getProperty(key.toJS);
-      result[key] = val.isA<JSString>()
-          ? (val as JSString).toDart
-          : val.toString();
+      if (val.isA<JSString>()) {
+        result[key] = (val as JSString).toDart;
+      } else if (val.isA<JSNumber>()) {
+        result[key] = (val as JSNumber).toDartInt.toString();
+      } else {
+        result[key] = val.toString();
+      }
     }
     return result;
   }
@@ -375,7 +398,7 @@ class WebLlamaBackend implements LlamaBackend {
         final jsMessages = messages
             .map((m) {
               final obj = JSObject();
-              obj.setProperty('role'.toJS, m.role.toJS);
+              obj.setProperty('role'.toJS, m.role.name.toJS);
               obj.setProperty('content'.toJS, m.content.toJS);
               return obj;
             })
@@ -433,7 +456,9 @@ class WebLlamaBackend implements LlamaBackend {
       stops.add('<|endoftext|>');
 
       for (final msg in messages) {
-        buffer.write('<|im_start|>${msg.role}\n${msg.content}<|im_end|>\n');
+        buffer.write(
+          '<|im_start|>${msg.role.name}\n${msg.content}<|im_end|>\n',
+        );
       }
       buffer.write('<|im_start|>assistant\n');
     } else if (isLlama3) {
@@ -443,7 +468,7 @@ class WebLlamaBackend implements LlamaBackend {
       buffer.write('<|begin_of_text|>');
       for (final msg in messages) {
         buffer.write(
-          '<|start_header_id|>${msg.role}<|end_header_id|>\n\n${msg.content}<|eot_id|>',
+          '<|start_header_id|>${msg.role.name}<|end_header_id|>\n\n${msg.content}<|eot_id|>',
         );
       }
       buffer.write('<|start_header_id|>assistant<|end_header_id|>\n\n');
@@ -451,7 +476,7 @@ class WebLlamaBackend implements LlamaBackend {
       // Gemma Format
       stops.add('<|end_of_turn|>');
       for (final msg in messages) {
-        var role = msg.role == 'assistant' ? 'model' : 'user';
+        var role = msg.role == LlamaChatRole.assistant ? 'model' : 'user';
         buffer.write('<start_of_turn>$role\n${msg.content}<end_of_turn>\n');
       }
       buffer.write('<start_of_turn>model\n');
@@ -460,12 +485,12 @@ class WebLlamaBackend implements LlamaBackend {
       stops.add('User:');
 
       for (final msg in messages) {
-        if (msg.role == 'user') {
+        if (msg.role == LlamaChatRole.user) {
           buffer.writeln('User: ${msg.content}');
-        } else if (msg.role == 'assistant') {
+        } else if (msg.role == LlamaChatRole.assistant) {
           buffer.writeln('Assistant: ${msg.content}');
         } else {
-          buffer.writeln('${msg.role}: ${msg.content}');
+          buffer.writeln('${msg.role.name.toUpperCase()}: ${msg.content}');
         }
       }
       buffer.write('Assistant:');
@@ -518,5 +543,28 @@ class WebLlamaBackend implements LlamaBackend {
     _logLevel = level;
     // Note: wllama doesn't support changing loggers after init,
     // but the next time a model is loaded it will use the new level.
+  }
+
+  @override
+  Future<int?> multimodalContextCreate(
+    int modelHandle,
+    String mmProjPath,
+  ) async {
+    return null; // Not supported on web yet
+  }
+
+  @override
+  Future<void> multimodalContextFree(int mmContextHandle) async {
+    // No-op
+  }
+
+  @override
+  Future<bool> supportsAudio(int mmContextHandle) async {
+    return false;
+  }
+
+  @override
+  Future<bool> supportsVision(int mmContextHandle) async {
+    return false;
   }
 }

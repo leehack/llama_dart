@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:llamadart/llamadart.dart';
 import '../models/chat_message.dart';
 import '../models/chat_settings.dart';
@@ -6,7 +7,7 @@ class ChatService {
   final LlamaEngine _engine;
 
   ChatService({LlamaEngine? engine})
-    : _engine = engine ?? LlamaEngine(createBackend());
+    : _engine = engine ?? LlamaEngine(LlamaBackend());
 
   LlamaEngine get engine => _engine;
 
@@ -41,6 +42,16 @@ class ChatService {
         ),
       );
     }
+
+    if (settings.mmprojPath != null && settings.mmprojPath!.isNotEmpty) {
+      try {
+        await _engine.loadMultimodalProjector(settings.mmprojPath!);
+        debugPrint("Loaded multimodal projector from ${settings.mmprojPath}");
+      } catch (e) {
+        debugPrint("Warning: Failed to load multimodal projector: $e");
+        // Do not rethrow; proceed without vision if projector fails
+      }
+    }
   }
 
   Future<LlamaChatTemplateResult> buildPrompt(
@@ -69,13 +80,24 @@ class ChatService {
       }
 
       totalTokens += tokens;
-      finalMessages.insert(
-        0,
-        LlamaChatMessage(
-          role: m.isUser ? 'user' : 'assistant',
-          content: m.text,
-        ),
-      );
+
+      if (m.parts != null && m.parts!.isNotEmpty) {
+        finalMessages.insert(
+          0,
+          LlamaChatMessage.multimodal(
+            role: m.isUser ? LlamaChatRole.user : LlamaChatRole.assistant,
+            parts: m.parts!,
+          ),
+        );
+      } else {
+        finalMessages.insert(
+          0,
+          LlamaChatMessage.text(
+            role: m.isUser ? LlamaChatRole.user : LlamaChatRole.assistant,
+            content: m.text,
+          ),
+        );
+      }
     }
 
     return await _engine.chatTemplate(finalMessages);

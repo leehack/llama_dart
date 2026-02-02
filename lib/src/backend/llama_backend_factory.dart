@@ -1,5 +1,8 @@
 import 'llama_backend_interface.dart';
-import 'native/native_backend.dart';
 
 /// Creates the appropriate backend for the current platform.
-LlamaBackend createBackend() => NativeLlamaBackend();
+/// This is a fallback stub used when platform-specific implementations are not available.
+LlamaBackend createBackend() => throw UnsupportedError(
+  'LlamaBackend is not supported on this platform. '
+  'Ensure you have the correct library (ffi or js_interop) available.',
+);

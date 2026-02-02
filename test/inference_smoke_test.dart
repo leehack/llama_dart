@@ -1,11 +1,12 @@
 @Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as path;
 import 'package:http/http.dart' as http;
 import 'package:llamadart/llamadart.dart';
-import 'package:llamadart/src/common/loader.dart';
 
 void main() {
   group('Inference Smoke Test (Desktop)', () {

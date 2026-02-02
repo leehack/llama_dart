@@ -365,6 +365,10 @@ jobs:
           for PR in $OLD_PRS; do
             gh pr close $PR --comment "Superseded by version ${{ needs.codegen.outputs.tag }}"
           done
+      - name: Cleanup Temporary Artifacts
+        run: |
+          rm -rf artifacts
+          rm -rf release_assets
       - name: Create Pull Request for Code Updates
         uses: peter-evans/create-pull-request@v6
         with:
@@ -379,3 +383,6 @@ jobs:
             - Verified on Desktop and Mobile.
           branch: automation/llama-cpp-${{ needs.codegen.outputs.tag }}
           labels: automation/llama-cpp
+          add-paths: |
+            lib/src/generated/llama_bindings.dart
+            hook/build.dart

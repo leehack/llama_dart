@@ -12,7 +12,8 @@ Before you begin, ensure you have the following installed:
 -   **C++ Compiler**:
     -   **macOS**: Xcode Command Line Tools (`xcode-select --install`)
     -   **Linux**: GCC/G++ (`build-essential`) or Clang
-    -   **Windows**: Visual Studio 2022 (Desktop development with C++)
+    -   **Windows**: Visual Studio 2022 (Desktop development with C++). 
+        -   *Tip*: Install `ccache` or `sccache` via `choco install sccache` to speed up local builds.
 
 ## Project Structure
 
@@ -29,9 +30,9 @@ The project follows a modular, decoupled architecture:
 
 This project follows a **Zero-Patch Strategy** for external submodules (like `llama.cpp` and `Vulkan-Headers`):
 
-*   **No Direct Modifications**: We never modify the source code inside `third_party/llama_cpp`.
+*   **Zero Direct Modifications**: We never modify the source code inside `third_party/llama_cpp`.
 *   **Upgradability**: This allows us to update the core engine by simply bumping the submodule pointer.
-*   **Wrappers & Hooks**: Any necessary changes should be implemented in `third_party/CMakeLists.txt` or through compiler flags in the build scripts.
+*   **Wrappers & Hooks**: Any necessary changes should be implemented in `third_party/CMakeLists.txt` or through compiler flags in the build scripts. We also consolidate experimental modules like `mtmd` by linking them into the core `llamadart` binary.
 
 ## 🏗️ Architecture: Native Assets & CI
 

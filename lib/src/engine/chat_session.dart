@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'llama_engine.dart';
 import '../models/llama_chat_message.dart';
+import '../models/llama_chat_role.dart';
 import '../models/generation_params.dart';
 
 /// Manages a chat session, including history and context window management.
@@ -43,6 +44,11 @@ class ChatSession {
     _history.add(message);
   }
 
+  /// Adds a multimodal message to the history.
+  void addMultimodalMessage(LlamaChatMessage message) {
+    _history.add(message);
+  }
+
   /// Clears all messages from the conversation history.
   ///
   /// Note: This does not affect the [systemPrompt]. Use [reset] for a full cleanup.
@@ -70,7 +76,9 @@ class ChatSession {
   /// 4. Streams the response from the [LlamaEngine].
   /// 5. Appends the full assistant response back into the history.
   Stream<String> chat(String text, {GenerationParams? params}) async* {
-    _history.add(LlamaChatMessage(role: 'user', content: text));
+    _history.add(
+      LlamaChatMessage.text(role: LlamaChatRole.user, content: text),
+    );
 
     // Ensure we are within context limits before sending
     await _enforceContextLimit();
@@ -84,7 +92,10 @@ class ChatSession {
     }
 
     _history.add(
-      LlamaChatMessage(role: 'assistant', content: fullResponse.trim()),
+      LlamaChatMessage.text(
+        role: LlamaChatRole.assistant,
+        content: fullResponse.trim(),
+      ),
     );
   }
 
@@ -103,7 +114,12 @@ class ChatSession {
   List<LlamaChatMessage> _getMessagesForEngine() {
     final messages = <LlamaChatMessage>[];
     if (systemPrompt != null && systemPrompt!.isNotEmpty) {
-      messages.add(LlamaChatMessage(role: 'system', content: systemPrompt!));
+      messages.add(
+        LlamaChatMessage.text(
+          role: LlamaChatRole.system,
+          content: systemPrompt!,
+        ),
+      );
     }
     messages.addAll(_history);
     return messages;
@@ -131,7 +147,8 @@ class ChatSession {
       if (_history.length > 1) {
         _history.removeAt(0);
         // If it was a user message, we might want to remove the corresponding assistant message too
-        if (_history.isNotEmpty && _history[0].role == 'assistant') {
+        if (_history.isNotEmpty &&
+            _history[0].role == LlamaChatRole.assistant) {
           _history.removeAt(0);
         }
       } else {

@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'dart:ffi';
 import 'package:ffi/ffi.dart';
 import '../llama_backend_interface.dart';
+import '../../models/llama_content_part.dart';
 import '../../models/llama_log_level.dart';
 import '../../models/model_params.dart';
 import '../../models/generation_params.dart';
@@ -143,11 +144,23 @@ class NativeLlamaBackend implements LlamaBackend {
   }
 
   @override
+  Future<int> getContextSize(int contextHandle) async {
+    if (_sendPort == null) return 0;
+    final rp = ReceivePort();
+    _sendPort!.send(GetContextSizeRequest(contextHandle, rp.sendPort));
+    final res = await rp.first;
+    rp.close();
+    if (res is GetContextSizeResponse) return res.size;
+    return 0;
+  }
+
+  @override
   Stream<List<int>> generate(
     int contextHandle,
     String prompt,
-    GenerationParams params,
-  ) {
+    GenerationParams params, {
+    List<LlamaContentPart>? parts,
+  }) {
     final controller = StreamController<List<int>>();
     final rp = ReceivePort();
 
@@ -163,6 +176,7 @@ class NativeLlamaBackend implements LlamaBackend {
         params,
         _cancelToken!.address,
         rp.sendPort,
+        parts: parts,
       ),
     );
 
@@ -325,5 +339,47 @@ class NativeLlamaBackend implements LlamaBackend {
       _cancelToken = null;
     }
     _isReady = false;
+  }
+
+  @override
+  Future<int?> multimodalContextCreate(
+    int modelHandle,
+    String mmProjPath,
+  ) async {
+    final rp = ReceivePort();
+    _sendPort!.send(
+      MultimodalContextCreateRequest(modelHandle, mmProjPath, rp.sendPort),
+    );
+    final res = await rp.first;
+    rp.close();
+    if (res is HandleResponse) return res.handle;
+    if (res is ErrorResponse) throw Exception(res.message);
+    return null;
+  }
+
+  @override
+  Future<void> multimodalContextFree(int mmContextHandle) async {
+    final rp = ReceivePort();
+    _sendPort!.send(MultimodalContextFreeRequest(mmContextHandle, rp.sendPort));
+    await rp.first;
+    rp.close();
+  }
+
+  @override
+  Future<bool> supportsAudio(int mmContextHandle) async {
+    final rp = ReceivePort();
+    _sendPort!.send(SupportsAudioRequest(mmContextHandle, rp.sendPort));
+    final res = await rp.first;
+    rp.close();
+    return res as bool;
+  }
+
+  @override
+  Future<bool> supportsVision(int mmContextHandle) async {
+    final rp = ReceivePort();
+    _sendPort!.send(SupportsVisionRequest(mmContextHandle, rp.sendPort));
+    final res = await rp.first;
+    rp.close();
+    return res as bool;
   }
 }

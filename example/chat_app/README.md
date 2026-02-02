@@ -5,6 +5,7 @@ A Flutter chat application demonstrating real-world usage of llamadart with UI.
 ## Features
 
 - 🦙 Real-time chat with local LLM
+- 🖼️ **Vision & Audio Support**: Attach images and audio clips to your messages.
 - 📱 Material Design 3 UI
 - ⚙️ Model configuration (path, backend selection)
 - 💾 Settings persistence
@@ -99,30 +100,44 @@ lib/
 
 ### Loading a Model
 ```dart
-final service = LlamaService();
-await service.init(
+final engine = LlamaEngine(LlamaBackend());
+await engine.loadModel(
   modelPath,
   modelParams: ModelParams(
     gpuLayers: 99, // Offload all layers for best performance on GPU
     contextSize: 2048,
     preferredBackend: GpuBackend.auto,
-    loras: [], // Optional LoRA adapters
   ),
 );
+
+// Optional: Load multimodal projector
+if (mmprojPath != null) {
+  await engine.loadMultimodalProjector(mmprojPath);
+}
 ```
 
-### Sending a Message
+### Sending a Multimodal Message
 ```dart
-final stream = service.generate(
-  userMessage,
+final messages = [
+  LlamaChatMessage.multimodal(
+    role: LlamaChatRole.user,
+    parts: [
+      LlamaImageContent(path: 'path/to/image.jpg'),
+      LlamaTextContent('What is this image?'),
+    ],
+  ),
+];
+
+final stream = engine.chat(
+  messages,
   params: GenerationParams(
-    maxTokens: 128,
+    maxTokens: 512,
     temp: 0.7,
   ),
 );
 
 await for (final token in stream) {
-  print(token);
+  stdout.write(token);
 }
 ```
 

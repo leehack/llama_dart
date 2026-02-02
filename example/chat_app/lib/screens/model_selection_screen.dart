@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -19,6 +20,7 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
 
   final Map<String, double> _downloadProgress = {};
   final Map<String, bool> _isDownloading = {};
+  final Map<String, CancelToken> _cancelTokens = {};
   Set<String> _downloadedFiles = {};
   String? _modelsDir;
 
@@ -39,51 +41,106 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
   Future<void> _downloadModel(DownloadableModel model) async {
     if (_modelsDir == null) return;
 
+    final cancelToken = CancelToken();
     setState(() {
       _isDownloading[model.filename] = true;
       _downloadProgress[model.filename] = 0.0;
+      _cancelTokens[model.filename] = cancelToken;
     });
 
     await _modelService.downloadModel(
       model: model,
       modelsDir: _modelsDir!,
-      onProgress: (p) => setState(() => _downloadProgress[model.filename] = p),
-      onSuccess: (filename) {
-        setState(() {
-          _downloadedFiles.add(filename);
-          _isDownloading[model.filename] = false;
-          _downloadProgress.remove(model.filename);
-        });
+      cancelToken: cancelToken,
+      onProgress: (p) {
         if (mounted) {
+          setState(() => _downloadProgress[model.filename] = p);
+        }
+      },
+      onSuccess: (filename) {
+        if (mounted) {
+          setState(() {
+            _downloadedFiles.add(filename);
+            _isDownloading[model.filename] = false;
+            _downloadProgress.remove(model.filename);
+            _cancelTokens.remove(model.filename);
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('${model.name} downloaded successfully!')),
           );
         }
       },
       onError: (e) {
-        setState(() {
-          _isDownloading[model.filename] = false;
-          _downloadProgress.remove(model.filename);
-        });
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Download failed: $e')));
+          setState(() {
+            _isDownloading[model.filename] = false;
+            // Keep progress to show resume state visually if it was a cancellation
+            if (!(e is DioException && e.type == DioExceptionType.cancel)) {
+              _downloadProgress.remove(model.filename);
+            }
+            _cancelTokens.remove(model.filename);
+          });
+
+          if (e is DioException && e.type == DioExceptionType.cancel) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Download paused: ${model.name}')),
+            );
+          } else {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text('Download failed: $e')));
+          }
         }
       },
     );
   }
 
-  void _selectModel(String pathOrUrl) {
-    context.read<ChatProvider>().updateModelPath(pathOrUrl);
-    context.read<ChatProvider>().loadModel();
+  void _cancelDownload(DownloadableModel model) {
+    final token = _cancelTokens[model.filename];
+    if (token != null && !token.isCancelled) {
+      token.cancel();
+    }
+  }
+
+  void _selectModel(DownloadableModel model) {
+    final pathOrUrl = kIsWeb ? model.url : '${_modelsDir!}/${model.filename}';
+    final provider = context.read<ChatProvider>();
+
+    provider.updateModelPath(pathOrUrl);
+
+    if (!kIsWeb && model.isMultimodal) {
+      if (model.mmprojFilename != null) {
+        provider.updateMmprojPath('${_modelsDir!}/${model.mmprojFilename}');
+      } else if (model.supportsVision) {
+        // Integrated projector: use the model file itself if supportsVision is true but no separate file
+        provider.updateMmprojPath(pathOrUrl);
+      } else {
+        provider.updateMmprojPath('');
+      }
+    } else {
+      provider.updateMmprojPath(''); // Clear if not multimodal
+    }
+
+    provider.loadModel();
     Navigator.of(context).pop();
   }
 
-  Future<void> _deleteModel(String filename) async {
+  Future<void> _deleteModel(DownloadableModel model) async {
     if (_modelsDir == null) return;
-    await _modelService.deleteModel(_modelsDir!, filename);
-    setState(() => _downloadedFiles.remove(filename));
+
+    // If downloading, cancel first
+    if (_isDownloading[model.filename] == true) {
+      _cancelDownload(model);
+    }
+
+    await _modelService.deleteModel(_modelsDir!, model);
+    if (mounted) {
+      setState(() {
+        _downloadedFiles.remove(model.filename);
+        _downloadProgress.remove(model.filename);
+        _isDownloading[model.filename] = false;
+      });
+    }
   }
 
   @override
@@ -102,11 +159,10 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
             isDownloading: _isDownloading[model.filename] ?? false,
             progress: _downloadProgress[model.filename] ?? 0.0,
             isWeb: kIsWeb,
-            onSelect: () => _selectModel(
-              kIsWeb ? model.url : '${_modelsDir!}/${model.filename}',
-            ),
+            onSelect: () => _selectModel(model),
             onDownload: () => _downloadModel(model),
-            onDelete: () => _deleteModel(model.filename),
+            onDelete: () => _deleteModel(model),
+            onCancel: () => _cancelDownload(model),
           );
         },
       ),

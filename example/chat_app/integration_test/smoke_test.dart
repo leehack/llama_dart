@@ -6,7 +6,6 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:llamadart/llamadart.dart';
-import 'package:llamadart/src/common/loader.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -18,12 +17,10 @@ void main() {
       try {
         // 1. Basic Init Check
         llama_backend_init();
-        print('Native backend initialized.');
 
         final sysInfoPtr = llama_print_system_info();
         expect(sysInfoPtr, isNotNull);
-        final sysInfo = sysInfoPtr.cast<Utf8>().toDartString();
-        print('System Info: $sysInfo');
+        sysInfoPtr.cast<Utf8>().toDartString();
 
         // 2. Download Tiny Model
         final modelUrl =
@@ -41,37 +38,28 @@ void main() {
         final modelFile = File(modelPath);
 
         if (!modelFile.existsSync()) {
-          print('Downloading tiny model for inference test...');
           final response = await http.get(Uri.parse(modelUrl));
           await modelFile.writeAsBytes(response.bodyBytes);
-          print('Model downloaded to $modelPath');
         }
 
         // 3. Full Inference Pipeline Test
         final backend = LlamaBackend();
         final engine = LlamaEngine(backend);
 
-        print('Loading model...');
         await engine.loadModel(modelPath);
         expect(engine.isReady, isTrue);
-        print('Model loaded successfully.');
 
-        print('Running 1-token generation check...');
         final stream = engine.generate(
           'Hello',
           params: const GenerationParams(maxTokens: 1),
         );
         final tokens = await stream.toList();
 
-        print('Inference output: ${tokens.join()}');
         expect(tokens, isNotEmpty);
 
         await engine.dispose();
         llama_backend_free();
-        print('SMOKE TEST SUCCESS');
-      } catch (e, st) {
-        print('SMOKE TEST FAILED: $e');
-        print(st);
+      } catch (e) {
         fail('Smoke test failed: $e');
       }
     });
