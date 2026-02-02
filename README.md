@@ -199,6 +199,38 @@ void main() async {
 }
 ```
 
+### 5. Embeddings (RAG/Clustering)
+
+Generate embeddings for text, useful for Retrieval-Augmented Generation (RAG) and semantic search.
+
+```dart
+import 'package:llamadart/llamadart.dart';
+
+void main() async {
+  final engine = LlamaEngine(LlamaBackend());
+
+  try {
+    // Load model with embeddings enabled
+    await engine.loadModel(
+      'model.gguf',
+      modelParams: ModelParams(
+        enableEmbeddings: true,
+        poolingType: 1, // 1=MEAN, 2=CLS, 3=LAST
+      ),
+    );
+
+    // Get embeddings for text
+    final embeddings = await engine.getEmbeddings('Hello, world!');
+    print('Embedding dimension: ${embeddings.length}');
+    print('First few values: ${embeddings.take(5).toList()}');
+  } finally {
+    await engine.dispose();
+  }
+}
+```
+
+**Note:** Use sentence-transformer models (e.g., `all-MiniLM-L6-v2`) or instruction-tuned embedding models for best results.
+
 ### 💡 Model-Specific Notes
 
 #### Moondream 2 & Phi-2
