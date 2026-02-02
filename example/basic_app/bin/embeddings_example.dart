@@ -8,20 +8,30 @@ const defaultModelUrl =
 
 void main(List<String> arguments) async {
   final parser = ArgParser()
-    ..addOption('model',
-        abbr: 'm',
-        help: 'Path or URL to the GGUF model file.',
-        defaultsTo: defaultModelUrl)
-    ..addOption('text',
-        abbr: 't',
-        help: 'Text to get embeddings for.',
-        defaultsTo: 'Hello, world!')
-    ..addOption('pooling',
-        abbr: 'p',
-        help: 'Pooling type (1=MEAN, 2=CLS, 3=LAST)',
-        defaultsTo: '1')
-    ..addFlag('help',
-        abbr: 'h', help: 'Show this help message.', negatable: false);
+    ..addOption(
+      'model',
+      abbr: 'm',
+      help: 'Path or URL to the GGUF model file.',
+      defaultsTo: defaultModelUrl,
+    )
+    ..addOption(
+      'text',
+      abbr: 't',
+      help: 'Text to get embeddings for.',
+      defaultsTo: 'Hello, world!',
+    )
+    ..addOption(
+      'pooling',
+      abbr: 'p',
+      help: 'Pooling type (1=MEAN, 2=CLS, 3=LAST)',
+      defaultsTo: '1',
+    )
+    ..addFlag(
+      'help',
+      abbr: 'h',
+      help: 'Show this help message.',
+      negatable: false,
+    );
 
   final results = parser.parse(arguments);
 

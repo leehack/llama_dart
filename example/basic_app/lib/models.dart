@@ -4,7 +4,7 @@ enum CliRole {
   user,
 
   /// Message from the AI assistant.
-  assistant
+  assistant,
 }
 
 /// A message in the CLI chat conversation.

@@ -18,10 +18,7 @@ class LlamaCliService {
   }) async {
     await _engine.loadModel(
       modelPath,
-      modelParams: ModelParams(
-        gpuLayers: 99,
-        logLevel: logLevel,
-      ),
+      modelParams: ModelParams(gpuLayers: 99, logLevel: logLevel),
     );
 
     // Load LoRAs if any

@@ -9,24 +9,36 @@ const defaultModelUrl =
 
 void main(List<String> arguments) async {
   final parser = ArgParser()
-    ..addOption('model',
-        abbr: 'm',
-        help: 'Path or URL to the GGUF model file.',
-        defaultsTo: defaultModelUrl)
-    ..addMultiOption('lora',
-        abbr: 'l',
-        help: 'Path to LoRA adapter(s). Can be specified multiple times.')
+    ..addOption(
+      'model',
+      abbr: 'm',
+      help: 'Path or URL to the GGUF model file.',
+      defaultsTo: defaultModelUrl,
+    )
+    ..addMultiOption(
+      'lora',
+      abbr: 'l',
+      help: 'Path to LoRA adapter(s). Can be specified multiple times.',
+    )
     ..addOption('prompt', abbr: 'p', help: 'Prompt for single response mode.')
-    ..addFlag('interactive',
-        abbr: 'i',
-        help: 'Start in interactive conversation mode.',
-        defaultsTo: true)
-    ..addFlag('log',
-        abbr: 'g',
-        help: 'Enable native engine logging output.',
-        defaultsTo: false)
-    ..addFlag('help',
-        abbr: 'h', help: 'Show this help message.', negatable: false);
+    ..addFlag(
+      'interactive',
+      abbr: 'i',
+      help: 'Start in interactive conversation mode.',
+      defaultsTo: true,
+    )
+    ..addFlag(
+      'log',
+      abbr: 'g',
+      help: 'Enable native engine logging output.',
+      defaultsTo: false,
+    )
+    ..addFlag(
+      'help',
+      abbr: 'h',
+      help: 'Show this help message.',
+      negatable: false,
+    );
 
   final results = parser.parse(arguments);
 

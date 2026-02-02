@@ -886,10 +886,7 @@ void _handleSupportsAudio(
   request.sendPort.send(mtmd_support_audio(mmCtx));
 }
 
-void _handleEmbeddings(
-  EmbeddingsRequest request,
-  _LlamaWorkerState state,
-) {
+void _handleEmbeddings(EmbeddingsRequest request, _LlamaWorkerState state) {
   final ctx = state.contexts[request.contextHandle];
   final modelHandle = state.contextToModel[request.contextHandle];
   final model = modelHandle != null ? state.models[modelHandle] : null;
@@ -978,8 +975,6 @@ void _handleEmbeddings(
 
     request.sendPort.send(EmbeddingsResponse(embeddings));
   } catch (e) {
-    request.sendPort.send(
-      ErrorResponse("Embeddings error: ${e.toString()}"),
-    );
+    request.sendPort.send(ErrorResponse("Embeddings error: ${e.toString()}"));
   }
 }
