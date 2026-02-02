@@ -204,6 +204,13 @@ class ChatProvider extends ChangeNotifier {
         }
       }
 
+      // Calculate initial tokens (prompt)
+      final templateResult = await _chatService.engine.chatTemplate(
+        conversationMessages,
+      );
+      _currentTokens = templateResult.tokenCount ?? 0;
+      notifyListeners();
+
       await for (final token in _chatService.generate(
         conversationMessages,
         _settings,
@@ -212,6 +219,7 @@ class ChatProvider extends ChangeNotifier {
           break;
         }
         fullResponse += token;
+        _currentTokens++;
 
         final cleanText = _chatService.cleanResponse(fullResponse);
 

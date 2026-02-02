@@ -144,6 +144,17 @@ class NativeLlamaBackend implements LlamaBackend {
   }
 
   @override
+  Future<int> getContextSize(int contextHandle) async {
+    if (_sendPort == null) return 0;
+    final rp = ReceivePort();
+    _sendPort!.send(GetContextSizeRequest(contextHandle, rp.sendPort));
+    final res = await rp.first;
+    rp.close();
+    if (res is GetContextSizeResponse) return res.size;
+    return 0;
+  }
+
+  @override
   Stream<List<int>> generate(
     int contextHandle,
     String prompt,

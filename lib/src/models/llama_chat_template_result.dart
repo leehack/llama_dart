@@ -6,9 +6,13 @@ class LlamaChatTemplateResult {
   /// Automatically detected stop sequences associated with this template.
   final List<String> stopSequences;
 
+  /// The number of tokens in the formatted prompt.
+  final int? tokenCount;
+
   /// Creates a new template result.
   const LlamaChatTemplateResult({
     required this.prompt,
     required this.stopSequences,
+    this.tokenCount,
   });
 }

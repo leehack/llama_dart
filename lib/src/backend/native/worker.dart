@@ -138,6 +138,13 @@ void llamaWorkerEntry(SendPort initialSendPort) {
       _handleMultimodalContextCreate(message, state);
     } else if (message is MultimodalContextFreeRequest) {
       _handleMultimodalContextFree(message, state);
+    } else if (message is GetContextSizeRequest) {
+      final ctx = state.contexts[message.contextHandle];
+      if (ctx != null) {
+        message.sendPort.send(GetContextSizeResponse(llama_n_ctx(ctx.pointer)));
+      } else {
+        message.sendPort.send(GetContextSizeResponse(0));
+      }
     } else if (message is SupportsVisionRequest) {
       _handleSupportsVision(message, state);
     } else if (message is SupportsAudioRequest) {

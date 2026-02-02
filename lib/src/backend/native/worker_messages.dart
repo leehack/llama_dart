@@ -199,6 +199,15 @@ class LogLevelRequest extends WorkerRequest {
   LogLevelRequest(this.logLevel, super.sendPort);
 }
 
+/// Request to get the actual context size.
+class GetContextSizeRequest extends WorkerRequest {
+  /// The handle of the context.
+  final int contextHandle;
+
+  /// Creates a new [GetContextSizeRequest].
+  GetContextSizeRequest(this.contextHandle, super.sendPort);
+}
+
 /// Request to create a multimodal context.
 class MultimodalContextCreateRequest extends WorkerRequest {
   /// The handle of the text model.
@@ -297,6 +306,15 @@ class ApplyTemplateResponse {
 
   /// Creates a new [ApplyTemplateResponse].
   ApplyTemplateResponse(this.prompt, this.stopSequences);
+}
+
+/// Response containing the context size.
+class GetContextSizeResponse {
+  /// The context size.
+  final int size;
+
+  /// Creates a new [GetContextSizeResponse].
+  GetContextSizeResponse(this.size);
 }
 
 /// Response containing an error message.

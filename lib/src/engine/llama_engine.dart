@@ -214,11 +214,20 @@ class LlamaEngine {
   Future<LlamaChatTemplateResult> chatTemplate(
     List<LlamaChatMessage> messages, {
     bool addAssistant = true,
-  }) {
+  }) async {
     if (!_isReady || _templateProcessor == null) {
       throw LlamaContextException("Engine not ready.");
     }
-    return _templateProcessor!.apply(messages, addAssistant: addAssistant);
+    final result = await _templateProcessor!.apply(
+      messages,
+      addAssistant: addAssistant,
+    );
+    final tokens = await tokenize(result.prompt);
+    return LlamaChatTemplateResult(
+      prompt: result.prompt,
+      stopSequences: result.stopSequences,
+      tokenCount: tokens.length,
+    );
   }
 
   /// Encodes the given [text] into a list of token IDs.
@@ -291,6 +300,9 @@ class LlamaEngine {
 
   /// Returns the actual context size being used by the current session.
   Future<int> getContextSize() async {
+    if (_isReady && _contextHandle != null) {
+      return await _backend.getContextSize(_contextHandle!);
+    }
     final meta = await getMetadata();
     return int.tryParse(meta['llama.context_length'] ?? meta['n_ctx'] ?? "0") ??
         0;

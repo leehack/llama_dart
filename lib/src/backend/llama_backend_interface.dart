@@ -36,6 +36,9 @@ abstract class LlamaBackend {
   /// Releases the allocated [contextHandle].
   Future<void> contextFree(int contextHandle);
 
+  /// Returns the actual context size used by the given [contextHandle].
+  Future<int> getContextSize(int contextHandle);
+
   /// Generates a stream of token bytes for a given prompt and context.
   Stream<List<int>> generate(
     int contextHandle,

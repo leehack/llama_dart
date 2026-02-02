@@ -184,6 +184,12 @@ void main() {
       expect(name, contains('Multi-thread'));
     });
 
+    test('getContextSize returns last nCtx', () async {
+      await backend.modelLoad('url', const ModelParams(contextSize: 4096));
+      final size = await backend.getContextSize(1);
+      expect(size, 4096);
+    });
+
     test('multiple model loads cleans up previous instance', () async {
       int exitCalls = 0;
       mockJs.setProperty(

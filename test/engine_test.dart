@@ -38,6 +38,8 @@ class MockLlamaBackend implements LlamaBackend {
 
   @override
   Future<void> contextFree(int contextHandle) async {}
+  @override
+  Future<int> getContextSize(int contextHandle) async => 512;
 
   @override
   Stream<List<int>> generate(
@@ -216,6 +218,21 @@ void main() {
         () => engine.chatTemplate([]),
         throwsA(isA<LlamaContextException>()),
       );
+    });
+
+    test('getContextSize prefers active context over metadata', () async {
+      await engine.loadModel('mock_path');
+      // Mock returns 512 for getContextSize(100), but metadata has no entry (context_length would be 0 or null)
+      final size = await engine.getContextSize();
+      expect(size, 512);
+    });
+
+    test('chatTemplate includes tokenCount', () async {
+      await engine.loadModel('mock_path');
+      final result = await engine.chatTemplate([
+        const LlamaChatMessage.text(role: LlamaChatRole.user, content: 'hi'),
+      ]);
+      expect(result.tokenCount, 3); // MockBackend.tokenize returns [1, 2, 3]
     });
 
     test('Error when not initialized', () {

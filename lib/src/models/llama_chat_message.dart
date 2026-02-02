@@ -1,3 +1,4 @@
+// ignore_for_file: deprecated_member_use_from_same_package
 import 'llama_chat_role.dart';
 import 'llama_content_part.dart';
 
@@ -19,8 +20,7 @@ class LlamaChatMessage {
   ///
   /// This constructor is kept for full backward compatibility with older versions.
   const LlamaChatMessage({required String role, required String content})
-    : // ignore: deprecated_member_use_from_same_package
-      roleString = role,
+    : roleString = role,
       roleEnum = null,
       _legacyContent = content,
       _parts = null;
@@ -30,7 +30,6 @@ class LlamaChatMessage {
     required LlamaChatRole role,
     required String content,
   }) : roleEnum = role,
-       // ignore: deprecated_member_use_from_same_package
        roleString = null,
        _legacyContent = content,
        _parts = null;
@@ -40,7 +39,6 @@ class LlamaChatMessage {
     required LlamaChatRole role,
     required List<LlamaContentPart> parts,
   }) : roleEnum = role,
-       // ignore: deprecated_member_use_from_same_package
        roleString = null,
        _parts = parts,
        _legacyContent = null;
@@ -51,9 +49,7 @@ class LlamaChatMessage {
 
   /// Unified role getter (prefers enum, falls back to string).
   LlamaChatRole get role =>
-      roleEnum ??
-      // ignore: deprecated_member_use_from_same_package
-      LlamaChatRole.values.byName(roleString!);
+      roleEnum ?? LlamaChatRole.values.byName(roleString!);
 
   /// Backward-compatible content getter (concatenates all text parts).
   String get content =>

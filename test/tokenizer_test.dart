@@ -93,6 +93,8 @@ class MockLlamaBackend implements LlamaBackend {
   @override
   Future<void> contextFree(int contextHandle) async {}
   @override
+  Future<int> getContextSize(int contextHandle) async => 512;
+  @override
   Stream<List<int>> generate(
     int contextHandle,
     String prompt,

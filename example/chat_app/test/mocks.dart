@@ -21,6 +21,9 @@ class MockLlamaBackend implements LlamaBackend {
   Future<int> contextCreate(int modelHandle, ModelParams params) async => 1;
   @override
   Future<void> contextFree(int contextHandle) async {}
+
+  @override
+  Future<int> getContextSize(int contextHandle) async => 2048;
   @override
   Stream<List<int>> generate(
     int contextHandle,
@@ -124,6 +127,18 @@ class MockLlamaEngine extends LlamaEngine {
     GenerationParams? params,
   }) async* {
     yield "Hi there";
+  }
+
+  @override
+  Future<LlamaChatTemplateResult> chatTemplate(
+    List<LlamaChatMessage> messages, {
+    bool addAssistant = true,
+  }) async {
+    return const LlamaChatTemplateResult(
+      prompt: "mock prompt",
+      stopSequences: [],
+      tokenCount: 5,
+    );
   }
 
   @override

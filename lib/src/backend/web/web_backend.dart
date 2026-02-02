@@ -31,6 +31,7 @@ class WebLlamaBackend implements LlamaBackend {
   bool _isReady = false;
   AbortController? _abortController;
   LlamaLogLevel _logLevel = LlamaLogLevel.info;
+  int? _lastNCtx;
 
   /// Creates a new [WebLlamaBackend] with the given [wllamaPath] and [wasmPath].
   WebLlamaBackend({
@@ -121,6 +122,7 @@ class WebLlamaBackend implements LlamaBackend {
   }) async {
     console.log('WebLlamaBackend: modelLoadFromUrl called for $url'.toJS);
     _logLevel = params.logLevel;
+    _lastNCtx = params.contextSize;
     await _ensureLibrary();
     console.log('WebLlamaBackend: Library ensured'.toJS);
 
@@ -254,6 +256,9 @@ class WebLlamaBackend implements LlamaBackend {
   Future<void> contextFree(int contextHandle) async {
     // No-op for wllama
   }
+
+  @override
+  Future<int> getContextSize(int contextHandle) async => _lastNCtx ?? 0;
 
   @override
   void cancelGeneration() {
