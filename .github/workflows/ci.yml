@@ -57,8 +57,11 @@ jobs:
       - name: Install Coverage tool
         run: dart pub global activate coverage
 
-      - name: Run tests
-        run: dart test --coverage=coverage
+      - name: Run native tests
+        run: dart test -p vm --concurrency=1 --coverage=coverage
+
+      - name: Run web tests
+        run: dart test -p chrome --coverage=coverage
 
       - name: Format coverage
         run: |
