@@ -1,3 +1,6 @@
+@TestOn('vm')
+library;
+
 import 'dart:isolate';
 import 'package:test/test.dart';
 import 'package:llamadart/src/backend/native/worker_messages.dart';
