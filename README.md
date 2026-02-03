@@ -57,7 +57,7 @@ Add `llamadart` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  llamadart: ^0.3.1
+  llamadart: ^0.4.0
 ```
 
 ### Zero Setup (Native Assets)

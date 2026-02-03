@@ -1,4 +1,4 @@
-## 0.3.1
+## 0.4.0
 *   **Cross-Platform Architecture**: 
     *   Refactored `LlamaBackend` for strict Web isolation using "Native-First" conditional exports, ensuring native performance and full web safety.
     *   Standardized backend instantiation via a unified `LlamaBackend()` factory across all examples and scripts.
