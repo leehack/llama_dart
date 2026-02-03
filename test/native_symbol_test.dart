@@ -22,6 +22,17 @@ void main() {
 
     test('Verify core llama symbols are resolvable', () {
       expect(() => llama_backend_init(), returnsNormally);
+      expect(() => llama_time_us(), returnsNormally);
+      expect(() => llama_max_devices(), returnsNormally);
+      expect(() => llama_supports_mmap(), returnsNormally);
+      expect(() => llama_supports_mlock(), returnsNormally);
+      expect(() => llama_supports_gpu_offload(), returnsNormally);
+      expect(() => llama_supports_rpc(), returnsNormally);
+      expect(() => llama_model_default_params(), returnsNormally);
+      expect(() => llama_context_default_params(), returnsNormally);
+      expect(() => llama_sampler_chain_default_params(), returnsNormally);
+      expect(() => llama_model_quantize_default_params(), returnsNormally);
+      expect(() => llama_numa_init(ggml_numa_strategy.GGML_NUMA_STRATEGY_DISABLED), returnsNormally);
     });
   });
 }

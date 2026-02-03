@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:test/test.dart';
 import 'package:llamadart/llamadart.dart';
 
@@ -50,10 +51,52 @@ void main() {
   });
 
   group('LlamaChatMessage', () {
-    test('properties', () {
+    test('legacy constructor', () {
       const msg = LlamaChatMessage(role: 'user', content: 'hello');
       expect(msg.role, LlamaChatRole.user);
       expect(msg.content, 'hello');
+      expect(msg.parts.first, isA<LlamaTextContent>());
+    });
+
+    test('text constructor', () {
+      const msg = LlamaChatMessage.text(role: LlamaChatRole.assistant, content: 'hi');
+      expect(msg.role, LlamaChatRole.assistant);
+      expect(msg.content, 'hi');
+    });
+
+    test('multimodal constructor and content concatenation', () {
+      final msg = LlamaChatMessage.multimodal(
+        role: LlamaChatRole.user,
+        parts: [
+          const LlamaTextContent('text1 '),
+          const LlamaToolCallContent(name: 'call', arguments: {}, rawJson: '{"json":1}'),
+          const LlamaToolResultContent(name: 'res', result: 'text2'),
+          const LlamaToolResultContent(name: 'res2', result: {'data': 42}),
+        ],
+      );
+      expect(msg.content, contains('text1 '));
+      expect(msg.content, contains('{"json":1}'));
+      expect(msg.content, contains('text2'));
+      expect(msg.content, contains('{"data":42}'));
+    });
+
+    test('LlamaToolResultContent with non-encodable result', () {
+      final circular = {};
+      circular['self'] = circular;
+      final msg = LlamaChatMessage.multimodal(
+        role: LlamaChatRole.tool,
+        parts: [
+          LlamaToolResultContent(name: 'fail', result: circular),
+        ],
+      );
+      // Should fallback to toString()
+      expect(msg.content, contains('{self: {...}}'));
+    });
+
+    test('LlamaAudioContent properties', () {
+      final audio = LlamaAudioContent(samples: Float32List.fromList([0.1, 0.2]), path: 'audio.wav');
+      expect(audio.samples, isNotNull);
+      expect(audio.path, 'audio.wav');
     });
   });
 

@@ -335,7 +335,6 @@ class ChatSession {
       }
 
       if (!isLikelyToolCall) {
-        // Already yielded or was empty
         return;
       }
 
@@ -344,8 +343,8 @@ class ChatSession {
       // Try to parse as tool call
       if (_isToolCall(response)) {
         try {
-          final json = jsonDecode(response) as Map<String, dynamic>;
-          final function = json['function'] as Map<String, dynamic>;
+          final json = jsonDecode(response) as Map;
+          final function = (json['function'] ?? json) as Map;
           final name = function['name'] as String;
           final args =
               (function['parameters'] as Map?)?.cast<String, dynamic>() ?? {};
@@ -418,13 +417,13 @@ class ChatSession {
 
     try {
       final json = jsonDecode(trimmed);
-      if (json is Map<String, dynamic>) {
+      if (json is Map) {
         // Standard OpenAI-like format (our grammar)
         if (json['type'] == 'function' && json['function'] != null) return true;
         // Simplified format common in some models
         if (json.containsKey('function') &&
             json['function'] is Map &&
-            json['function'].containsKey('name')) {
+            (json['function'] as Map).containsKey('name')) {
           return true;
         }
         // Direct format: {"name": "...", "parameters": {...}}
