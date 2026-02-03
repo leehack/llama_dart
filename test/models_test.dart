@@ -7,7 +7,7 @@ void main() {
       const params = ModelParams();
       expect(params.contextSize, 0); // 0 means default/train
       expect(params.gpuLayers, 99);
-      expect(params.logLevel, LlamaLogLevel.warn);
+      expect(params.logLevel, LlamaLogLevel.none);
       expect(params.preferredBackend, GpuBackend.auto);
     });
 
