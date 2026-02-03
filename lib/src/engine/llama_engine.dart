@@ -43,7 +43,7 @@ class LlamaEngine {
   LlamaTokenizer? _tokenizer;
   ChatTemplateProcessor? _templateProcessor;
 
-  /// Creates a new [LlamaEngine] with the given [backend].
+  /// Creates a new [LlamaEngine] with the given [LlamaBackend].
   LlamaEngine(this._backend);
 
   /// Whether the engine is initialized and ready for inference.
@@ -56,6 +56,9 @@ class LlamaEngine {
   ChatTemplateProcessor? get templateProcessor => _templateProcessor;
 
   /// Loads a model from a local [path].
+  ///
+  /// Optionally provide [ModelParams] to configure context size, GPU offloading,
+  /// and more.
   Future<void> loadModel(
     String path, {
     ModelParams modelParams = const ModelParams(),
@@ -83,6 +86,9 @@ class LlamaEngine {
   }
 
   /// Loads a model from a [url].
+  ///
+  /// This is typically used on the Web platform. Use [ModelParams] to
+  /// configure loading options.
   Future<void> loadModelFromUrl(
     String url, {
     ModelParams modelParams = const ModelParams(),
@@ -132,6 +138,8 @@ class LlamaEngine {
   ///
   /// This is the low-level generation API. For chat-style interactions with
   /// proper template formatting, use [ChatSession.chat] instead.
+  ///
+  /// Use [GenerationParams] to tune the sampling process.
   ///
   /// If [parts] contains media content, markers will be automatically injected
   /// into the prompt if missing.

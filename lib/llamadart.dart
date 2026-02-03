@@ -1,4 +1,31 @@
 /// High-performance Dart and Flutter plugin for llama.cpp.
+///
+/// **llamadart** allows you to run Large Language Models (LLMs) locally using
+/// GGUF models across all major platforms (Android, iOS, macOS, Linux, Windows, Web).
+///
+/// ### Core Components
+///
+/// * [LlamaEngine]: The low-level orchestrator for model loading, tokenization,
+///   and raw inference.
+/// * [ChatSession]: A high-level, stateful interface for chat-based interactions.
+///   It automatically manages conversation history and context window limits.
+/// * [LlamaBackend]: The platform-agnostic interface for inference. Most users
+///   should use the default [LlamaBackend()] factory, which automatically
+///   selects the appropriate implementation (Native or Web).
+///
+/// ### Simple Example
+///
+/// ```dart
+/// final engine = LlamaEngine(LlamaBackend());
+/// await engine.loadModel('path/to/model.gguf');
+///
+/// final session = ChatSession(engine);
+/// await for (final token in session.chat('Hello, how are you?')) {
+///   stdout.write(token);
+/// }
+///
+/// await engine.dispose();
+/// ```
 library;
 
 // Models

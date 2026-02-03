@@ -1,4 +1,18 @@
 /// Parameters controlling the token sampling and generation process.
+///
+/// Use [GenerationParams] to fine-tune how the model generates text, including
+/// randomness (temperature), sampling constraints (Top-K/Top-P), and
+/// architectural limits (max tokens).
+///
+/// Example:
+/// ```dart
+/// final params = GenerationParams(
+///   temp: 0.7,
+///   maxTokens: 1024,
+///   stopSequences: ['User:', '\n\n'],
+///   grammar: 'root ::= "yes" | "no"', // Force binary response
+/// );
+/// ```
 class GenerationParams {
   /// Maximum number of new tokens to generate.
   final int maxTokens;

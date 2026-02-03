@@ -3,6 +3,19 @@ import 'llama_log_level.dart';
 import 'lora_adapter_config.dart';
 
 /// Configuration parameters for loading a Llama model.
+///
+/// These parameters affect the initial model loading and context allocation.
+/// Most of these cannot be changed once the model is loaded.
+///
+/// Example:
+/// ```dart
+/// final params = ModelParams(
+///   contextSize: 4096,
+///   gpuLayers: 33, // Offload 33 layers to GPU
+///   logLevel: LlamaLogLevel.info,
+/// );
+/// await engine.loadModel('path/to/model.gguf', modelParams: params);
+/// ```
 class ModelParams {
   /// Context size (n_ctx) in tokens.
   final int contextSize;

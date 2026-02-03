@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'llama_engine.dart';
 import '../models/llama_chat_message.dart';
 import '../models/llama_chat_role.dart';
@@ -116,16 +117,6 @@ class ChatSession {
   }
 
   /// Sends a user [text] message and returns a stream of generated response tokens.
-  ///
-  /// This method performs the following steps:
-  /// 1. Adds the user message to the internal history.
-  /// 2. Enforces the context limit by truncating older messages if necessary.
-  /// 3. Formats the full message list (including [systemPrompt]) using the model's template.
-  /// 4. Streams the response from the [LlamaEngine].
-  /// 5. Appends the full assistant response back into the history.
-  ///
-  /// Uses the session's [toolRegistry] for tool calling. Pass a different
-  /// registry via the parameter to override for this call only.
   Stream<String> chat(
     String text, {
     GenerationParams? params,
@@ -139,16 +130,24 @@ class ChatSession {
     _history.add(userMsg);
     onMessageAdded?.call(userMsg);
 
-    // Ensure we are within context limits before sending
-    await _enforceContextLimit();
+    final effectiveRegistry = toolRegistryOverride ?? toolRegistry;
 
-    final messages = _getMessagesForEngine();
+    // Ensure we are within context limits before sending
+    await _enforceContextLimit(
+      toolRegistry: effectiveRegistry,
+      toolsEnabled: toolsEnabled,
+    );
+
+    final messages = _getMessagesForEngine(
+      toolRegistry: effectiveRegistry,
+      toolsEnabled: toolsEnabled,
+    );
     String fullResponse = "";
 
     await for (final token in _generateWithMessages(
       messages,
       params: params,
-      toolRegistry: toolRegistryOverride ?? toolRegistry,
+      toolRegistry: effectiveRegistry,
       forceToolCall: forceToolCall,
       toolsEnabled: toolsEnabled,
       onMessageAdded: onMessageAdded,
@@ -166,9 +165,6 @@ class ChatSession {
   }
 
   /// Sends a user [text] message and returns the full response string.
-  ///
-  /// Wraps [chat] but waits for the entire generation to complete and
-  /// returns the concatenated tokens as a single trimmed string.
   Future<String> chatText(
     String text, {
     GenerationParams? params,
@@ -188,17 +184,6 @@ class ChatSession {
   }
 
   /// Stateless single-turn chat. Does not track history.
-  ///
-  /// Useful for one-off requests where you don't need conversation context.
-  ///
-  /// Example:
-  /// ```dart
-  /// final response = await ChatSession.singleTurn(
-  ///   engine,
-  ///   [LlamaChatMessage.text(role: LlamaChatRole.user, content: 'Hello!')],
-  /// );
-  /// print(response);
-  /// ```
   static Future<String> singleTurn(
     LlamaEngine engine,
     List<LlamaChatMessage> messages, {
@@ -222,9 +207,6 @@ class ChatSession {
   }
 
   /// Stateless single-turn chat as a stream. Does not track history.
-  ///
-  /// Useful for one-off requests where you don't need conversation context
-  /// but want streaming output.
   static Stream<String> singleTurnStream(
     LlamaEngine engine,
     List<LlamaChatMessage> messages, {
@@ -235,8 +217,13 @@ class ChatSession {
   }) {
     // Create a temporary session just for processing
     final tempSession = ChatSession(engine);
+    final finalMessages = tempSession._getMessagesForEngine(
+      history: messages,
+      toolRegistry: toolRegistry,
+      toolsEnabled: toolsEnabled,
+    );
     return tempSession._generateWithMessages(
-      messages,
+      finalMessages,
       params: params,
       toolRegistry: toolRegistry,
       forceToolCall: forceToolCall,
@@ -245,8 +232,6 @@ class ChatSession {
   }
 
   /// Internal: generates a response from a list of messages.
-  ///
-  /// This handles both regular chat and tool-augmented chat.
   Stream<String> _generateWithMessages(
     List<LlamaChatMessage> messages, {
     GenerationParams? params,
@@ -289,9 +274,6 @@ class ChatSession {
   }
 
   /// Internal: handles tool-augmented generation.
-  ///
-  /// When [forceToolCall] is true, uses grammar constraints to ensure tool output.
-  /// When false (default), model decides whether to call tools or respond directly.
   Stream<String> _generateWithTools(
     List<LlamaChatMessage> messages,
     ToolRegistry registry, {
@@ -300,26 +282,16 @@ class ChatSession {
     bool forceToolCall = false,
     void Function(LlamaChatMessage message)? onMessageAdded,
   }) async* {
-    var currentMessages = List<LlamaChatMessage>.from(messages);
-    var toolCallCount = 0;
-
-    // Add system prompt with tool descriptions
-    final toolSystemPrompt = registry.generateSystemPrompt();
-    currentMessages.insert(
-      0,
-      LlamaChatMessage.text(
-        role: LlamaChatRole.system,
-        content: toolSystemPrompt,
-      ),
-    );
-
-    // Prepare grammar for forced mode
+    // Process grammar
     String? grammar;
     if (forceToolCall) {
       grammar = JsonSchemaToGbnf.generateToolGrammar(
         registry.toJsonSchemaList(),
       );
     }
+
+    var toolCallCount = 0;
+    var currentMessages = List<LlamaChatMessage>.from(messages);
 
     while (toolCallCount < maxToolCalls) {
       final buffer = StringBuffer();
@@ -333,6 +305,8 @@ class ChatSession {
       );
 
       final allParts = currentMessages.expand((m) => m.parts).toList();
+      bool isLikelyToolCall = false;
+      bool checkedType = false;
 
       await for (final token in _engine.generate(
         result.prompt,
@@ -340,6 +314,29 @@ class ChatSession {
         parts: allParts,
       )) {
         buffer.write(token);
+
+        if (!checkedType) {
+          final trimmedSoFar = buffer.toString().trimLeft();
+          if (trimmedSoFar.isNotEmpty) {
+            if (trimmedSoFar.startsWith('{')) {
+              isLikelyToolCall = true;
+            } else {
+              // Not a tool call, start streaming immediately
+              yield buffer.toString();
+              buffer.clear();
+              isLikelyToolCall = false;
+            }
+            checkedType = true;
+          }
+        } else if (!isLikelyToolCall) {
+          // Streaming plain text
+          yield token;
+        }
+      }
+
+      if (!isLikelyToolCall) {
+        // Already yielded or was empty
+        return;
       }
 
       final response = buffer.toString().trim();
@@ -410,6 +407,7 @@ class ChatSession {
     yield* _engine.generate(
       finalResult.prompt,
       params: finalParams.copyWith(stopSequences: finalResult.stopSequences),
+      parts: currentMessages.expand((m) => m.parts).toList(),
     );
   }
 
@@ -443,8 +441,6 @@ class ChatSession {
       }
       return false;
     } catch (_) {
-      // If it starts with { but fails to parse, it might be a partial or malformed tool call.
-      // We'll return false to let it be treated as normal text for now.
       return false;
     }
   }
@@ -483,49 +479,89 @@ class ChatSession {
     }).toList();
   }
 
-  List<LlamaChatMessage> _getMessagesForEngine() {
+  List<LlamaChatMessage> _getMessagesForEngine({
+    List<LlamaChatMessage>? history,
+    ToolRegistry? toolRegistry,
+    bool toolsEnabled = true,
+  }) {
     final messages = <LlamaChatMessage>[];
-    if (systemPrompt != null && systemPrompt!.isNotEmpty) {
+    final sourceHistory = history ?? _history;
+
+    // Get the base system prompt (prefer one in history if it exists)
+    final systemInHistory = sourceHistory
+        .where((m) => m.role == LlamaChatRole.system)
+        .firstOrNull;
+    String? baseSystemPrompt = systemInHistory?.content ?? systemPrompt;
+
+    String? finalSystemPrompt = baseSystemPrompt;
+
+    if (toolsEnabled && toolRegistry != null && toolRegistry.isNotEmpty) {
+      final toolSystemPrompt = toolRegistry.generateSystemPrompt();
+      if (finalSystemPrompt != null && finalSystemPrompt.isNotEmpty) {
+        finalSystemPrompt = '${finalSystemPrompt.trim()}\n\n$toolSystemPrompt';
+      } else {
+        finalSystemPrompt = toolSystemPrompt;
+      }
+    }
+
+    if (finalSystemPrompt != null && finalSystemPrompt.isNotEmpty) {
       messages.add(
         LlamaChatMessage.text(
           role: LlamaChatRole.system,
-          content: systemPrompt!,
+          content: finalSystemPrompt,
         ),
       );
     }
-    messages.addAll(_history);
+
+    // Add all non-system messages from history
+    messages.addAll(sourceHistory.where((m) => m.role != LlamaChatRole.system));
     return messages;
   }
 
   /// Truncates history if it exceeds the context limit.
-  Future<void> _enforceContextLimit() async {
+  Future<void> _enforceContextLimit({
+    ToolRegistry? toolRegistry,
+    bool toolsEnabled = true,
+  }) async {
     final limit = maxContextTokens ?? await _engine.getContextSize();
     if (limit <= 0) return;
 
+    // Estimate reserve (buffer for response)
+    final reserve = (limit * 0.1).clamp(128, 512).toInt();
+    final targetLimit = limit - reserve;
+
     while (_history.isNotEmpty) {
-      final messages = _getMessagesForEngine();
+      final messages = _getMessagesForEngine(
+        toolRegistry: toolRegistry,
+        toolsEnabled: toolsEnabled,
+      );
       final template = await _engine.chatTemplate(messages);
-      final tokenCount = await _engine.getTokenCount(template.prompt);
 
-      // We need some buffer for the response.
-      // Using a conservative 10% buffer or at least 256 tokens.
-      final reserve = (limit * 0.1).clamp(128, 512).toInt();
-
-      if (tokenCount < (limit - reserve)) {
+      if (template.tokenCount != null && template.tokenCount! < targetLimit) {
         break;
       }
 
-      // Remove the oldest non-system message (which is the first one in history)
-      if (_history.length > 1) {
+      // If tokenCount is null (though chatTemplate should return it), fallback to getTokenCount
+      final tokenCount =
+          template.tokenCount ?? await _engine.getTokenCount(template.prompt);
+
+      if (tokenCount < targetLimit) {
+        break;
+      }
+
+      // Remove in chunks if we are way over limit to avoid O(N^2) tokenization
+      final overBy = tokenCount - targetLimit;
+      if (overBy > 500 && _history.length > 4) {
+        // Remove 2 turns at once
+        _history.removeRange(0, min(4, _history.length - 1));
+      } else {
+        // Remove the oldest non-system message
         _history.removeAt(0);
-        // If it was a user message, we might want to remove the corresponding assistant message too
+        // If it was a user message, remove the corresponding assistant message too
         if (_history.isNotEmpty &&
             _history[0].role == LlamaChatRole.assistant) {
           _history.removeAt(0);
         }
-      } else {
-        // Can't truncate more without losing the current message
-        break;
       }
     }
   }

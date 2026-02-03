@@ -131,18 +131,21 @@ void main() async {
 ```
 
 ### 3. Tool Calling
-
-`llamadart` supporting intelligent tool calling where the model can use external functions to help it answer questions.
-
+  
+`llamadart` supports intelligent tool calling where the model can use external functions to help it answer questions.
+  
 ```dart
 final registry = ToolRegistry([
-  LlamaTool(
+  ToolDefinition(
     name: 'get_weather',
     description: 'Get the current weather',
     parameters: [
-      LlamaToolParameter(name: 'location', type: 'string', required: true),
+      ToolParam.string('location', description: 'City name', required: true),
     ],
-    handler: (args) async => 'It is 22°C and sunny in ${args['location']}',
+    handler: (params) async {
+      final location = params.getRequiredString('location');
+      return 'It is 22°C and sunny in $location';
+    },
   ),
 ]);
 

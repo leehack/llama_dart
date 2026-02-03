@@ -1,3 +1,4 @@
+// ignore_for_file: deprecated_member_use_from_same_package
 import 'dart:convert';
 import 'llama_chat_role.dart';
 import 'llama_content_part.dart';
@@ -53,7 +54,7 @@ class LlamaChatMessage {
 
   /// Backward-compatible content getter (concatenates all text-like parts).
   String get content {
-    if (_legacyContent != null) return _legacyContent!;
+    if (_legacyContent != null) return _legacyContent;
     final buffer = StringBuffer();
     for (final part in parts) {
       if (part is LlamaTextContent) {
