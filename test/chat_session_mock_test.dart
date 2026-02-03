@@ -19,7 +19,11 @@ class MockLlamaBackend implements LlamaBackend {
   Future<int> modelLoad(String path, ModelParams params) async => 1;
 
   @override
-  Future<int> modelLoadFromUrl(String url, ModelParams params, {Function(double progress)? onProgress}) async => 1;
+  Future<int> modelLoadFromUrl(
+    String url,
+    ModelParams params, {
+    Function(double progress)? onProgress,
+  }) async => 1;
 
   @override
   Future<void> modelFree(int modelHandle) async {}
@@ -34,8 +38,12 @@ class MockLlamaBackend implements LlamaBackend {
   Future<int> getContextSize(int contextHandle) async => contextSize;
 
   @override
-  Stream<List<int>> generate(int contextHandle, String prompt, GenerationParams params, {List<LlamaContentPart>? parts}) async*
-  {
+  Stream<List<int>> generate(
+    int contextHandle,
+    String prompt,
+    GenerationParams params, {
+    List<LlamaContentPart>? parts,
+  }) async* {
     lastPrompt = prompt;
     if (_generateCallCount < _responses.length) {
       yield utf8.encode(_responses[_generateCallCount++]);
@@ -48,30 +56,51 @@ class MockLlamaBackend implements LlamaBackend {
   void cancelGeneration() {}
 
   @override
-  Future<List<int>> tokenize(int modelHandle, String text, {bool addSpecial = true}) async {
+  Future<List<int>> tokenize(
+    int modelHandle,
+    String text, {
+    bool addSpecial = true,
+  }) async {
     return List.generate(text.length, (i) => i);
   }
 
   @override
-  Future<String> detokenize(int modelHandle, List<int> tokens, {bool special = false}) async => 'decoded';
+  Future<String> detokenize(
+    int modelHandle,
+    List<int> tokens, {
+    bool special = false,
+  }) async => 'decoded';
 
   @override
   Future<Map<String, String>> modelMetadata(int modelHandle) async => {};
 
   @override
-  Future<LlamaChatTemplateResult> applyChatTemplate(int modelHandle, List<LlamaChatMessage> messages, {bool addAssistant = true}) async {
-    final combined = messages.map((m) {
-      return m.parts.whereType<LlamaTextContent>().map((p) => p.text).join("");
-    }).join('\n');
+  Future<LlamaChatTemplateResult> applyChatTemplate(
+    int modelHandle,
+    List<LlamaChatMessage> messages, {
+    bool addAssistant = true,
+  }) async {
+    final combined = messages
+        .map((m) {
+          return m.parts
+              .whereType<LlamaTextContent>()
+              .map((p) => p.text)
+              .join("");
+        })
+        .join('\n');
     return LlamaChatTemplateResult(
-      prompt: combined, 
+      prompt: combined,
       stopSequences: [],
       tokenCount: combined.length,
     );
   }
 
   @override
-  Future<void> setLoraAdapter(int contextHandle, String path, double scale) async {}
+  Future<void> setLoraAdapter(
+    int contextHandle,
+    String path,
+    double scale,
+  ) async {}
   @override
   Future<void> removeLoraAdapter(int contextHandle, String path) async {}
   @override
@@ -87,7 +116,10 @@ class MockLlamaBackend implements LlamaBackend {
   @override
   Future<void> dispose() async {}
   @override
-  Future<int?> multimodalContextCreate(int modelHandle, String mmProjPath) async => null;
+  Future<int?> multimodalContextCreate(
+    int modelHandle,
+    String mmProjPath,
+  ) async => null;
   @override
   Future<void> multimodalContextFree(int mmContextHandle) async {}
   @override
@@ -117,11 +149,11 @@ void main() {
     });
 
     test('enforceContextLimit truncation', () async {
-      backend.contextSize = 1000; 
+      backend.contextSize = 1000;
       session.maxContextTokens = 1000;
       for (int i = 0; i < 20; i++) {
         backend.queueResponse('R');
-        await session.chat('M' * 50).drain(); 
+        await session.chat('M' * 50).drain();
       }
       expect(session.history, isNotEmpty);
       expect(session.history.length, lessThan(40));
@@ -137,9 +169,9 @@ void main() {
       );
       session.addMessage(msg);
       backend.queueResponse('An image');
-      
+
       await session.chat('Explain').drain();
-      
+
       expect(backend.lastPrompt, contains('<__media__>'));
     });
 
@@ -155,7 +187,9 @@ void main() {
       session.toolRegistry = registry;
 
       // Variation 1: OpenAI format
-      backend.queueResponse('{"type": "function", "function": {"name": "test", "parameters": {}}}');
+      backend.queueResponse(
+        '{"type": "function", "function": {"name": "test", "parameters": {}}}',
+      );
       backend.queueResponse('Final');
       await session.chat('call test').drain();
       expect(session.history.any((m) => m.role == LlamaChatRole.tool), true);

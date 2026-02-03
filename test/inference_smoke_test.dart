@@ -60,7 +60,11 @@ void main() {
             grammar: 'root ::= "World"',
           ),
           parts: [
-            LlamaImageContent(bytes: Uint8List.fromList([0, 0, 0]), width: 1, height: 1),
+            LlamaImageContent(
+              bytes: Uint8List.fromList([0, 0, 0]),
+              width: 1,
+              height: 1,
+            ),
           ],
         );
 
@@ -103,7 +107,7 @@ void main() {
         try {
           await engine.loadMultimodalProjector('non_existent_path.gguf');
         } catch (_) {}
-        
+
         await engine.dispose();
 
         // 10. Error path: non-existent model

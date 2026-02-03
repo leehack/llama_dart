@@ -32,7 +32,10 @@ void main() {
       expect(() => llama_context_default_params(), returnsNormally);
       expect(() => llama_sampler_chain_default_params(), returnsNormally);
       expect(() => llama_model_quantize_default_params(), returnsNormally);
-      expect(() => llama_numa_init(ggml_numa_strategy.GGML_NUMA_STRATEGY_DISABLED), returnsNormally);
+      expect(
+        () => llama_numa_init(ggml_numa_strategy.GGML_NUMA_STRATEGY_DISABLED),
+        returnsNormally,
+      );
     });
   });
 }

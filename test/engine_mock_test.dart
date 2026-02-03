@@ -154,11 +154,17 @@ void main() {
       // Mock backend doesn't start with WASM so it will throw UnimplementedError normally
       // But we can force it by overriding getBackendName if we want to test that path
       // Actually, let's just test that it throws when not WASM
-      expect(() => engine.loadModelFromUrl('http://test.gguf'), throwsUnimplementedError);
+      expect(
+        () => engine.loadModelFromUrl('http://test.gguf'),
+        throwsUnimplementedError,
+      );
     });
 
     test('generate throws when not ready', () {
-      expect(() => engine.generate('test').first, throwsA(isA<LlamaContextException>()));
+      expect(
+        () => engine.generate('test').first,
+        throwsA(isA<LlamaContextException>()),
+      );
     });
 
     test('multimodal loading and support', () async {
@@ -189,7 +195,10 @@ void main() {
       await engine.loadModel('test.gguf');
       final meta = await engine.getMetadata();
       expect(meta['llm.context_length'], '4096');
-      expect(await engine.getContextSize(), 2048); // From backend.getContextSize
+      expect(
+        await engine.getContextSize(),
+        2048,
+      ); // From backend.getContextSize
     });
 
     test('LoRA management', () async {

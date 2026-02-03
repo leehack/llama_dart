@@ -30,7 +30,14 @@ void main() {
     });
 
     test('GenerateRequest', () {
-      final req = GenerateRequest(1, 'prompt', const GenerationParams(), 0, sp, parts: []);
+      final req = GenerateRequest(
+        1,
+        'prompt',
+        const GenerationParams(),
+        0,
+        sp,
+        parts: [],
+      );
       expect(req.prompt, 'prompt');
       expect(req.parts, isEmpty);
     });
@@ -127,7 +134,7 @@ void main() {
       expect(DoneResponse(), isNotNull);
     });
   });
-  
+
   // Close the port to avoid hanging
   rp.close();
 }

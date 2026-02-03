@@ -9,10 +9,7 @@ void main() {
       expect(p.name, 'test');
       expect(p.description, 'desc');
       expect(p.required, true);
-      expect(p.toJsonSchema(), {
-        'type': 'string',
-        'description': 'desc',
-      });
+      expect(p.toJsonSchema(), {'type': 'string', 'description': 'desc'});
     });
 
     test('integer param', () {
@@ -47,10 +44,14 @@ void main() {
     });
 
     test('object param', () {
-      final p = ToolParam.object('test', properties: [
-        ToolParam.string('s', required: true),
-        ToolParam.integer('i'),
-      ], description: 'obj');
+      final p = ToolParam.object(
+        'test',
+        properties: [
+          ToolParam.string('s', required: true),
+          ToolParam.integer('i'),
+        ],
+        description: 'obj',
+      );
       expect(p.toJsonSchema(), {
         'type': 'object',
         'properties': {

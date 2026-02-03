@@ -67,7 +67,7 @@ void main() {
       final schema = {
         'properties': {
           'foo': {'type': 'string'},
-        }
+        },
       };
       final grammar = JsonSchemaToGbnf.convert(schema);
       expect(grammar, contains('root ::= root-obj'));

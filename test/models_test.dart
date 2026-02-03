@@ -59,7 +59,10 @@ void main() {
     });
 
     test('text constructor', () {
-      const msg = LlamaChatMessage.text(role: LlamaChatRole.assistant, content: 'hi');
+      const msg = LlamaChatMessage.text(
+        role: LlamaChatRole.assistant,
+        content: 'hi',
+      );
       expect(msg.role, LlamaChatRole.assistant);
       expect(msg.content, 'hi');
     });
@@ -69,7 +72,11 @@ void main() {
         role: LlamaChatRole.user,
         parts: [
           const LlamaTextContent('text1 '),
-          const LlamaToolCallContent(name: 'call', arguments: {}, rawJson: '{"json":1}'),
+          const LlamaToolCallContent(
+            name: 'call',
+            arguments: {},
+            rawJson: '{"json":1}',
+          ),
           const LlamaToolResultContent(name: 'res', result: 'text2'),
           const LlamaToolResultContent(name: 'res2', result: {'data': 42}),
         ],
@@ -85,16 +92,17 @@ void main() {
       circular['self'] = circular;
       final msg = LlamaChatMessage.multimodal(
         role: LlamaChatRole.tool,
-        parts: [
-          LlamaToolResultContent(name: 'fail', result: circular),
-        ],
+        parts: [LlamaToolResultContent(name: 'fail', result: circular)],
       );
       // Should fallback to toString()
       expect(msg.content, contains('{self: {...}}'));
     });
 
     test('LlamaAudioContent properties', () {
-      final audio = LlamaAudioContent(samples: Float32List.fromList([0.1, 0.2]), path: 'audio.wav');
+      final audio = LlamaAudioContent(
+        samples: Float32List.fromList([0.1, 0.2]),
+        path: 'audio.wav',
+      );
       expect(audio.samples, isNotNull);
       expect(audio.path, 'audio.wav');
     });
