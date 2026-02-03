@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:llamadart/llamadart.dart';
 import 'package:file_picker/file_picker.dart';
@@ -14,6 +16,12 @@ class ChatProvider extends ChangeNotifier {
   final List<ChatMessage> _messages = [];
   final List<LlamaContentPart> _stagedParts = [];
   ChatSettings _settings = const ChatSettings();
+
+  // Chat session for stateful conversation
+  ChatSession? _session;
+
+  // Typed tool registry using the new API
+  late final ToolRegistry _toolRegistry;
 
   String _activeBackend = "Unknown";
   bool _gpuSupported = false;
@@ -55,6 +63,8 @@ class ChatProvider extends ChangeNotifier {
   int get currentTokens => _currentTokens;
   bool get isPruning => _isPruning;
   List<String> get availableDevices => _availableDevices;
+  bool get toolsEnabled => _settings.toolsEnabled;
+  bool get forceToolCall => _settings.forceToolCall;
 
   bool get isReady => _error == null && !_isInitializing && _isLoaded;
 
@@ -65,9 +75,64 @@ class ChatProvider extends ChangeNotifier {
   }) : _chatService = chatService ?? ChatService(),
        _settingsService = settingsService ?? SettingsService(),
        _settings = initialSettings ?? const ChatSettings() {
+    _initToolRegistry();
     if (chatService == null && settingsService == null) {
       _init();
     }
+  }
+
+  /// Initialize the tool registry with typed tool definitions.
+  void _initToolRegistry() {
+    _toolRegistry = ToolRegistry([
+      // Time tool - no parameters
+      ToolDefinition(
+        name: 'get_current_time',
+        description: 'Get the current date and time',
+        parameters: [],
+        handler: (params) async {
+          return DateTime.now().toIso8601String();
+        },
+      ),
+
+      // Weather tool - with typed parameters
+      ToolDefinition(
+        name: 'get_current_weather',
+        description: 'Get the current weather for a location',
+        parameters: [
+          ToolParam.string(
+            'location',
+            description: 'The city and state, e.g. San Francisco, CA',
+            required: true,
+          ),
+          ToolParam.enumType(
+            'unit',
+            values: ['celsius', 'fahrenheit'],
+            description: 'Temperature unit',
+          ),
+        ],
+        handler: (params) async {
+          final location = params.getRequiredString('location');
+          final unit = params.getString('unit') ?? 'celsius';
+
+          // Mock weather response
+          final random = Random();
+          final temp = 15 + random.nextInt(20);
+          final conditions = [
+            'Sunny',
+            'Cloudy',
+            'Rainy',
+            'Clear',
+          ][random.nextInt(4)];
+
+          final unitSymbol = unit == 'fahrenheit' ? '°F' : '°C';
+          final displayTemp = unit == 'fahrenheit'
+              ? (temp * 9 / 5 + 32).round()
+              : temp;
+
+          return 'The weather in $location is $displayTemp$unitSymbol and $conditions.';
+        },
+      ),
+    ]);
   }
 
   Future<void> _init() async {
@@ -107,6 +172,15 @@ class ChatProvider extends ChangeNotifier {
         },
       );
 
+      // Create chat session with tool registry
+      _session = ChatSession(
+        _chatService.engine,
+        maxContextTokens: _settings.contextSize,
+        toolRegistry: _toolRegistry,
+        toolsEnabled: _settings.toolsEnabled,
+        forceToolCall: _settings.forceToolCall,
+      );
+
       final rawBackend = await _chatService.engine.getBackendName();
       _activeBackend = rawBackend;
 
@@ -144,6 +218,7 @@ class ChatProvider extends ChangeNotifier {
 
   void clearConversation() {
     _messages.clear();
+    _session?.clearHistory();
     _currentTokens = 0;
     _isPruning = false;
     _isGenerating = false;
@@ -159,7 +234,7 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> sendMessage(String text) async {
-    if (_isGenerating) return;
+    if (_isGenerating || _session == null) return;
 
     final parts = List<LlamaContentPart>.from(_stagedParts);
     if (text.isNotEmpty) {
@@ -174,60 +249,84 @@ class ChatProvider extends ChangeNotifier {
     _isGenerating = true;
     notifyListeners();
 
+    await _generateResponse(text);
+  }
+
+  Future<void> _generateResponse(String text) async {
     try {
-      final responseMessageIndex = _messages.length;
       _messages.add(ChatMessage(text: "...", isUser: false));
       notifyListeners();
 
       String fullResponse = "";
       DateTime lastUpdate = DateTime.now();
 
-      // For multimodal, we need the conversation history with parts
-      final List<LlamaChatMessage> conversationMessages = [];
-      for (final m in _messages) {
-        if (m.isInfo || m.text == '...') continue;
-
-        if (m.parts != null && m.parts!.isNotEmpty) {
-          conversationMessages.add(
-            LlamaChatMessage.multimodal(
-              role: m.isUser ? LlamaChatRole.user : LlamaChatRole.assistant,
-              parts: m.parts!,
-            ),
-          );
-        } else {
-          conversationMessages.add(
-            LlamaChatMessage.text(
-              role: m.isUser ? LlamaChatRole.user : LlamaChatRole.assistant,
-              content: m.text,
-            ),
-          );
-        }
-      }
-
-      // Calculate initial tokens (prompt)
-      final templateResult = await _chatService.engine.chatTemplate(
-        conversationMessages,
+      // Use ChatSession for generation
+      final params = GenerationParams(
+        temp: _settings.temperature,
+        topK: _settings.topK,
+        topP: _settings.topP,
+        penalty: 1.1,
       );
-      _currentTokens = templateResult.tokenCount ?? 0;
-      notifyListeners();
 
-      await for (final token in _chatService.generate(
-        conversationMessages,
-        _settings,
+      await for (final token in _session!.chat(
+        text,
+        params: params,
+        onMessageAdded: (msg) {
+          // Handle intermediate tool messages
+          final hasToolCall = msg.parts.any((p) => p is LlamaToolCallContent);
+          final toolResultPart = msg.parts
+              .whereType<LlamaToolResultContent>()
+              .firstOrNull;
+          final isJsonAssistant =
+              msg.role == LlamaChatRole.assistant &&
+              msg.parts.any(
+                (p) =>
+                    p is LlamaTextContent &&
+                    (p.text.trim().startsWith('{') ||
+                        p.text.trim().startsWith('[{')),
+              );
+
+          if (toolResultPart != null) {
+            // MERGE: Find the preceding tool call and attach this result to it
+            for (int i = _messages.length - 1; i >= 0; i--) {
+              final m = _messages[i];
+              if (m.isToolCall &&
+                  !m.parts!.any((p) => p is LlamaToolResultContent)) {
+                _messages[i] = m.copyWith(parts: [...m.parts!, toolResultPart]);
+                notifyListeners();
+                return;
+              }
+            }
+          }
+
+          if (msg.role == LlamaChatRole.tool ||
+              toolResultPart != null ||
+              hasToolCall ||
+              isJsonAssistant) {
+            // Insert new tool call before the last message (the streaming bubble)
+            if (_messages.isNotEmpty) {
+              _messages.insert(
+                _messages.length - 1,
+                ChatMessage.fromLlama(msg),
+              );
+              notifyListeners();
+            }
+          }
+        },
       )) {
-        if (!_isGenerating) {
-          break;
-        }
+        if (!_isGenerating) break;
+
         fullResponse += token;
         _currentTokens++;
 
         final cleanText = _chatService.cleanResponse(fullResponse);
 
-        if (_messages.length > responseMessageIndex) {
-          _messages[responseMessageIndex] = _messages[responseMessageIndex]
-              .copyWith(text: cleanText);
+        // Find the "current" assistant message (should be the last one)
+        if (_messages.isNotEmpty && !_messages.last.isUser) {
+          _messages[_messages.length - 1] = _messages.last.copyWith(
+            text: cleanText,
+          );
 
-          // UI Throttling: only notify listeners if 50ms have passed since last update
           if (DateTime.now().difference(lastUpdate).inMilliseconds > 50) {
             notifyListeners();
             lastUpdate = DateTime.now();
@@ -235,10 +334,15 @@ class ChatProvider extends ChangeNotifier {
         }
       }
 
-      // Final update to ensure UI is in sync and token counts are refreshed for next turn
-      if (_messages.length > responseMessageIndex) {
-        _messages[responseMessageIndex].tokenCount = await _chatService.engine
-            .getTokenCount(_messages[responseMessageIndex].text);
+      // Final update
+      if (_messages.isNotEmpty && !_messages.last.isUser) {
+        final finalText = _chatService.cleanResponse(fullResponse);
+        _messages[_messages.length - 1] = _messages.last.copyWith(
+          text: finalText,
+        );
+        _messages.last.tokenCount = await _chatService.engine.getTokenCount(
+          finalText,
+        );
       }
     } catch (e) {
       _messages.add(ChatMessage(text: 'Error: $e', isUser: false));
@@ -313,6 +417,16 @@ class ChatProvider extends ChangeNotifier {
   void updateLogLevel(LlamaLogLevel value) {
     _updateSettings(_settings.copyWith(logLevel: value));
     _chatService.engine.setLogLevel(value);
+  }
+
+  void updateToolsEnabled(bool value) {
+    _updateSettings(_settings.copyWith(toolsEnabled: value));
+    _session?.toolsEnabled = value;
+  }
+
+  void updateForceToolCall(bool value) {
+    _updateSettings(_settings.copyWith(forceToolCall: value));
+    _session?.forceToolCall = value;
   }
 
   void updateModelPath(String path) {

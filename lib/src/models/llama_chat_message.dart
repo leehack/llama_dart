@@ -1,4 +1,4 @@
-// ignore_for_file: deprecated_member_use_from_same_package
+import 'dart:convert';
 import 'llama_chat_role.dart';
 import 'llama_content_part.dart';
 
@@ -51,8 +51,28 @@ class LlamaChatMessage {
   LlamaChatRole get role =>
       roleEnum ?? LlamaChatRole.values.byName(roleString!);
 
-  /// Backward-compatible content getter (concatenates all text parts).
-  String get content =>
-      _legacyContent ??
-      parts.whereType<LlamaTextContent>().map((p) => p.text).join();
+  /// Backward-compatible content getter (concatenates all text-like parts).
+  String get content {
+    if (_legacyContent != null) return _legacyContent!;
+    final buffer = StringBuffer();
+    for (final part in parts) {
+      if (part is LlamaTextContent) {
+        buffer.write(part.text);
+      } else if (part is LlamaToolCallContent) {
+        buffer.write(part.rawJson);
+      } else if (part is LlamaToolResultContent) {
+        final res = part.result;
+        if (res is String) {
+          buffer.write(res);
+        } else {
+          try {
+            buffer.write(jsonEncode(res));
+          } catch (_) {
+            buffer.write(res.toString());
+          }
+        }
+      }
+    }
+    return buffer.toString();
+  }
 }

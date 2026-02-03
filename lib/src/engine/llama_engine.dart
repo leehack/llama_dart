@@ -5,13 +5,34 @@ import 'llama_tokenizer.dart';
 import 'chat_template_processor.dart';
 import '../common/exceptions.dart';
 import '../models/llama_log_level.dart';
+import '../models/llama_chat_message.dart';
 import '../models/model_params.dart';
 import '../models/generation_params.dart';
-import '../models/llama_chat_message.dart';
 import '../models/llama_content_part.dart';
 import '../models/llama_chat_template_result.dart';
 
-/// High-level engine that orchestrates models and contexts.
+/// Low-level engine that orchestrates models and contexts.
+///
+/// [LlamaEngine] provides core functionality for loading models, running
+/// inference, and managing tokenization. For high-level chat functionality
+/// with history management and tool support, use [ChatSession].
+///
+/// Example:
+/// ```dart
+/// final engine = LlamaEngine(LlamaBackend());
+/// await engine.loadModel('path/to/model.gguf');
+///
+/// // Low-level: raw prompt generation
+/// await for (final token in engine.generate('Hello, world!')) {
+///   print(token);
+/// }
+///
+/// // For chat, use ChatSession instead:
+/// final session = ChatSession(engine);
+/// await for (final token in session.chat('Hello!')) {
+///   print(token);
+/// }
+/// ```
 class LlamaEngine {
   final LlamaBackend _backend;
   int? _modelHandle;
@@ -107,7 +128,13 @@ class LlamaEngine {
       _mmContextHandle != null &&
       await _backend.supportsAudio(_mmContextHandle!);
 
-  /// Generates a stream of text tokens based on the provided [prompt].
+  /// Generates a stream of text tokens based on the provided raw [prompt].
+  ///
+  /// This is the low-level generation API. For chat-style interactions with
+  /// proper template formatting, use [ChatSession.chat] instead.
+  ///
+  /// If [parts] contains media content, markers will be automatically injected
+  /// into the prompt if missing.
   Stream<String> generate(
     String prompt, {
     GenerationParams params = const GenerationParams(),
@@ -154,64 +181,10 @@ class LlamaEngine {
     }
   }
 
-  /// High-level chat interface.
-  Stream<String> chat(
-    List<LlamaChatMessage> messages, {
-    GenerationParams? params,
-  }) async* {
-    if (!_isReady || _modelHandle == null) {
-      throw LlamaContextException("Engine not ready.");
-    }
-
-    // AUTOMATIC MARKER INJECTION:
-    // Ensure every message with media parts has the <__media__> markers in its text.
-    final processedMessages = messages.map((m) {
-      final mediaParts = m.parts.where(
-        (p) => p is LlamaImageContent || p is LlamaAudioContent,
-      );
-      if (mediaParts.isEmpty) return m;
-
-      // Count existing markers across all text parts of this message
-      final markerCount = m.parts.whereType<LlamaTextContent>().fold(
-        0,
-        (count, p) => count + '<__media__>'.allMatches(p.text).length,
-      );
-
-      if (markerCount < mediaParts.length) {
-        final missingMarkers = mediaParts.length - markerCount;
-        // IMPORTANT: Prepend markers with newlines to ensure they are on their own lines,
-        // which helps some multimodal models (like Moondream) distinguish them from text.
-        final injection = ('<__media__>\n' * missingMarkers);
-
-        final newParts = List<LlamaContentPart>.from(m.parts);
-        int textIndex = newParts.indexWhere((p) => p is LlamaTextContent);
-        if (textIndex != -1) {
-          final oldText = (newParts[textIndex] as LlamaTextContent).text;
-          newParts[textIndex] = LlamaTextContent('$injection$oldText');
-        } else {
-          newParts.insert(0, LlamaTextContent(injection.trim()));
-        }
-        return LlamaChatMessage.multimodal(role: m.role, parts: newParts);
-      }
-      return m;
-    }).toList();
-
-    final result = await chatTemplate(processedMessages);
-    final stops = {...result.stopSequences, ...?params?.stopSequences}.toList();
-
-    // Collect all parts from all messages
-    final allParts = processedMessages.expand((m) => m.parts).toList();
-
-    yield* generate(
-      result.prompt,
-      params: (params ?? const GenerationParams()).copyWith(
-        stopSequences: stops,
-      ),
-      parts: allParts,
-    );
-  }
-
-  /// Formats a list of [messages] into a single prompt string.
+  /// Formats a list of [messages] into a prompt string using the model's template.
+  ///
+  /// This is useful for preparing messages before calling [generate] directly,
+  /// or for inspecting the formatted prompt for debugging purposes.
   Future<LlamaChatTemplateResult> chatTemplate(
     List<LlamaChatMessage> messages, {
     bool addAssistant = true,

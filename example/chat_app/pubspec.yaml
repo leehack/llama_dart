@@ -19,6 +19,8 @@ dependencies:
   dio: ^5.9.0
   path_provider: ^2.1.5
   google_fonts: ^8.0.0
+  flutter_markdown: ^0.7.7+1
+  json_rpc_2: ^4.0.0
 
 dev_dependencies:
   flutter_test:

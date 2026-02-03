@@ -11,7 +11,12 @@ export 'src/models/llama_chat_template_result.dart';
 export 'src/models/llama_log_level.dart';
 export 'src/models/gpu_backend.dart';
 export 'src/models/lora_adapter_config.dart';
-export 'src/models/llama_tool.dart';
+
+// Tools - Typed tool definitions for function calling
+export 'src/tools/tool_param.dart';
+export 'src/tools/tool_params.dart';
+export 'src/tools/tool_definition.dart';
+export 'src/tools/tool_registry.dart';
 
 // Engine
 export 'src/engine/llama_engine.dart';
@@ -25,7 +30,6 @@ export 'src/backend/llama_backend_interface.dart';
 
 // Common
 export 'src/common/exceptions.dart';
-export 'src/common/json_schema_to_gbnf.dart';
 
 // Bindings - Primary entry point for native symbols.
 // Web builds get the stub to avoid dart:ffi issues.

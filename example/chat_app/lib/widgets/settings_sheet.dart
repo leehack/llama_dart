@@ -329,6 +329,34 @@ class SettingsSheet extends StatelessWidget {
                     ),
                   ),
                 ),
+                const SizedBox(height: 24),
+                _buildSettingItem(
+                  context,
+                  title: 'Tool Calling',
+                  child: Column(
+                    children: [
+                      SwitchListTile(
+                        title: const Text('Enable Tools'),
+                        subtitle: const Text(
+                          'Allow model to use external tools',
+                        ),
+                        value: provider.toolsEnabled,
+                        onChanged: (value) =>
+                            provider.updateToolsEnabled(value),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      SwitchListTile(
+                        title: const Text('Force Tool Call'),
+                        subtitle: const Text('Enforce JSON output via grammar'),
+                        value: provider.forceToolCall,
+                        onChanged: provider.toolsEnabled
+                            ? (value) => provider.updateForceToolCall(value)
+                            : null,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),

@@ -9,6 +9,8 @@ class ChatSettings {
   final double topP;
   final int contextSize;
   final LlamaLogLevel logLevel;
+  final bool toolsEnabled;
+  final bool forceToolCall;
 
   const ChatSettings({
     this.modelPath,
@@ -19,6 +21,8 @@ class ChatSettings {
     this.topP = 0.9,
     this.contextSize = 0,
     this.logLevel = LlamaLogLevel.error,
+    this.toolsEnabled = true,
+    this.forceToolCall = false,
   });
 
   ChatSettings copyWith({
@@ -30,6 +34,8 @@ class ChatSettings {
     double? topP,
     int? contextSize,
     LlamaLogLevel? logLevel,
+    bool? toolsEnabled,
+    bool? forceToolCall,
   }) {
     return ChatSettings(
       modelPath: modelPath ?? this.modelPath,
@@ -40,6 +46,8 @@ class ChatSettings {
       topP: topP ?? this.topP,
       contextSize: contextSize ?? this.contextSize,
       logLevel: logLevel ?? this.logLevel,
+      toolsEnabled: toolsEnabled ?? this.toolsEnabled,
+      forceToolCall: forceToolCall ?? this.forceToolCall,
     );
   }
 }

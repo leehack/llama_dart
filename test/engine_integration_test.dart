@@ -79,7 +79,7 @@ void main() async {
       expect(count, greaterThan(0));
     });
 
-    test('Chat interface', () async {
+    test('Chat interface via ChatSession', () async {
       if (!engine.isReady) {
         await engine.loadModel(
           modelFile.path,
@@ -93,11 +93,11 @@ void main() async {
       final messages = [
         const LlamaChatMessage.text(role: LlamaChatRole.user, content: 'Hi'),
       ];
-      final stream = engine.chat(
+      final result = await ChatSession.singleTurn(
+        engine,
         messages,
         params: const GenerationParams(maxTokens: 10),
       );
-      final result = await stream.join();
       expect(result, isNotEmpty);
       print('Chat Response: "$result"');
     });

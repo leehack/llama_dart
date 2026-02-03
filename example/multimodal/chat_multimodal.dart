@@ -37,7 +37,8 @@ void main() async {
       ),
     ];
 
-    final response = engine.chat(messages);
+    // Use ChatSession.singleTurnStream for stateless chat
+    final response = ChatSession.singleTurnStream(engine, messages);
 
     stdout.write('Assistant: ');
     await for (final token in response) {

@@ -66,30 +66,35 @@ void main(List<String> arguments) async {
   final modelService = ModelService();
   final llamaService = LlamaCliService();
 
-  // Define sample tools
-  final List<LlamaTool> tools = enableToolTest
-      ? [
-          LlamaTool(
+  // Define sample tools using the typed ToolRegistry API
+  final toolRegistry = enableToolTest
+      ? ToolRegistry([
+          ToolDefinition(
             name: 'get_weather',
             description: 'Get the current weather for a location.',
-            parameters: {
-              'type': 'object',
-              'properties': {
-                'location': {
-                  'type': 'string',
-                  'description': 'The city and state, e.g. San Francisco, CA'
-                },
-                'unit': {
-                  'type': 'string',
-                  'enum': ['celsius', 'fahrenheit'],
-                  'description': 'The unit of temperature'
-                }
-              },
-              'required': ['location']
+            parameters: [
+              ToolParam.string(
+                'location',
+                description: 'The city and state, e.g. San Francisco, CA',
+                required: true,
+              ),
+              ToolParam.enumType(
+                'unit',
+                values: ['celsius', 'fahrenheit'],
+                description: 'The unit of temperature',
+              ),
+            ],
+            handler: (params) async {
+              final location = params.getRequiredString('location');
+              final unit = params.getString('unit') ?? 'celsius';
+              // Mock weather response
+              final temp = 22;
+              final unitSymbol = unit == 'fahrenheit' ? '°F' : '°C';
+              return 'The weather in $location is $temp$unitSymbol and Sunny.';
             },
-          )
-        ]
-      : [];
+          ),
+        ])
+      : null;
 
   try {
     print('Checking model...');
@@ -104,6 +109,7 @@ void main(List<String> arguments) async {
       modelFile.path,
       loras: loras,
       logLevel: enableLog ? LlamaLogLevel.info : LlamaLogLevel.none,
+      toolRegistry: toolRegistry,
     );
     print('Model loaded successfully.\n');
 
@@ -125,10 +131,9 @@ void main(List<String> arguments) async {
     );
 
     if (singlePrompt != null) {
-      await _runSingleResponse(
-          llamaService, singlePrompt, generationParams, tools);
+      await _runSingleResponse(llamaService, singlePrompt, generationParams);
     } else if (isInteractive) {
-      await _runInteractiveMode(llamaService, generationParams, tools);
+      await _runInteractiveMode(llamaService, generationParams);
     }
   } catch (e) {
     print('\nError: $e');
@@ -139,18 +144,22 @@ void main(List<String> arguments) async {
   }
 }
 
-Future<void> _runSingleResponse(LlamaCliService service, String prompt,
-    GenerationParams params, List<LlamaTool>? tools) async {
+Future<void> _runSingleResponse(
+  LlamaCliService service,
+  String prompt,
+  GenerationParams params,
+) async {
   stdout.write('\nAssistant: ');
-  await for (final token
-      in service.chatStream(prompt, params: params, tools: tools)) {
+  await for (final token in service.chatStream(prompt, params: params)) {
     stdout.write(token);
   }
   print('\n');
 }
 
-Future<void> _runInteractiveMode(LlamaCliService service,
-    GenerationParams params, List<LlamaTool>? tools) async {
+Future<void> _runInteractiveMode(
+  LlamaCliService service,
+  GenerationParams params,
+) async {
   print('Starting interactive mode. Type "exit" or "quit" to stop.\n');
 
   while (true) {
@@ -164,8 +173,7 @@ Future<void> _runInteractiveMode(LlamaCliService service,
     }
 
     stdout.write('Assistant: ');
-    await for (final token
-        in service.chatStream(input, params: params, tools: tools)) {
+    await for (final token in service.chatStream(input, params: params)) {
       stdout.write(token);
     }
     print('\n');

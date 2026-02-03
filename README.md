@@ -99,29 +99,30 @@ void main() async {
 }
 ```
 
-### 2. Advanced Usage (Decoupled Engine)
+### 2. Advanced Usage (ChatSession)
 
-Use `LlamaEngine` directly for more granular control, such as swapping backends or manual context management.
+Use `ChatSession` for most chat applications. It automatically manages conversation history, system prompts, and handles context window limits.
 
 ```dart
 import 'package:llamadart/llamadart.dart';
 
 void main() async {
-  // Explicitly select Native or Web backend
-  final backend = NativeLlamaBackend(); 
-  final engine = LlamaEngine(backend);
+  final engine = LlamaEngine(LlamaBackend());
 
   try {
     await engine.loadModel('model.gguf');
 
-    // High-level Chat interface (handles templates and stop sequences)
-    final messages = [
-      LlamaChatMessage(role: 'system', content: 'You are a poetic assistant.'),
-      LlamaChatMessage(role: 'user', content: 'Tell a story about a cat.'),
-    ];
+    // Create a session with a system prompt and optional tools
+    final session = ChatSession(
+      engine, 
+      systemPrompt: 'You are a helpful assistant.',
+      toolRegistry: myToolRegistry, // Optional
+    );
 
-    await for (final text in engine.chat(messages)) {
-      print(text);
+    // Just send user text; history and tools are handled automatically
+    // The model decides when to use tools or respond directly.
+    await for (final token in session.chat('What is the capital of France?')) {
+      stdout.write(token);
     }
   } finally {
     await engine.dispose();
@@ -129,9 +130,33 @@ void main() async {
 }
 ```
 
-### 3. Stateful Chat (ChatSession)
+### 3. Tool Calling
 
-Use `ChatSession` for most chat applications. it automatically maintains history and manages the model's context window.
+`llamadart` supporting intelligent tool calling where the model can use external functions to help it answer questions.
+
+```dart
+final registry = ToolRegistry([
+  LlamaTool(
+    name: 'get_weather',
+    description: 'Get the current weather',
+    parameters: [
+      LlamaToolParameter(name: 'location', type: 'string', required: true),
+    ],
+    handler: (args) async => 'It is 22°C and sunny in ${args['location']}',
+  ),
+]);
+
+final session = ChatSession(engine, toolRegistry: registry);
+
+// "how's the weather in London?" -> Calls get_weather -> "It is 22°C and sunny in London"
+await for (final token in session.chat("how's the weather in London?")) {
+  stdout.write(token);
+}
+```
+
+### 4. Multimodal Usage (Vision/Audio)
+
+`llamadart` supports multimodal models (vision and audio) using `LlamaChatMessage.multimodal`.
 
 ```dart
 import 'package:llamadart/llamadart.dart';
@@ -140,59 +165,25 @@ void main() async {
   final engine = LlamaEngine(LlamaBackend());
   
   try {
-    await engine.loadModel('model.gguf');
+    await engine.loadModel('vision-model.gguf');
+    await engine.loadMultimodalProjector('mmproj.gguf');
 
-    // Create a session with an optional system prompt
-    final session = ChatSession(engine, systemPrompt: 'You are a helpful assistant.');
+    final session = ChatSession(engine);
 
-    // Just send the user text, history is handled automatically
-    await for (final token in session.chat('What is the capital of Japan?')) {
-      stdout.write(token);
-    }
-
-    // Next message will include previous context
-    await for (final token in session.chat('And its population?')) {
-      stdout.write(token);
-    }
-    } finally {
-      await engine.dispose();
-    }
-  }
-}
-```
-
-### 4. Multimodal Usage (Vision/Audio)
-
-`llamadart` now supports multimodal models by integrating the experimental `mtmd` module from `llama.cpp`.
-
-```dart
-import 'package:llamadart/llamadart.dart';
-
-void main() async {
-  final engine = LlamaEngine(NativeLlamaBackend());
-  
-  try {
-    // 1. Load the base LLM
-    await engine.loadModel('moondream2.gguf');
-    
-    // 2. Load the multimodal projector (mmproj)
-    await engine.loadMultimodalProjector('moondream2-mmproj.gguf');
-
-    // 3. Create a multimodal message
+    // Create a multimodal message
     final messages = [
       LlamaChatMessage.multimodal(
         role: LlamaChatRole.user,
         parts: [
-          LlamaImageContent(path: 'sample_image.jpg'),
-          LlamaTextContent('What is this image about?'),
+          LlamaImageContent(path: 'image.jpg'),
+          LlamaTextContent('What is in this image?'),
         ],
       ),
     ];
 
-    // 4. Generate response
-    await for (final token in engine.chat(messages)) {
-      stdout.write(token);
-    }
+    // Use singleTurn for one-off multimodal requests
+    final response = await ChatSession.singleTurn(engine, messages);
+    print(response);
   } finally {
     await engine.dispose();
   }

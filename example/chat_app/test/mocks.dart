@@ -122,14 +122,6 @@ class MockLlamaEngine extends LlamaEngine {
   }
 
   @override
-  Stream<String> chat(
-    List<LlamaChatMessage> messages, {
-    GenerationParams? params,
-  }) async* {
-    yield "Hi there";
-  }
-
-  @override
   Future<LlamaChatTemplateResult> chatTemplate(
     List<LlamaChatMessage> messages, {
     bool addAssistant = true,
@@ -171,9 +163,6 @@ class MockChatService extends ChatService {
   LlamaEngine get engine => mockEngine;
 
   @override
-  LlamaEngine get llama => mockEngine;
-
-  @override
   Future<void> init(
     ChatSettings settings, {
     Function(double progress)? onProgress,
@@ -182,23 +171,6 @@ class MockChatService extends ChatService {
       throw Exception("Invalid model path");
     }
     await mockEngine.loadModel(settings.modelPath!);
-  }
-
-  @override
-  Stream<String> generate(
-    List<LlamaChatMessage> messages,
-    ChatSettings settings,
-  ) async* {
-    yield "Hi there";
-  }
-
-  @override
-  Future<LlamaChatTemplateResult> buildPrompt(
-    dynamic messages,
-    int maxTokens, {
-    int safetyMargin = 1024,
-  }) async {
-    return const LlamaChatTemplateResult(prompt: "prompt", stopSequences: []);
   }
 
   @override

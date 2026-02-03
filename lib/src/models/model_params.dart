@@ -24,7 +24,7 @@ class ModelParams {
     this.contextSize = 0,
     this.gpuLayers = 99,
     this.preferredBackend = GpuBackend.auto,
-    this.logLevel = LlamaLogLevel.warn,
+    this.logLevel = LlamaLogLevel.none,
     this.loras = const [],
   });
 

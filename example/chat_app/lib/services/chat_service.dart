@@ -1,19 +1,22 @@
 import 'package:flutter/foundation.dart';
 import 'package:llamadart/llamadart.dart';
-import '../models/chat_message.dart';
 import '../models/chat_settings.dart';
 
+/// Service for managing the LLM engine lifecycle.
+///
+/// This service handles model loading and provides access to the engine.
+/// For chat functionality, use [ChatSession] which is created by the provider.
 class ChatService {
   final LlamaEngine _engine;
+  bool _disposed = false;
 
   ChatService({LlamaEngine? engine})
     : _engine = engine ?? LlamaEngine(LlamaBackend());
 
+  /// The underlying LlamaEngine instance.
   LlamaEngine get engine => _engine;
 
-  // For backward compatibility with example code
-  LlamaEngine get llama => _engine;
-
+  /// Initializes the engine with the given settings.
   Future<void> init(
     ChatSettings settings, {
     Function(double progress)? onProgress,
@@ -27,7 +30,6 @@ class ChatService {
           gpuLayers: 99,
           preferredBackend: settings.preferredBackend,
           contextSize: settings.contextSize,
-          logLevel: settings.logLevel,
         ),
         onProgress: onProgress,
       );
@@ -38,7 +40,6 @@ class ChatService {
           gpuLayers: 99,
           preferredBackend: settings.preferredBackend,
           contextSize: settings.contextSize,
-          logLevel: settings.logLevel,
         ),
       );
     }
@@ -54,78 +55,19 @@ class ChatService {
     }
   }
 
-  Future<LlamaChatTemplateResult> buildPrompt(
-    List<ChatMessage> messages,
-    int maxTokens, {
-    int safetyMargin = 1024,
-  }) async {
-    final conversationMessages = messages
-        .where(
-          (m) =>
-              m.text != 'Model loaded successfully! Ready to chat.' &&
-              m.text != '...',
-        )
-        .toList();
-
-    final List<LlamaChatMessage> finalMessages = [];
-    int totalTokens = 0;
-
-    for (int i = conversationMessages.length - 1; i >= 0; i--) {
-      final m = conversationMessages[i];
-      m.tokenCount ??= await _engine.getTokenCount(m.text);
-      final tokens = m.tokenCount!;
-
-      if (totalTokens + tokens > (maxTokens - safetyMargin)) {
-        break;
-      }
-
-      totalTokens += tokens;
-
-      if (m.parts != null && m.parts!.isNotEmpty) {
-        finalMessages.insert(
-          0,
-          LlamaChatMessage.multimodal(
-            role: m.isUser ? LlamaChatRole.user : LlamaChatRole.assistant,
-            parts: m.parts!,
-          ),
-        );
-      } else {
-        finalMessages.insert(
-          0,
-          LlamaChatMessage.text(
-            role: m.isUser ? LlamaChatRole.user : LlamaChatRole.assistant,
-            content: m.text,
-          ),
-        );
-      }
-    }
-
-    return await _engine.chatTemplate(finalMessages);
-  }
-
-  Stream<String> generate(
-    List<LlamaChatMessage> messages,
-    ChatSettings settings,
-  ) {
-    return _engine.chat(
-      messages,
-      params: GenerationParams(
-        temp: settings.temperature,
-        topK: settings.topK,
-        topP: settings.topP,
-        penalty: 1.1,
-      ),
-    );
-  }
-
+  /// Cleans whitespace from response text.
   String cleanResponse(String response) {
     return response.trim();
   }
 
+  /// Disposes of the engine resources. Safe to call multiple times.
   Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
     await _engine.dispose();
   }
 
+  /// Cancels any ongoing generation.
   void cancelGeneration() {
     _engine.cancelGeneration();
   }

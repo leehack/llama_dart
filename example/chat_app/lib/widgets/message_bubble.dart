@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:llamadart/llamadart.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/chat_message.dart';
 
 class MessageBubble extends StatelessWidget {
@@ -19,6 +21,10 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildBubble(BuildContext context) {
+    if (message.role == LlamaChatRole.tool) {
+      return const SizedBox.shrink();
+    }
+
     final isUser = message.isUser;
     final align = isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
     final color = isUser
@@ -57,33 +63,65 @@ class MessageBubble extends StatelessWidget {
                   children: [
                     if (message.parts != null)
                       ...message.parts!
-                          .where((p) => p is! LlamaTextContent)
+                          .where(
+                            (p) =>
+                                p is! LlamaTextContent &&
+                                p is! LlamaToolCallContent &&
+                                p is! LlamaToolResultContent,
+                          )
                           .map((p) => _buildMediaPart(context, p)),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 14,
-                      ),
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: border,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
+                    if (message.isToolCall)
+                      _buildToolCallView(context)
+                    else
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          color: color,
+                          borderRadius: border,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.05),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: MarkdownBody(
+                          data: message.text,
+                          selectable: true,
+                          styleSheet: MarkdownStyleSheet(
+                            p: TextStyle(
+                              color: textColor,
+                              fontSize: 15,
+                              height: 1.4,
+                            ),
+                            code: TextStyle(
+                              color: isUser
+                                  ? textColor.withValues(alpha: 0.9)
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                              backgroundColor: isUser
+                                  ? Colors.black.withValues(alpha: 0.1)
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.surfaceContainerHighest,
+                              fontFamily: 'monospace',
+                            ),
+                            codeblockDecoration: BoxDecoration(
+                              color: isUser
+                                  ? Colors.black.withValues(alpha: 0.1)
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
-                        ],
-                      ),
-                      child: Text(
-                        message.text,
-                        style: TextStyle(
-                          color: textColor,
-                          fontSize: 15,
-                          height: 1.4,
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -153,6 +191,104 @@ class MessageBubble extends StatelessWidget {
               ? Theme.of(context).colorScheme.primary
               : Theme.of(context).colorScheme.secondary,
         ),
+      ),
+    );
+  }
+
+  Widget _buildToolCallView(BuildContext context) {
+    final toolCall = message.parts
+        ?.whereType<LlamaToolCallContent>()
+        .firstOrNull;
+    final title = toolCall != null
+        ? 'Tool: ${toolCall.name}'
+        : 'Executing Tool';
+    final content = toolCall != null
+        ? jsonEncode(toolCall.arguments)
+        : message.text;
+
+    final toolResult = message.parts
+        ?.whereType<LlamaToolResultContent>()
+        .firstOrNull;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.terminal_rounded,
+                size: 14,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              const Spacer(),
+              if (toolResult != null || isNextSame)
+                Icon(
+                  Icons.check_circle_outline_rounded,
+                  size: 14,
+                  color: Theme.of(context).colorScheme.primary,
+                )
+              else
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  content,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 10,
+                    color: Colors.grey,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (toolResult != null) ...[
+                  const Divider(height: 12, thickness: 0.5),
+                  Text(
+                    'Result: ${toolResult.result is String ? toolResult.result : jsonEncode(toolResult.result)}',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

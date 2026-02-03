@@ -11,6 +11,8 @@ class SettingsService {
   static const _keyTopP = 'top_p';
   static const _keyContext = 'context_size';
   static const _keyLogLevel = 'log_level';
+  static const _keyToolsEnabled = 'tools_enabled';
+  static const _keyForceToolCall = 'force_tool_call';
 
   Future<ChatSettings> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -24,6 +26,8 @@ class SettingsService {
       contextSize: prefs.getInt(_keyContext) ?? 0,
       logLevel: LlamaLogLevel
           .values[prefs.getInt(_keyLogLevel) ?? LlamaLogLevel.warn.index],
+      toolsEnabled: prefs.getBool(_keyToolsEnabled) ?? true,
+      forceToolCall: prefs.getBool(_keyForceToolCall) ?? false,
     );
   }
 
@@ -43,5 +47,7 @@ class SettingsService {
     await prefs.setDouble(_keyTopP, settings.topP);
     await prefs.setInt(_keyContext, settings.contextSize);
     await prefs.setInt(_keyLogLevel, settings.logLevel.index);
+    await prefs.setBool(_keyToolsEnabled, settings.toolsEnabled);
+    await prefs.setBool(_keyForceToolCall, settings.forceToolCall);
   }
 }
