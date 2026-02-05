@@ -84,3 +84,7 @@ third_party/Vulkan-Headers/
 
 coverage/
 *.log
+
+# FVM Version Cache
+.fvm/
+.fvmrc
