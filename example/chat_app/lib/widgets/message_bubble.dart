@@ -42,6 +42,8 @@ class MessageBubble extends StatelessWidget {
       bottomRight: Radius.circular(isUser ? 4 : borderRadius),
     );
 
+    final thinkingText = message.thinkingText;
+
     return Padding(
       padding: EdgeInsets.only(bottom: isNextSame ? 4 : 12),
       child: Column(
@@ -67,12 +69,17 @@ class MessageBubble extends StatelessWidget {
                             (p) =>
                                 p is! LlamaTextContent &&
                                 p is! LlamaToolCallContent &&
-                                p is! LlamaToolResultContent,
+                                p is! LlamaToolResultContent &&
+                                p is! LlamaThinkingContent,
                           )
                           .map((p) => _buildMediaPart(context, p)),
+
+                    if (thinkingText != null && thinkingText.trim().isNotEmpty)
+                      _buildThinkingView(context, thinkingText),
+
                     if (message.isToolCall)
                       _buildToolCallView(context)
-                    else
+                    else if (message.text.isNotEmpty)
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 20,
@@ -286,6 +293,62 @@ class MessageBubble extends StatelessWidget {
                   ),
                 ],
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThinkingView(BuildContext context, String thinkingText) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      width: double.infinity,
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.all(8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        ),
+        collapsedShape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide.none,
+        ),
+        title: Row(
+          children: [
+            Icon(
+              Icons.psychology,
+              size: 16,
+              color: Theme.of(context).colorScheme.secondary,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              "Thought Process",
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.secondary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              thinkingText,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.secondary,
+              ),
             ),
           ),
         ],

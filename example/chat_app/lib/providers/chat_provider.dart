@@ -20,8 +20,10 @@ class ChatProvider extends ChangeNotifier {
   // Chat session for stateful conversation
   ChatSession? _session;
 
-  // Typed tool registry using the new API
-  late final ToolRegistry _toolRegistry;
+  // Tool definitions and handlers
+  final List<ToolDefinition> _tools = [];
+  final Map<String, Future<String> Function(Map<String, dynamic>)>
+  _toolHandlers = {};
 
   String _activeBackend = "Unknown";
   bool _gpuSupported = false;
@@ -34,7 +36,7 @@ class ChatProvider extends ChangeNotifier {
   String? _error;
 
   // Telemetry
-  int _maxTokens = 2048;
+  int _contextLimit = 2048;
   int _currentTokens = 0;
   bool _isPruning = false;
 
@@ -59,7 +61,9 @@ class ChatProvider extends ChangeNotifier {
   int get topK => _settings.topK;
   double get topP => _settings.topP;
   int get contextSize => _settings.contextSize;
-  int get maxTokens => _maxTokens;
+  int get gpuLayers => _settings.gpuLayers;
+  int get contextLimit => _contextLimit; // Renamed from maxTokens
+  int get maxGenerationTokens => _settings.maxTokens;
   int get currentTokens => _currentTokens;
   bool get isPruning => _isPruning;
   List<String> get availableDevices => _availableDevices;
@@ -75,26 +79,50 @@ class ChatProvider extends ChangeNotifier {
   }) : _chatService = chatService ?? ChatService(),
        _settingsService = settingsService ?? SettingsService(),
        _settings = initialSettings ?? const ChatSettings() {
-    _initToolRegistry();
+    _initTools();
     if (chatService == null && settingsService == null) {
       _init();
     }
   }
 
-  /// Initialize the tool registry with typed tool definitions.
-  void _initToolRegistry() {
-    _toolRegistry = ToolRegistry([
-      // Time tool - no parameters
+  /// Initialize tool definitions with inline handlers.
+  void _initTools() {
+    // Time tool - no parameters
+    _toolHandlers['get_current_time'] = (args) async {
+      return DateTime.now().toIso8601String();
+    };
+    _tools.add(
       ToolDefinition(
         name: 'get_current_time',
         description: 'Get the current date and time',
         parameters: [],
-        handler: (params) async {
-          return DateTime.now().toIso8601String();
-        },
+        handler: (params) async => DateTime.now().toIso8601String(),
       ),
+    );
 
-      // Weather tool - with typed parameters
+    // Weather tool - with typed parameters
+    _toolHandlers['get_current_weather'] = (args) async {
+      final location = args['location'] as String? ?? 'Unknown';
+      final unit = args['unit'] as String? ?? 'celsius';
+
+      // Mock weather response
+      final random = Random();
+      final temp = 15 + random.nextInt(20);
+      final conditions = [
+        'Sunny',
+        'Cloudy',
+        'Rainy',
+        'Clear',
+      ][random.nextInt(4)];
+
+      final unitSymbol = unit == 'fahrenheit' ? '°F' : '°C';
+      final displayTemp = unit == 'fahrenheit'
+          ? (temp * 9 / 5 + 32).round()
+          : temp;
+
+      return 'The weather in $location is $displayTemp$unitSymbol and $conditions.';
+    };
+    _tools.add(
       ToolDefinition(
         name: 'get_current_weather',
         description: 'Get the current weather for a location',
@@ -110,29 +138,9 @@ class ChatProvider extends ChangeNotifier {
             description: 'Temperature unit',
           ),
         ],
-        handler: (params) async {
-          final location = params.getRequiredString('location');
-          final unit = params.getString('unit') ?? 'celsius';
-
-          // Mock weather response
-          final random = Random();
-          final temp = 15 + random.nextInt(20);
-          final conditions = [
-            'Sunny',
-            'Cloudy',
-            'Rainy',
-            'Clear',
-          ][random.nextInt(4)];
-
-          final unitSymbol = unit == 'fahrenheit' ? '°F' : '°C';
-          final displayTemp = unit == 'fahrenheit'
-              ? (temp * 9 / 5 + 32).round()
-              : temp;
-
-          return 'The weather in $location is $displayTemp$unitSymbol and $conditions.';
-        },
+        handler: (params) async => '', // Not used, we use _toolHandlers instead
       ),
-    ]);
+    );
   }
 
   Future<void> _init() async {
@@ -160,6 +168,16 @@ class ChatProvider extends ChangeNotifier {
     _activeBackend = "Refreshing...";
     notifyListeners();
 
+    // Estimate dynamic settings if we have a model path but no custom settings yet
+    // or if we're reloading and want to be safe.
+    if (_settings.gpuLayers == 32 || _settings.gpuLayers == 99) {
+      try {
+        await estimateDynamicSettings();
+      } catch (e) {
+        debugPrint("Dynamic estimation failed: $e");
+      }
+    }
+
     try {
       await _chatService.engine.setLogLevel(_settings.logLevel);
       await _chatService.init(
@@ -172,19 +190,16 @@ class ChatProvider extends ChangeNotifier {
         },
       );
 
-      // Create chat session with tool registry
+      // Create chat session
       _session = ChatSession(
         _chatService.engine,
         maxContextTokens: _settings.contextSize,
-        toolRegistry: _toolRegistry,
-        toolsEnabled: _settings.toolsEnabled,
-        forceToolCall: _settings.forceToolCall,
       );
 
       final rawBackend = await _chatService.engine.getBackendName();
       _activeBackend = rawBackend;
 
-      _maxTokens = await _chatService.engine.getContextSize();
+      _contextLimit = await _chatService.engine.getContextSize();
       _supportsVision = await _chatService.engine.supportsVision;
       _supportsAudio = await _chatService.engine.supportsAudio;
 
@@ -218,7 +233,7 @@ class ChatProvider extends ChangeNotifier {
 
   void clearConversation() {
     _messages.clear();
-    _session?.clearHistory();
+    _session?.reset();
     _currentTokens = 0;
     _isPruning = false;
     _isGenerating = false;
@@ -237,47 +252,69 @@ class ChatProvider extends ChangeNotifier {
     if (_isGenerating || _session == null) return;
 
     final parts = List<LlamaContentPart>.from(_stagedParts);
-    if (text.isNotEmpty) {
-      parts.add(LlamaTextContent(text));
-    }
+    // Don't add text here - ChatSession.chat will handle it
 
-    if (parts.isEmpty) return;
+    if (parts.isEmpty && text.isEmpty) return;
 
-    final userMsg = ChatMessage(text: text, isUser: true, parts: parts);
+    // For UI display, include text in parts
+    final displayParts = [
+      ...parts,
+      if (text.isNotEmpty) LlamaTextContent(text),
+    ];
+    final userMsg = ChatMessage(text: text, isUser: true, parts: displayParts);
     _messages.add(userMsg);
     _stagedParts.clear();
     _isGenerating = true;
     notifyListeners();
 
-    await _generateResponse(text);
+    await _generateResponse(text, parts: parts.isEmpty ? null : parts);
   }
 
-  Future<void> _generateResponse(String text) async {
+  /// Maximum number of tool call iterations per user message.
+  static const int _maxToolIterations = 5;
+
+  Future<void> _generateResponse(
+    String text, {
+    List<LlamaContentPart>? parts,
+    int remainingToolIterations = _maxToolIterations,
+  }) async {
     try {
       _messages.add(ChatMessage(text: "...", isUser: false));
       notifyListeners();
 
       String fullResponse = "";
+      String fullThinking = "";
       DateTime lastUpdate = DateTime.now();
 
       // Use ChatSession for generation
       final params = GenerationParams(
+        maxTokens: _settings.maxTokens,
         temp: _settings.temperature,
         topK: _settings.topK,
         topP: _settings.topP,
         penalty: 1.1,
       );
 
-      await for (final token in _session!.chat(
-        text,
+      // Build parts list with text
+      final chatParts = <LlamaContentPart>[
+        ...?parts,
+        if (text.isNotEmpty) LlamaTextContent(text),
+      ];
+
+      // Tools passed per-request now (caller-managed pattern)
+      final tools = _settings.toolsEnabled ? _tools : null;
+      final toolChoice = _settings.forceToolCall
+          ? ToolChoice.required
+          : ToolChoice.auto;
+
+      await for (final chunk in _session!.create(
+        chatParts,
         params: params,
+        tools: tools,
+        toolChoice: tools != null ? toolChoice : null,
         onMessageAdded: (msg) {
-          // Handle intermediate tool messages
-          final hasToolCall = msg.parts.any((p) => p is LlamaToolCallContent);
-          final toolResultPart = msg.parts
-              .whereType<LlamaToolResultContent>()
-              .firstOrNull;
-          final isJsonAssistant =
+          // Handle intermediate messages for UI
+          final isJson =
               msg.role == LlamaChatRole.assistant &&
               msg.parts.any(
                 (p) =>
@@ -286,24 +323,8 @@ class ChatProvider extends ChangeNotifier {
                         p.text.trim().startsWith('[{')),
               );
 
-          if (toolResultPart != null) {
-            // MERGE: Find the preceding tool call and attach this result to it
-            for (int i = _messages.length - 1; i >= 0; i--) {
-              final m = _messages[i];
-              if (m.isToolCall &&
-                  !m.parts!.any((p) => p is LlamaToolResultContent)) {
-                _messages[i] = m.copyWith(parts: [...m.parts!, toolResultPart]);
-                notifyListeners();
-                return;
-              }
-            }
-          }
-
-          if (msg.role == LlamaChatRole.tool ||
-              toolResultPart != null ||
-              hasToolCall ||
-              isJsonAssistant) {
-            // Insert new tool call before the last message (the streaming bubble)
+          if (isJson) {
+            // Insert tool call before the streaming bubble
             if (_messages.isNotEmpty) {
               _messages.insert(
                 _messages.length - 1,
@@ -314,17 +335,42 @@ class ChatProvider extends ChangeNotifier {
           }
         },
       )) {
-        if (!_isGenerating) break;
+        if (!_isGenerating) {
+          break;
+        }
 
-        fullResponse += token;
+        final delta = chunk.choices.first.delta;
+
+        // Accumulate both content and thinking
+        final content = delta.content ?? '';
+        final thinking = delta.thinking ?? '';
+
+        fullResponse += content;
+
+        // Unescape literal newlines/returns if they appear in thinking content
+        // This handles cases where the model outputs escaped strings
+        final unescapedThinking = thinking
+            .replaceAll(r'\n', '\n')
+            .replaceAll(r'\r', '\r');
+        fullThinking += unescapedThinking;
+
         _currentTokens++;
 
         final cleanText = _chatService.cleanResponse(fullResponse);
 
         // Find the "current" assistant message (should be the last one)
         if (_messages.isNotEmpty && !_messages.last.isUser) {
+          final parts = <LlamaContentPart>[];
+          if (fullThinking.isNotEmpty) {
+            parts.add(LlamaThinkingContent(fullThinking));
+          }
+          if (cleanText.isNotEmpty) {
+            parts.add(LlamaTextContent(cleanText));
+          }
+
           _messages[_messages.length - 1] = _messages.last.copyWith(
             text: cleanText,
+            parts: parts,
           );
 
           if (DateTime.now().difference(lastUpdate).inMilliseconds > 50) {
@@ -337,12 +383,35 @@ class ChatProvider extends ChangeNotifier {
       // Final update
       if (_messages.isNotEmpty && !_messages.last.isUser) {
         final finalText = _chatService.cleanResponse(fullResponse);
+
+        final parts = <LlamaContentPart>[];
+        if (fullThinking.isNotEmpty) {
+          parts.add(LlamaThinkingContent(fullThinking));
+        }
+        if (finalText.isNotEmpty) {
+          parts.add(LlamaTextContent(finalText));
+        }
+
         _messages[_messages.length - 1] = _messages.last.copyWith(
           text: finalText,
+          parts: parts,
         );
         _messages.last.tokenCount = await _chatService.engine.getTokenCount(
           finalText,
         );
+      }
+
+      // Check for tool calls in the session history and execute them
+      if (_settings.toolsEnabled && _session!.history.isNotEmpty) {
+        final lastMsg = _session!.history.last;
+        final toolCalls = lastMsg.parts
+            .whereType<LlamaToolCallContent>()
+            .toList();
+
+        if (toolCalls.isNotEmpty && remainingToolIterations > 0) {
+          await _executeToolCalls(toolCalls, remainingToolIterations - 1);
+          return; // _executeToolCalls handles the rest
+        }
       }
     } catch (e) {
       _messages.add(ChatMessage(text: 'Error: $e', isUser: false));
@@ -350,6 +419,54 @@ class ChatProvider extends ChangeNotifier {
       _isGenerating = false;
       notifyListeners();
     }
+  }
+
+  /// Execute tool calls and continue the conversation with results.
+  Future<void> _executeToolCalls(
+    List<LlamaToolCallContent> toolCalls,
+    int remainingIterations,
+  ) async {
+    for (final tc in toolCalls) {
+      final handler = _toolHandlers[tc.name];
+      if (handler == null) {
+        // Unknown tool - add error message
+        _messages.add(
+          ChatMessage(text: 'Unknown tool: ${tc.name}', isUser: false),
+        );
+        continue;
+      }
+
+      // Arguments are already a Map from parsing
+      final args = tc.arguments;
+
+      // Update UI to show tool is executing
+      if (_messages.isNotEmpty && !_messages.last.isUser) {
+        _messages[_messages.length - 1] = _messages.last.copyWith(
+          text: 'Calling ${tc.name}...',
+        );
+        notifyListeners();
+      }
+
+      // Execute the tool
+      final result = await handler(args);
+
+      // Add tool result to session
+      _session!.addMessage(
+        LlamaChatMessage.withContent(
+          role: LlamaChatRole.tool,
+          content: [
+            LlamaToolResultContent(id: tc.id, name: tc.name, result: result),
+          ],
+        ),
+      );
+    }
+
+    // Continue generation to get final response with tool results
+    await _generateResponse(
+      '',
+      parts: [],
+      remainingToolIterations: remainingIterations,
+    );
   }
 
   void addStagedPart(LlamaContentPart part) {
@@ -413,7 +530,11 @@ class ChatProvider extends ChangeNotifier {
   void updateTopP(double value) =>
       _updateSettings(_settings.copyWith(topP: value));
   void updateContextSize(int value) =>
-      _updateSettings(_settings.copyWith(contextSize: value));
+      _updateSettings(_settings.copyWith(contextSize: value.clamp(512, 32768)));
+  void updateMaxTokens(int value) =>
+      _updateSettings(_settings.copyWith(maxTokens: value.clamp(512, 32768)));
+  void updateGpuLayers(int value) =>
+      _updateSettings(_settings.copyWith(gpuLayers: value));
   void updateLogLevel(LlamaLogLevel value) {
     _updateSettings(_settings.copyWith(logLevel: value));
     _chatService.engine.setLogLevel(value);
@@ -421,12 +542,10 @@ class ChatProvider extends ChangeNotifier {
 
   void updateToolsEnabled(bool value) {
     _updateSettings(_settings.copyWith(toolsEnabled: value));
-    _session?.toolsEnabled = value;
   }
 
   void updateForceToolCall(bool value) {
     _updateSettings(_settings.copyWith(forceToolCall: value));
-    _session?.forceToolCall = value;
   }
 
   void updateModelPath(String path) {
@@ -504,5 +623,38 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> shutdown() async {
     await _chatService.dispose();
+  }
+
+  Future<void> estimateDynamicSettings() async {
+    try {
+      final vram = await _chatService.engine.getVramInfo();
+      if (vram.total == 0) return;
+
+      final freeVramGb = vram.free / (1024 * 1024 * 1024);
+
+      // Heuristic: 1GB per 24 layers for a typical 7B model
+      // Modern models have ~32 layers.
+      // Small models (0.5B-1B) have ~24 layers.
+      // Large models (7B-8B) have ~32 layers.
+      // Very large models (70B) have ~80 layers.
+
+      int recommendedLayers = (freeVramGb * 24).round();
+      if (recommendedLayers > 100) recommendedLayers = 100;
+      if (recommendedLayers < 0) recommendedLayers = 0;
+
+      // Also set a conservative context size if VRAM is low
+      int recommendedCtx = 4096;
+      if (freeVramGb < 2.0) {
+        recommendedCtx = 2048;
+      }
+
+      _settings = _settings.copyWith(
+        gpuLayers: recommendedLayers,
+        contextSize: recommendedCtx,
+      );
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error estimating dynamic settings: $e");
+    }
   }
 }

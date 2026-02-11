@@ -53,13 +53,6 @@ class MockLlamaBackend implements LlamaBackend {
     "llama.context_length": "2048",
   };
   @override
-  Future<LlamaChatTemplateResult> applyChatTemplate(
-    int modelHandle,
-    List<LlamaChatMessage> messages, {
-    bool addAssistant = true,
-  }) async =>
-      const LlamaChatTemplateResult(prompt: "mock prompt", stopSequences: []);
-  @override
   Future<void> setLoraAdapter(
     int contextHandle,
     String path,
@@ -94,6 +87,20 @@ class MockLlamaBackend implements LlamaBackend {
 
   @override
   Future<bool> supportsVision(int mmContextHandle) async => false;
+
+  @override
+  Future<({int total, int free})> getVramInfo() async =>
+      (total: 8 * 1024 * 1024 * 1024, free: 4 * 1024 * 1024 * 1024);
+
+  @override
+  Future<String> applyChatTemplate(
+    int modelHandle,
+    List<Map<String, dynamic>> messages, {
+    String? customTemplate,
+    bool addAssistant = true,
+  }) async {
+    return messages.map((m) => "${m['role']}: ${m['content']}").join('\n');
+  }
 }
 
 class MockLlamaEngine extends LlamaEngine {
@@ -125,11 +132,34 @@ class MockLlamaEngine extends LlamaEngine {
   Future<LlamaChatTemplateResult> chatTemplate(
     List<LlamaChatMessage> messages, {
     bool addAssistant = true,
+    Map<String, dynamic>? jsonSchema,
+    Object? tools,
   }) async {
     return const LlamaChatTemplateResult(
       prompt: "mock prompt",
-      stopSequences: [],
+      additionalStops: [],
       tokenCount: 5,
+    );
+  }
+
+  @override
+  Stream<LlamaCompletionChunk> create(
+    List<LlamaChatMessage> messages, {
+    GenerationParams? params,
+    List<ToolDefinition>? tools,
+    ToolChoice? toolChoice,
+  }) async* {
+    yield LlamaCompletionChunk(
+      id: "mock-id",
+      object: "chat.completion.chunk",
+      created: 1234567890,
+      model: "mock-model",
+      choices: [
+        LlamaCompletionChunkChoice(
+          index: 0,
+          delta: LlamaCompletionChunkDelta(content: "Hi there"),
+        ),
+      ],
     );
   }
 

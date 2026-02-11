@@ -45,7 +45,7 @@ void main() {
         isTrue,
       );
       expect(mockEngine.initialized, isTrue);
-      expect(provider.maxTokens, greaterThan(0));
+      expect(provider.maxGenerationTokens, greaterThan(0));
     });
 
     test('loadModel failure', () async {
@@ -72,9 +72,9 @@ void main() {
       // Wait, let's look at MockLlamaBackend:
       // yield [72, 105, 32, 116, 104, 101, 114, 101]; // "Hi there"
       // That's one yield. Our current implementation increments _currentTokens for each YIELD in the stream.
-      // MockLlamaEngine.chat yields once. So prompt(5) + 1 = 6.
-
-      expect(provider.currentTokens, 6);
+      // MockLlamaEngine.create yields once. So 1 generated token.
+      // ChatProvider _currentTokens only tracks generated tokens.
+      expect(provider.currentTokens, 1);
     });
 
     test('clearConversation resets tokens', () async {

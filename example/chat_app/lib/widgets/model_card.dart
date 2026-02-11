@@ -8,6 +8,10 @@ class ModelCard extends StatelessWidget {
   final bool isDownloading;
   final double progress;
   final bool isWeb;
+  final int gpuLayers;
+  final int contextSize;
+  final ValueChanged<int> onGpuLayersChanged;
+  final ValueChanged<int> onContextSizeChanged;
   final VoidCallback onSelect;
   final VoidCallback onDownload;
   final VoidCallback onDelete;
@@ -20,6 +24,10 @@ class ModelCard extends StatelessWidget {
     required this.isDownloading,
     required this.progress,
     required this.isWeb,
+    required this.gpuLayers,
+    required this.contextSize,
+    required this.onGpuLayersChanged,
+    required this.onContextSizeChanged,
     required this.onSelect,
     required this.onDownload,
     required this.onDelete,
@@ -233,6 +241,97 @@ class ModelCard extends StatelessWidget {
             ),
           ],
           if (!isDownloading) ...[
+            if (isDownloaded && !isWeb) ...[
+              const SizedBox(height: 16),
+              Theme(
+                data: Theme.of(context).copyWith(
+                  dividerTheme: const DividerThemeData(thickness: 0.5),
+                ),
+                child: ExpansionTile(
+                  title: Text(
+                    'Advanced Settings',
+                    style: GoogleFonts.outfit(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 16),
+                  shape: const RoundedRectangleBorder(),
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'GPU Offloading (Layers)',
+                              style: GoogleFonts.outfit(fontSize: 13),
+                            ),
+                            Text(
+                              gpuLayers.toString(),
+                              style: GoogleFonts.outfit(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Slider(
+                          value: gpuLayers.toDouble(),
+                          min: 0,
+                          max: 100,
+                          divisions: 100,
+                          label: gpuLayers.toString(),
+                          onChanged: (v) => onGpuLayersChanged(v.round()),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Context Size (Tokens)',
+                              style: GoogleFonts.outfit(fontSize: 13),
+                            ),
+                            Text(
+                              contextSize.toString(),
+                              style: GoogleFonts.outfit(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Slider(
+                          value: contextSize.clamp(512, 32768).toDouble(),
+                          min: 512,
+                          max: 32768,
+                          divisions: 63, // 512 steps
+                          label: contextSize.toString(),
+                          onChanged: (v) => onContextSizeChanged(v.round()),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(
+                            'Note: Higher values use more VRAM/RAM and may cause crashes if exceeding system limits.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: colorScheme.onSurfaceVariant.withValues(
+                                alpha: 0.7,
+                              ),
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,

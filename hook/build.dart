@@ -28,9 +28,13 @@ const _extDll = 'dll';
 
 void main(List<String> args) async {
   Logger.root.level = Level.ALL;
-  Logger.root.onRecord.listen(
-    (r) => print('${r.level.name}: ${r.time}: ${r.message}'),
-  );
+  Logger.root.onRecord.listen((r) {
+    print('${r.level.name}: ${r.time}: ${r.message}');
+    File('/tmp/hook_debug.log').writeAsStringSync(
+      '${r.level.name}: ${r.message}\n',
+      mode: FileMode.append,
+    );
+  });
   final log = Logger('${_packageName}_hook');
 
   await build(args, (input, output) async {

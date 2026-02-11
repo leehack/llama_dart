@@ -27,20 +27,9 @@ build_target() {
 
     cmake -G Ninja -S . -B "$BUILD_DIR" \
       -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
       -DLLAMADART_SHARED=$SHARED_FLAG \
-      -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-      -DLLAMA_BUILD_COMMON=OFF \
-      -DLLAMA_BUILD_TESTS=OFF \
-      -DLLAMA_BUILD_EXAMPLES=OFF \
-      -DLLAMA_BUILD_SERVER=OFF \
-      -DLLAMA_BUILD_TOOLS=OFF \
-      -DGGML_METAL=ON \
-      -DGGML_METAL_USE_BF16=OFF \
-      -DGGML_METAL_EMBED_LIBRARY=ON \
       -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
       -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEP_TARGET" \
-      -DGGML_NATIVE=OFF \
       $EXTRA_ARGS
     
     cmake --build "$BUILD_DIR" --config Release -j $(sysctl -n hw.logicalcpu)
@@ -92,7 +81,7 @@ elif [[ "$TARGET" == ios-* ]]; then
     echo "Building for iOS ($TARGET)..."
     echo "========================================"
     
-    EXTRA_IOS_ARGS="-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=$SDK -DIOS=ON -DLLAMA_OPENSSL=OFF"
+    EXTRA_IOS_ARGS="-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=$SDK -DIOS=ON"
     
     # Build both Static and Shared for iOS
     build_target "STATIC" "build-ios-$TARGET-static" "${OUT_BASE}.a" "$ARCH" "$SDK" "$EXTRA_IOS_ARGS" "$IOS_MIN_OS_VERSION"

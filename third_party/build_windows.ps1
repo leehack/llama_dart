@@ -15,16 +15,7 @@ if ($Clean -eq "clean") {
 }
 
 $CmakeArgs = @(
-    "-DCMAKE_BUILD_TYPE=Release",
-    "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON",
-    "-DBUILD_SHARED_LIBS=OFF",
-    "-DLLAMA_BUILD_COMMON=OFF",
-    "-DLLAMA_BUILD_TESTS=OFF",
-    "-DLLAMA_BUILD_EXAMPLES=OFF",
-    "-DLLAMA_BUILD_SERVER=OFF",
-    "-DLLAMA_BUILD_TOOLS=OFF",
-    "-DLLAMA_HTTPLIB=OFF",
-    "-DLLAMA_OPENSSL=OFF"
+    "-DCMAKE_BUILD_TYPE=Release"
 )
 
 if ($Backend -eq "vulkan") {

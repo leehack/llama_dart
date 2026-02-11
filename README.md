@@ -27,7 +27,7 @@
 
 ## 🏗️ Architecture
 
-llamadart 0.3.0+ uses a modern, decoupled architecture designed for flexibility and platform independence:
+llamadart 0.4.1 uses a modern, decoupled architecture designed for flexibility and platform independence:
 
 - **LlamaEngine**: The primary high-level orchestrator. It handles model lifecycle, tokenization, chat templating, and manages the inference stream.
 - **ChatSession**: A stateful wrapper for `LlamaEngine` that automatically manages conversation history, system prompts, and enforces context window limits (sliding window).
@@ -57,7 +57,7 @@ Add `llamadart` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  llamadart: ^0.4.0
+  llamadart: ^0.4.1
 ```
 
 ### Zero Setup (Native Assets)
@@ -112,17 +112,15 @@ void main() async {
   try {
     await engine.loadModel('model.gguf');
 
-    // Create a session with a system prompt and optional tools
+    // Create a session with a system prompt
     final session = ChatSession(
       engine, 
       systemPrompt: 'You are a helpful assistant.',
-      toolRegistry: myToolRegistry, // Optional
     );
 
-    // Just send user text; history and tools are handled automatically
-    // The model decides when to use tools or respond directly.
-    await for (final token in session.chat('What is the capital of France?')) {
-      stdout.write(token);
+    // Send a message
+    await for (final chunk in session.create([LlamaTextContent('What is the capital of France?')])) {
+      stdout.write(chunk.choices.first.delta.content ?? '');
     }
   } finally {
     await engine.dispose();
@@ -135,7 +133,7 @@ void main() async {
 `llamadart` supports intelligent tool calling where the model can use external functions to help it answer questions.
   
 ```dart
-final registry = ToolRegistry([
+final tools = [
   ToolDefinition(
     name: 'get_weather',
     description: 'Get the current weather',
@@ -147,19 +145,23 @@ final registry = ToolRegistry([
       return 'It is 22°C and sunny in $location';
     },
   ),
-]);
+];
 
-final session = ChatSession(engine, toolRegistry: registry);
+final session = ChatSession(engine);
 
-// "how's the weather in London?" -> Calls get_weather -> "It is 22°C and sunny in London"
-await for (final token in session.chat("how's the weather in London?")) {
-  stdout.write(token);
+// Pass tools per-request
+await for (final chunk in session.create(
+  [LlamaTextContent("how's the weather in London?")],
+  tools: tools,
+)) {
+  final delta = chunk.choices.first.delta;
+  if (delta.content != null) stdout.write(delta.content);
 }
 ```
 
 ### 4. Multimodal Usage (Vision/Audio)
 
-`llamadart` supports multimodal models (vision and audio) using `LlamaChatMessage.multimodal`.
+`llamadart` supports multimodal models (vision and audio) using `LlamaChatMessage.withContent`.
 
 ```dart
 import 'package:llamadart/llamadart.dart';
@@ -175,18 +177,20 @@ void main() async {
 
     // Create a multimodal message
     final messages = [
-      LlamaChatMessage.multimodal(
+      LlamaChatMessage.withContent(
         role: LlamaChatRole.user,
-        parts: [
+        content: [
           LlamaImageContent(path: 'image.jpg'),
           LlamaTextContent('What is in this image?'),
         ],
       ),
     ];
 
-    // Use singleTurn for one-off multimodal requests
-    final response = await ChatSession.singleTurn(engine, messages);
-    print(response);
+    // Use stateless engine.create for one-off multimodal requests
+    final response = engine.create(messages);
+    await for (final chunk in response) {
+      stdout.write(chunk.choices.first.delta.content ?? '');
+    }
   } finally {
     await engine.dispose();
   }

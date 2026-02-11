@@ -1,3 +1,10 @@
+## 0.4.1
+*   **API Serialization & Defaults Improvements**:
+    *   **[BREAKING]** Increased default `maxTokens` in `GenerationParams` from 512 to 4096 to accommodate modern reasoning models (e.g., DeepSeek R1).
+    *   **[BREAKING]** Modified `LlamaChatMessage.toJson()` to remove the `name` field from `tool` role messages, aligning with strict OpenAI specification.
+*   **Test Suite Overhaul**:
+    *   Added 5 new unit test files covering exceptions, logging, and core model definitions, significantly improving code coverage.
+
 ## 0.4.0
 *   **Cross-Platform Architecture**: 
     *   Refactored `LlamaBackend` for strict Web isolation using "Native-First" conditional exports, ensuring native performance and full web safety.
@@ -26,7 +33,7 @@
     *   Improved progress feedback with clear "Paused" and "Downloading" states.
 *   **Multimodal Support (Vision & Audio)**: Integrated the experimental `mtmd` module from `llama.cpp` for native platforms.
     *   Added `loadMultimodalProjector` to `LlamaEngine`.
-    *   Introduced `LlamaChatMessage.multimodal` and `LlamaContentPart` (Text, Image, Audio).
+    *   Introduced `LlamaChatMessage.withContent` and `LlamaContentPart` (Text, Image, Audio).
     *   **Fix**: Resolved missing multimodal symbols in native builds by properly linking the `mtmd` module.
 *   **Moondream 2 & Phi-2 Optimization**: 
     *   Implemented a specialized `Question: / Answer:` chat template fallback for Moondream models.
@@ -34,7 +41,6 @@
 *   **Chat API Consolidation**: 
     *   Moved high-level `chat()` and `chatWithTools()` logic from `LlamaEngine` to `ChatSession`.
     *   `LlamaEngine` is now a dedicated low-level orchestrator for model loading, tokenization, and raw inference.
-    *   Introduced `ChatSession.singleTurn()` and `ChatSession.singleTurnStream()` for stateless chat requests without manual history management.
 *   **Intelligent Tool Flow**:
     *   **Optional Tool Calls**: Tools are no longer forced by default. The model now decides when to use a tool vs. responding directly based on context.
     *   **Final Response Generation**: After a tool returns a result, the model now generates a natural language response (without grammar constraints) to interpret the result for the user.
@@ -52,7 +58,7 @@
 *   **[BREAKING] API Changes**:
     *   `LlamaChatMessage.role` now returns a `LlamaChatRole` enum instead of a `String`. All manual role string comparisons should be updated to use the enum.
 *   **[DEPRECATED] API Changes**:
-    *   Default `LlamaChatMessage` constructor (string-based) is now deprecated; use `.text()` or `.multimodal()` instead.
+    *   Default `LlamaChatMessage` constructor (string-based) is now deprecated; use `.fromText()` or `.withContent()` instead.
     *   `LlamaChatMessage.roleString` is deprecated and will be removed in v1.0.
 *   **Engine Upgrades**: Upgraded core `llama.cpp` to tag `b7898`.
 *   **Robust Media Loading**: Support for loading images and audio via both file paths and raw byte buffers.

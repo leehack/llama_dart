@@ -119,25 +119,25 @@ if (mmprojPath != null) {
 ### Sending a Multimodal Message
 ```dart
 final messages = [
-  LlamaChatMessage.multimodal(
+  LlamaChatMessage.withContent(
     role: LlamaChatRole.user,
-    parts: [
+    content: [
       LlamaImageContent(path: 'path/to/image.jpg'),
       LlamaTextContent('What is this image?'),
     ],
   ),
 ];
 
-final stream = engine.chat(
+final stream = engine.create(
   messages,
   params: GenerationParams(
-    maxTokens: 512,
+    maxTokens: 4096, // New default in v0.4.1+
     temp: 0.7,
   ),
 );
 
-await for (final token in stream) {
-  stdout.write(token);
+await for (final chunk in stream) {
+  stdout.write(chunk.choices.first.delta.content ?? '');
 }
 ```
 

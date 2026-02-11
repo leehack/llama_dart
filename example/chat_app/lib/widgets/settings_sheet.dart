@@ -332,6 +332,20 @@ class SettingsSheet extends StatelessWidget {
                 const SizedBox(height: 24),
                 _buildSettingItem(
                   context,
+                  title: 'Max Output Tokens',
+                  subtitle: provider.maxGenerationTokens.toString(),
+                  child: Slider(
+                    value: provider.maxGenerationTokens.toDouble(),
+                    min: 512.0,
+                    max: 32768.0,
+                    divisions: (32768 - 512) ~/ 512,
+                    onChanged: (value) =>
+                        provider.updateMaxTokens(value.toInt()),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                _buildSettingItem(
+                  context,
                   title: 'Tool Calling',
                   child: Column(
                     children: [

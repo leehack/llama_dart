@@ -8,6 +8,8 @@ class ChatSettings {
   final int topK;
   final double topP;
   final int contextSize;
+  final int maxTokens;
+  final int gpuLayers;
   final LlamaLogLevel logLevel;
   final bool toolsEnabled;
   final bool forceToolCall;
@@ -19,8 +21,10 @@ class ChatSettings {
     this.temperature = 0.7,
     this.topK = 40,
     this.topP = 0.9,
-    this.contextSize = 0,
-    this.logLevel = LlamaLogLevel.error,
+    this.contextSize = 4096,
+    this.maxTokens = 4096,
+    this.gpuLayers = 32,
+    this.logLevel = LlamaLogLevel.none,
     this.toolsEnabled = true,
     this.forceToolCall = false,
   });
@@ -33,6 +37,8 @@ class ChatSettings {
     int? topK,
     double? topP,
     int? contextSize,
+    int? maxTokens,
+    int? gpuLayers,
     LlamaLogLevel? logLevel,
     bool? toolsEnabled,
     bool? forceToolCall,
@@ -45,6 +51,7 @@ class ChatSettings {
       topK: topK ?? this.topK,
       topP: topP ?? this.topP,
       contextSize: contextSize ?? this.contextSize,
+      maxTokens: maxTokens ?? this.maxTokens,
       logLevel: logLevel ?? this.logLevel,
       toolsEnabled: toolsEnabled ?? this.toolsEnabled,
       forceToolCall: forceToolCall ?? this.forceToolCall,

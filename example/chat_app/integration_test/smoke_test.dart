@@ -49,10 +49,12 @@ void main() {
         await engine.loadModel(modelPath);
         expect(engine.isReady, isTrue);
 
-        final stream = engine.generate(
-          'Hello',
-          params: const GenerationParams(maxTokens: 1),
-        );
+        final stream = engine.create([
+          const LlamaChatMessage.fromText(
+            role: LlamaChatRole.user,
+            text: 'Hello',
+          ),
+        ], params: const GenerationParams(maxTokens: 1));
         final tokens = await stream.toList();
 
         expect(tokens, isNotEmpty);

@@ -4,6 +4,7 @@ import 'package:llamadart/llamadart.dart';
 class LlamaCliService {
   final LlamaEngine _engine = LlamaEngine(LlamaBackend());
   late ChatSession _session;
+  List<ToolDefinition>? _tools;
 
   /// Creates a new [LlamaCliService].
   LlamaCliService() {
@@ -12,18 +13,17 @@ class LlamaCliService {
 
   /// Initializes the engine with the given [modelPath].
   ///
-  /// Optionally provide [toolRegistry] to enable tool calling for this session.
+  /// Optionally provide [tools] to enable tool calling for this session.
   Future<void> init(
     String modelPath, {
     List<LoraAdapterConfig> loras = const [],
     LlamaLogLevel logLevel = LlamaLogLevel.none,
-    ToolRegistry? toolRegistry,
+    List<ToolDefinition>? tools,
   }) async {
     await _engine.loadModel(
       modelPath,
       modelParams: ModelParams(
         gpuLayers: 99,
-        logLevel: logLevel,
       ),
     );
 
@@ -32,13 +32,14 @@ class LlamaCliService {
       await _engine.setLora(lora.path, scale: lora.scale);
     }
 
-    // Set up session with tool registry if provided
-    _session = ChatSession(_engine, toolRegistry: toolRegistry);
+    // Store tools for later use
+    _tools = tools;
+    _session = ChatSession(_engine);
   }
 
-  /// Sets or updates the tool registry for this session.
-  set toolRegistry(ToolRegistry? registry) {
-    _session.toolRegistry = registry;
+  /// Sets or updates the tools for this session.
+  set tools(List<ToolDefinition>? tools) {
+    _tools = tools;
   }
 
   /// Sends a message and returns the full response.
@@ -46,7 +47,14 @@ class LlamaCliService {
     String text, {
     GenerationParams? params,
   }) async {
-    return _session.chatText(text, params: params);
+    return _session
+        .create(
+          [LlamaTextContent(text)],
+          params: params,
+          tools: _tools,
+        )
+        .map((chunk) => chunk.choices.first.delta.content ?? '')
+        .join();
   }
 
   /// Sends a message and returns a stream of tokens.
@@ -54,7 +62,11 @@ class LlamaCliService {
     String text, {
     GenerationParams? params,
   }) {
-    return _session.chat(text, params: params);
+    return _session.create(
+      [LlamaTextContent(text)],
+      params: params,
+      tools: _tools,
+    ).map((chunk) => chunk.choices.first.delta.content ?? '');
   }
 
   /// Disposes the underlying engine resources.
