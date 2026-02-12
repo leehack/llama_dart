@@ -1,11 +1,10 @@
-import 'package:jinja/jinja.dart';
+import 'package:dinja/dinja.dart';
 import 'package:test/test.dart';
 
 void main() {
   test('Verify tojson indent=4 fix', () {
-    final env = Environment();
     // Llama 3.2 style: named indent
-    final template = env.fromString('{{ data | tojson(indent=4) }}');
+    final template = Template('{{ data | tojson(indent=4) }}');
 
     final data = {
       'key': 'value',
@@ -21,8 +20,7 @@ void main() {
   });
 
   test('Verify tojson with integer indent (named)', () {
-    final env = Environment();
-    final template = env.fromString('{{ data | tojson(indent=2) }}');
+    final template = Template('{{ data | tojson(indent=2) }}');
 
     final data = {'key': 'value'};
 

@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:jinja/jinja.dart';
+import 'package:dinja/dinja.dart';
 
 import '../../models/chat/chat_message.dart';
 import '../../models/chat/chat_template_result.dart';

@@ -1,6 +1,9 @@
-import 'package:jinja/jinja.dart';
 // ignore: implementation_imports
-import 'package:jinja/src/nodes.dart';
+import 'package:dinja/src/ast/nodes.dart';
+// ignore: implementation_imports
+import 'package:dinja/src/parser.dart';
+// ignore: implementation_imports
+import 'package:dinja/src/lexer.dart';
 
 import '../template_caps.dart';
 
@@ -9,79 +12,62 @@ class JinjaAnalyzer {
   /// Analyzes the [source] template and returns detected [TemplateCaps].
   static TemplateCaps analyze(String source) {
     try {
-      final env = Environment();
-      // Use parse instead of Parser constructor directly
-      final templateNode = env.parse(source, path: 'template');
+      final lexer = Lexer(source);
+      final result = lexer.tokenize();
+      final parser = Parser(result.tokens, source);
+      final program = parser.parse();
 
-      // templateNode should be a Node, specifically TemplateNode usually, but Node is the return type.
-      return _analyzeAST(templateNode, source);
+      return _analyzeAST(program, source);
     } catch (e) {
       // Fallback to regex if parsing fails (e.g. invalid syntax)
       return TemplateCaps.detectRegex(source);
     }
   }
 
-  static TemplateCaps _analyzeAST(Node template, String source) {
+  static TemplateCaps _analyzeAST(Program template, String source) {
     bool supportsSystemRole = false;
     bool supportsToolCalls = false;
     bool supportsTypedContent = false;
     bool supportsThinking = false;
 
-    // Check nodes for specific patterns using findAll
-
     // 1. System Role: Look for 'role' == 'system' comparisons
-    for (final node in template.findAll<Compare>()) {
+    for (final node in _findAll<BinaryExpression>(template)) {
       if (_isRoleSystemCheck(node)) {
         supportsSystemRole = true;
       }
     }
 
     // Check string literals for thinking tags and raw system
-    for (final node in template.findAll<Data>()) {
-      if (node.data.contains('<think>') ||
-          node.data.contains('<｜thought｜>') ||
-          node.data.contains('[THINK]')) {
-        supportsThinking = true;
-      }
-    }
-
-    // Check string constants
-    for (final node in template.findAll<Constant>()) {
+    for (final node in _findAll<StringLiteral>(template)) {
       final value = node.value;
-      if (value is String &&
-          (value.contains('<think>') ||
-              value.contains('<｜thought｜>') ||
-              value.contains('[THINK]'))) {
+      if (value.contains('<think>') ||
+          value.contains('<｜thought｜>') ||
+          value.contains('[THINK]')) {
         supportsThinking = true;
       }
     }
 
     // 2. Tools: Look for iteration over 'tools' or 'tool_calls'
-    for (final node in template.findAll<For>()) {
+    for (final node in _findAll<ForStatement>(template)) {
       final iter = node.iterable;
-      if (iter is Name) {
+      if (iter is Identifier) {
         final name = iter.name;
         if (name == 'tools' || name == 'tool_calls') {
           supportsToolCalls = true;
         }
-      } else if (iter is Item) {
-        // e.g. message['tool_calls']
-        // Item(value: message, key: 'tool_calls')
+      } else if (iter is MemberExpression) {
+        // e.g. message['tool_calls'] -> computed: true, property: StringLiteral('tool_calls')
+        // e.g. message.tool_calls -> computed: false, property: Identifier('tool_calls')
         if (_isMessageToolCalls(iter)) {
-          supportsToolCalls = true;
-        }
-      } else if (iter is Attribute) {
-        // e.g. message.tool_calls
-        if (_isMessageToolCallsAttr(iter)) {
           supportsToolCalls = true;
         }
       }
     }
 
     // Also check If(tools)
-    for (final node in template.findAll<If>()) {
+    for (final node in _findAll<IfStatement>(template)) {
       final test = node.test;
-      if (test is Name) {
+      if (test is Identifier) {
         final name = test.name;
         if (name == 'tools' || name == 'tool_calls') {
           supportsToolCalls = true;
@@ -90,32 +76,23 @@ class JinjaAnalyzer {
     }
 
     // 3. Typed Content: Look for content['type'] or content.type
-    for (final node in template.findAll<Item>()) {
-      // content['type']
+    for (final node in _findAll<MemberExpression>(template)) {
+      // content['type'] or content.type
       if (_isContentTypeCheck(node)) {
-        supportsTypedContent = true;
-      }
-    }
-    for (final node in template.findAll<Attribute>()) {
-      // content.type
-      if (_isContentTypeCheckAttr(node)) {
         supportsTypedContent = true;
       }
     }
 
     // Check if iterating over content
-    for (final node in template.findAll<For>()) {
+    for (final node in _findAll<ForStatement>(template)) {
       final iter = node.iterable;
-      if (iter is Name && iter.name == 'content') {
+      if (iter is Identifier && iter.name == 'content') {
         supportsTypedContent = true;
       }
-      if (iter is Attribute && iter.attribute == 'content') {
-        supportsTypedContent = true;
-      }
-      if (iter is Item &&
-          iter.key is Constant &&
-          (iter.key as Constant).value == 'content') {
-        supportsTypedContent = true;
+      if (iter is MemberExpression) {
+        if (_isContentAccess(iter)) {
+          supportsTypedContent = true;
+        }
       }
     }
 
@@ -130,76 +107,167 @@ class JinjaAnalyzer {
     );
   }
 
-  static bool _isRoleSystemCheck(Compare node) {
+  static bool _isContentAccess(MemberExpression node) {
+    // Check if accessing 'content' property
+    if (node.computed) {
+      // obj['content']
+      if (node.property is StringLiteral &&
+          (node.property as StringLiteral).value == 'content') {
+        return true;
+      }
+    } else {
+      // obj.content
+      if (node.property is Identifier &&
+          (node.property as Identifier).name == 'content') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _isRoleSystemCheck(BinaryExpression node) {
+    if (node.op.value != '==') return false;
+
     bool isSystem(Expression e) {
-      return e is Constant && e.value == 'system';
+      if (e is StringLiteral && e.value == 'system') return true;
+      return false;
     }
 
     bool isRole(Expression e) {
-      if (e is Name && e.name == 'role') return true;
-      if (e is Attribute && e.attribute == 'role') return true;
-      // Item(value: obj, key: index) -> obj['role']
-      if (e is Item &&
-          e.key is Constant &&
-          (e.key as Constant).value == 'role') {
-        return true;
+      if (e is Identifier && e.name == 'role') return true;
+      if (e is MemberExpression) {
+        if (e.computed) {
+          // obj['role']
+          if (e.property is StringLiteral &&
+              (e.property as StringLiteral).value == 'role') {
+            return true;
+          }
+        } else {
+          // obj.role
+          if (e.property is Identifier &&
+              (e.property as Identifier).name == 'role') {
+            return true;
+          }
+        }
       }
       return false;
     }
 
-    if (isRole(node.value)) {
-      for (final op in node.operands) {
-        if (op.$1 == CompareOperator.equal && isSystem(op.$2)) return true;
+    if (isRole(node.left) && isSystem(node.right)) return true;
+    if (isSystem(node.left) && isRole(node.right)) return true;
+
+    return false;
+  }
+
+  static bool _isMessageToolCalls(MemberExpression node) {
+    // message['tool_calls'] or message.tool_calls
+    if (node.computed) {
+      return node.property is StringLiteral &&
+          (node.property as StringLiteral).value == 'tool_calls';
+    } else {
+      return node.property is Identifier &&
+          (node.property as Identifier).name == 'tool_calls';
+    }
+  }
+
+  static bool _isContentTypeCheck(MemberExpression node) {
+    // content['type'] or content.type
+    // AND the object being accessed is 'content' (either var or prop)
+
+    // Check property name is 'type'
+    bool isTypeAccess = false;
+    if (node.computed) {
+      if (node.property is StringLiteral &&
+          (node.property as StringLiteral).value == 'type') {
+        isTypeAccess = true;
+      }
+    } else {
+      if (node.property is Identifier &&
+          (node.property as Identifier).name == 'type') {
+        isTypeAccess = true;
       }
     }
 
-    if (isSystem(node.value)) {
-      for (final op in node.operands) {
-        if (op.$1 == CompareOperator.equal && isRole(op.$2)) return true;
-      }
+    if (!isTypeAccess) return false;
+
+    final obj = node.object;
+    // Direct: content['type']
+    if (obj is Identifier && obj.name == 'content') return true;
+
+    // Nested: message.content['type']
+    if (obj is MemberExpression) {
+      return _isContentAccess(obj);
     }
 
     return false;
   }
 
-  static bool _isMessageToolCalls(Item node) {
-    // Item(value: message, key: 'tool_calls')
-    return node.key is Constant && (node.key as Constant).value == 'tool_calls';
-  }
+  // Simple recursive traverser
+  static List<T> _findAll<T>(Statement node) {
+    final results = <T>[];
+    void visit(Statement n) {
+      if (n is T) results.add(n as T);
 
-  static bool _isMessageToolCallsAttr(Attribute node) {
-    return node.attribute == 'tool_calls';
-  }
-
-  static bool _isContentTypeCheck(Item node) {
-    // content['type'] -> Item(value: content, key: 'type')
-    if (node.key is Constant && (node.key as Constant).value == 'type') {
-      final obj = node.value;
-      // Direct: content['type']
-      if (obj is Name && obj.name == 'content') return true;
-      // Nested: message['content']['type'] -> Item(value: message['content'], key: 'type')
-      if (obj is Item &&
-          obj.key is Constant &&
-          (obj.key as Constant).value == 'content') {
-        return true;
+      if (n is Program) {
+        n.body.forEach(visit);
+      } else if (n is IfStatement) {
+        visit(n.test);
+        n.body.forEach(visit);
+        n.alternate.forEach(visit);
+      } else if (n is ForStatement) {
+        visit(n.iterable);
+        visit(n.loopVar);
+        n.body.forEach(visit);
+        n.defaultBlock.forEach(visit);
+      } else if (n is SetStatement) {
+        visit(n.assignee);
+        if (n.value != null) visit(n.value!);
+        n.body.forEach(visit);
+      } else if (n is FilterStatement) {
+        visit(n.filter);
+        n.body.forEach(visit);
+      } else if (n is CallStatement) {
+        visit(n.call);
+        n.callerArgs.forEach(visit);
+        n.body.forEach(visit);
+      } else if (n is MacroStatement) {
+        n.args.forEach(visit);
+        n.body.forEach(visit);
+      } else if (n is BinaryExpression) {
+        visit(n.left);
+        visit(n.right);
+      } else if (n is UnaryExpression) {
+        visit(n.argument);
+      } else if (n is FilterExpression) {
+        visit(n.operand);
+        visit(n.filter);
+      } else if (n is TestExpression) {
+        visit(n.operand);
+        visit(n.test);
+      } else if (n is CallExpression) {
+        visit(n.callee);
+        n.args.forEach(visit);
+      } else if (n is MemberExpression) {
+        visit(n.object);
+        visit(n.property);
+      } else if (n is ObjectLiteral) {
+        for (var entry in n.items) {
+          visit(entry.key);
+          visit(entry.value);
+        }
+      } else if (n is ArrayLiteral) {
+        n.items.forEach(visit);
+      } else if (n is TupleLiteral) {
+        n.items.forEach(visit);
+      } else if (n is TernaryExpression) {
+        visit(n.condition);
+        visit(n.trueExpr);
+        visit(n.falseExpr);
       }
-      // Don't match tool['type'] or other non-content accesses
-      return false;
+      // StringLiteral, IntegerLiteral, Identifier have no children to traverse
     }
-    return false;
-  }
 
-  static bool _isContentTypeCheckAttr(Attribute node) {
-    // content.type -> Attribute(value: content, attribute: 'type')
-    if (node.attribute == 'type') {
-      final obj = node.value;
-      // Direct: content.type
-      if (obj is Name && obj.name == 'content') return true;
-      // Nested: message.content.type
-      if (obj is Attribute && obj.attribute == 'content') return true;
-      // Don't match tool.type or other non-content accesses
-      return false;
-    }
-    return false;
+    visit(node);
+    return results;
   }
 }

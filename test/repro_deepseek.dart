@@ -1,4 +1,4 @@
-import 'package:jinja/jinja.dart';
+import 'package:dinja/dinja.dart';
 import 'package:llamadart/src/core/models/chat/chat_message.dart';
 import 'package:llamadart/src/core/models/chat/chat_role.dart';
 import 'package:llamadart/src/core/models/chat/content_part.dart';

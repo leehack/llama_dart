@@ -1,12 +1,10 @@
-import 'package:jinja/jinja.dart';
+import 'package:dinja/dinja.dart';
 import 'package:test/test.dart';
 
 void main() {
   group('Jinja Macro Bug Reproduction', () {
     test('Macro A calls Macro B, B is recursive and defined BEFORE A', () {
-      final env = Environment();
-      // Swapped order: format_argument first
-      final template = env.fromString('''
+      final template = Template('''
 {%- macro format_argument(val, escape_keys=True) -%}
 {%- if val is sequence and val is not string -%}
   [

@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 import 'package:http/http.dart' as http;
-import 'package:jinja/jinja.dart';
+import 'package:dinja/dinja.dart';
 import 'package:llamadart/llamadart.dart';
 import 'package:path/path.dart' as path;
 import 'package:test/test.dart';

@@ -135,8 +135,9 @@ ChatFormat detectChatFormat(String? templateSource) {
     return ChatFormat.mistralNemo;
   }
 
-  // LFM2 — tool list tokens
-  if (templateSource.contains('<|tool_list_start|>')) {
+  // LFM2 — tool list tokens or Liquid-specific thinking markers
+  if (templateSource.contains('<|tool_list_start|>') ||
+      templateSource.contains('keep_past_thinking')) {
     return ChatFormat.lfm2;
   }
 

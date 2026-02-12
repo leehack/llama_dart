@@ -1,4 +1,4 @@
-import 'package:jinja/jinja.dart';
+import 'package:dinja/dinja.dart';
 import 'package:test/test.dart';
 
 void main() {

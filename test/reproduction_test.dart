@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:jinja/jinja.dart';
+import 'package:dinja/dinja.dart';
 import 'package:llamadart/src/core/models/tools/tool_definition.dart';
 import 'package:llamadart/src/core/models/tools/tool_param.dart';
 import 'package:test/test.dart';
@@ -12,8 +12,7 @@ void main() {
       'test/fixtures/templates/functiongemma-270m-it.jinja',
     );
     final templateContent = templateFile.readAsStringSync();
-    final env = Environment();
-    final template = env.fromString(templateContent);
+    final template = Template(templateContent);
 
     // 2. Define tool
     final weatherTool = ToolDefinition(
