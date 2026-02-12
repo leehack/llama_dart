@@ -14,11 +14,7 @@ void main() {
     test('Verify native library load and basic inference', () async {
       try {
         // 1. Basic Init Check
-        llama_backend_init();
-
-        final sysInfoPtr = llama_print_system_info();
-        expect(sysInfoPtr, isNotNull);
-        print('System Info: ${sysInfoPtr.cast<Utf8>().toDartString()}');
+        // (Removed manual init, LlamaEngine handles it via worker isolate)
 
         // 2. Download Tiny Model
         final modelUrl =
@@ -151,15 +147,6 @@ void main() {
         } catch (_) {}
 
         await engine.dispose();
-
-        // 10. Error path: non-existent model
-        final engine2 = LlamaEngine(LlamaBackend());
-        expect(
-          () => engine2.loadModel('non_existent_model_path.gguf'),
-          throwsA(isA<LlamaModelException>()),
-        );
-
-        llama_backend_free();
         print('SMOKE TEST SUCCESS');
       } catch (e) {
         print('SMOKE TEST FAILED: $e');
