@@ -28,43 +28,7 @@ if (CMAKE_BUILD_TYPE STREQUAL "Release")
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 endif()
 
-# Manually define mtmd to avoid building tools in the submodule and to skip modifying its CMakeLists.txt
-add_library(mtmd STATIC
-    llama_cpp/tools/mtmd/mtmd.cpp
-    llama_cpp/tools/mtmd/mtmd-audio.cpp
-    llama_cpp/tools/mtmd/mtmd-helper.cpp
-    llama_cpp/tools/mtmd/clip.cpp
-    llama_cpp/tools/mtmd/mtmd.h
-    llama_cpp/tools/mtmd/mtmd-helper.h
-    llama_cpp/tools/mtmd/clip.h
-    llama_cpp/tools/mtmd/clip-impl.h
-    llama_cpp/tools/mtmd/clip-model.h
-    llama_cpp/tools/mtmd/clip-graph.h
-    llama_cpp/tools/mtmd/models/models.h
-    llama_cpp/tools/mtmd/models/cogvlm.cpp
-    llama_cpp/tools/mtmd/models/conformer.cpp
-    llama_cpp/tools/mtmd/models/glm4v.cpp
-    llama_cpp/tools/mtmd/models/internvl.cpp
-    llama_cpp/tools/mtmd/models/kimivl.cpp
-    llama_cpp/tools/mtmd/models/llama4.cpp
-    llama_cpp/tools/mtmd/models/llava.cpp
-    llama_cpp/tools/mtmd/models/minicpmv.cpp
-    llama_cpp/tools/mtmd/models/pixtral.cpp
-    llama_cpp/tools/mtmd/models/qwen2vl.cpp
-    llama_cpp/tools/mtmd/models/qwen3vl.cpp
-    llama_cpp/tools/mtmd/models/siglip.cpp
-    llama_cpp/tools/mtmd/models/whisper-enc.cpp
-    llama_cpp/tools/mtmd/models/mobilenetv5.cpp
-    llama_cpp/tools/mtmd/models/youtuvl.cpp
-)
-
-target_include_directories(mtmd PUBLIC llama_cpp/tools/mtmd)
-target_include_directories(mtmd PRIVATE llama_cpp llama_cpp/vendor llama_cpp/tools/mtmd/models)
-target_link_libraries(mtmd PUBLIC ggml llama Threads::Threads)
-target_compile_features(mtmd PRIVATE cxx_std_17)
-
-
-
+add_subdirectory(llama_cpp/tools/mtmd EXCLUDE_FROM_ALL)
 add_subdirectory(llama_cpp)
 
 set(CONSOLIDATED_LIBS llama ggml ggml-base ggml-cpu ggml-vulkan ggml-blas ggml-metal ggml-cuda mtmd)
