@@ -57,7 +57,15 @@ class ModelParams {
   });
 
   /// Creates a copy of this [ModelParams] with updated fields.
-  ModelParams copyWith({int? numberOfThreads, int? numberOfThreadsBatch}) {
+  ModelParams copyWith({
+    int? contextSize,
+    int? gpuLayers,
+    GpuBackend? preferredBackend,
+    List<LoraAdapterConfig>? loras,
+    String? chatTemplate,
+    int? numberOfThreads,
+    int? numberOfThreadsBatch,
+  }) {
     return ModelParams(
       contextSize: contextSize ?? this.contextSize,
       gpuLayers: gpuLayers ?? this.gpuLayers,
