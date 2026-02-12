@@ -57,12 +57,17 @@ class LlamaCppService {
     if (!File(modelPath).existsSync()) {
       throw Exception("File not found: $modelPath");
     }
+    print('[Worker] Loading model from file: $modelPath');
     final modelPathPtr = modelPath.toNativeUtf8();
+    print('[Worker] Calling llama_model_default_params...');
     final mparams = llama_model_default_params();
+    print('[Worker] GPU layers set to: ${modelParams.gpuLayers}');
     mparams.n_gpu_layers = modelParams.gpuLayers;
     mparams.use_mmap = true;
 
+    print('[Worker] Calling llama_model_load_from_file...');
     final modelPtr = llama_model_load_from_file(modelPathPtr.cast(), mparams);
+    print('[Worker] llama_model_load_from_file returned: $modelPtr');
     malloc.free(modelPathPtr);
 
     if (modelPtr == nullptr) {
@@ -108,21 +113,29 @@ class LlamaCppService {
   /// Returns a handle to the created context.
   /// Throws an [Exception] if the model handle is invalid or context creation fails.
   int createContext(int modelHandle, ModelParams params) {
+    print('[Worker] Creating context for model handle: $modelHandle');
     final model = _models[modelHandle];
     if (model == null) {
       throw Exception("Invalid model handle");
     }
 
+    print('[Worker] Calling llama_context_default_params...');
     final ctxParams = llama_context_default_params();
     int nCtx = params.contextSize;
     if (nCtx <= 0) {
       nCtx = llama_model_n_ctx_train(model.pointer);
     }
+    print('[Worker] Context size: $nCtx');
     ctxParams.n_ctx = nCtx;
     ctxParams.n_batch = nCtx; // logic from original code
     ctxParams.n_ubatch = nCtx; // logic from original code
+    print('[Worker] Forcing single-threaded execution...');
+    ctxParams.n_threads = 1;
+    ctxParams.n_threads_batch = 1;
 
+    print('[Worker] Calling llama_init_from_model...');
     final ctxPtr = llama_init_from_model(model.pointer, ctxParams);
+    print('[Worker] llama_init_from_model returned: $ctxPtr');
     if (ctxPtr == nullptr) {
       throw Exception("Failed to create context");
     }
@@ -132,10 +145,13 @@ class LlamaCppService {
     _contextToModel[handle] = modelHandle;
     _activeLoras[handle] = {};
     _contextParams[handle] = ctxParams;
+    print('[Worker] Initializing sampler chain...');
     _samplers[handle] = llama_sampler_chain_init(
       llama_sampler_chain_default_params(),
     );
+    print('[Worker] Initializing batch...');
     _batches[handle] = llama_batch_init(nCtx, 0, 1);
+    print('[Worker] Context creation complete, handle: $handle');
 
     return handle;
   }

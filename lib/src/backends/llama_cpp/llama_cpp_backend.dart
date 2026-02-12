@@ -20,7 +20,7 @@ class NativeLlamaBackend implements LlamaBackend {
   Pointer<Int8>? _activeCancelToken;
 
   bool _isReady = false;
-  LlamaLogLevel _currentLogLevel = LlamaLogLevel.warn;
+  LlamaLogLevel _currentLogLevel = LlamaLogLevel.info;
 
   /// Creates a new [NativeLlamaBackend] and initializes its ports.
   NativeLlamaBackend() {

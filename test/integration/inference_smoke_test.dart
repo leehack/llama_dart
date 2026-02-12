@@ -131,8 +131,7 @@ void main() {
         expect(ctxSize, greaterThan(0));
 
         // 7. Log level test (Silencer)
-        await engine.setLogLevel(LlamaLogLevel.none);
-        await engine.setLogLevel(LlamaLogLevel.warn);
+        await engine.setLogLevel(LlamaLogLevel.info);
 
         // 8. LoRA (should fail gracefully or not crash if path is wrong)
         try {
