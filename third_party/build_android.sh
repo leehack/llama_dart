@@ -61,7 +61,17 @@ for ABI in "${ABIS[@]}"; do
     echo "set(CMAKE_THREAD_LIBS_INIT \"-pthread\")" >> "$TOOLCHAIN_FILE"
     echo "set(CMAKE_USE_PTHREADS_INIT TRUE)" >> "$TOOLCHAIN_FILE"
 
-    # 4. Find Vulkan paths in NDK
+    # 4. Configure Android API level and Vulkan linkage
+    VULKAN_ENABLED="${VULKAN_ENABLED:-ON}"
+    ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-23}"
+
+    # Vulkan 1.1 symbol vkGetPhysicalDeviceFeatures2 is exposed from API 28.
+    if [ "$VULKAN_ENABLED" == "ON" ] && [ "$ANDROID_API_LEVEL" -lt 28 ]; then
+        echo "Raising ANDROID_API_LEVEL from $ANDROID_API_LEVEL to 28 for Vulkan symbols"
+        ANDROID_API_LEVEL=28
+    fi
+
+    # 5. Find Vulkan paths in NDK
     # Find glslc
     GLSLC=$(find $ANDROID_NDK_HOME -name glslc | head -n 1)
     if [ -z "$GLSLC" ]; then
@@ -80,10 +90,22 @@ for ABI in "${ABIS[@]}"; do
         ARCH_PATH="$ABI"
     fi
 
-    # Look for libvulkan.so in the sysroot libs for the target architecture
-    VULKAN_LIB=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path "*/sysroot/usr/lib/$ARCH_PATH/*/libvulkan.so" | head -n 1)
+    # Look for libvulkan.so in the sysroot libs for the target architecture.
+    # Prefer an exact API level match, then the next available level.
+    VULKAN_LIB=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path "*/sysroot/usr/lib/$ARCH_PATH/$ANDROID_API_LEVEL/libvulkan.so" | head -n 1)
     if [ -z "$VULKAN_LIB" ]; then
-        # Fallback to broader search if specific structure not found
+        CANDIDATE_VULKAN_LIBS=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path "*/sysroot/usr/lib/$ARCH_PATH/*/libvulkan.so" | sort -V)
+        while IFS= read -r candidate; do
+            [ -z "$candidate" ] && continue
+            api=$(echo "$candidate" | sed -E "s#.*/$ARCH_PATH/([0-9]+)/libvulkan.so#\\1#")
+            if [ "$api" -ge "$ANDROID_API_LEVEL" ]; then
+                VULKAN_LIB="$candidate"
+                break
+            fi
+        done <<< "$CANDIDATE_VULKAN_LIBS"
+    fi
+    if [ -z "$VULKAN_LIB" ]; then
+        # Final fallback to a broader search
         VULKAN_LIB=$(find "$ANDROID_NDK_HOME" -name "libvulkan.so" | grep "/$ARCH_PATH/" | head -n 1)
     fi
 
@@ -100,7 +122,7 @@ for ABI in "${ABIS[@]}"; do
         exit 1
     fi
 
-    # 5. Build
+    # 6. Build
     # Note: explicit CPU flags might need adjustment for x86_64 if we were targeting AVX, but for Android usually defaults are okay or handled by ABI.
     # For ARM, we keep the specific flags.
     EXTRA_CMAKE_ARGS=""
@@ -108,12 +130,10 @@ for ABI in "${ABIS[@]}"; do
         EXTRA_CMAKE_ARGS="-DGGML_CPU_ARM_ARCH=armv8.5-a+fp16+i8mm"
     fi
     
-    VULKAN_ENABLED="ON"
-    
     cmake -G Ninja -S . -B "$BUILD_DIR" \
       -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
       -DANDROID_ABI=$ABI \
-      -DANDROID_PLATFORM=android-23 \
+      -DANDROID_PLATFORM=android-$ANDROID_API_LEVEL \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_SHARED_LINKER_FLAGS="-s" \
       -DGGML_OPENMP=OFF \
