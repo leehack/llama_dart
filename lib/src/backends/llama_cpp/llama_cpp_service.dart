@@ -675,15 +675,18 @@ class LlamaCppService {
 
   /// Disposes of all resources managed by the service.
   void dispose() {
-    for (final m in _models.values) {
-      m.dispose();
-    }
     for (final c in _contexts.values) {
       c.dispose();
     }
+    _contexts.clear();
+    for (final m in _models.values) {
+      m.dispose();
+    }
+    _models.clear();
     for (final m in _mtmdContexts.values) {
       mtmd_free(m);
     }
+    _mtmdContexts.clear();
     // llama_backend_free(); // DISABLED: Prevents race conditions with other isolates
   }
 

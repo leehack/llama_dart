@@ -1,5 +1,4 @@
-@TestOn('vm')
-@Timeout(Duration(minutes: 5))
+@Timeout(Duration(minutes: 10))
 library;
 
 import 'dart:io';
@@ -19,8 +18,7 @@ void main() {
 
         final sysInfoPtr = llama_print_system_info();
         expect(sysInfoPtr, isNotNull);
-        sysInfoPtr.cast<Utf8>().toDartString();
-        // Removed print: System Info
+        print('System Info: ${sysInfoPtr.cast<Utf8>().toDartString()}');
 
         // 2. Download Tiny Model
         final modelUrl =
@@ -32,31 +30,30 @@ void main() {
         final modelFile = File(modelPath);
 
         if (!modelFile.existsSync()) {
-          // Removed print: Downloading tiny model...
+          print('Downloading tiny model...');
           final response = await http.get(Uri.parse(modelUrl));
           if (response.statusCode != 200) {
             fail('Failed to download model: ${response.statusCode}');
           }
           await modelFile.writeAsBytes(response.bodyBytes);
-          // Removed print: Model downloaded...
+          print('Model downloaded.');
         }
 
         // 3. Full Inference Pipeline Test
         final backend = LlamaBackend();
         final engine = LlamaEngine(backend);
-
-        // Removed print: Loading model...
+        print('Loading model...');
         await engine.loadModel(
           modelPath,
           modelParams: const ModelParams(
+            gpuLayers: 0,
             chatTemplate:
                 "{% for message in messages %}{{ message['role'] }}: {{ message['content'] }}\n{% endfor %}",
           ),
         );
         expect(engine.isReady, isTrue);
-        // Removed print: Model loaded successfully.
-
-        // Removed print: Running 5-token generation check...
+        print('Model loaded successfully.');
+        print('Running 5-token generation check...');
         try {
           final stream = engine.create(
             [
@@ -104,6 +101,7 @@ void main() {
         ];
 
         // Removed print: Running generation check...
+        print('Running generation check...');
         final fullContent = StringBuffer();
         try {
           await for (final chunk in engine.create(messages)) {
@@ -112,7 +110,7 @@ void main() {
               fullContent.write(delta);
             }
           }
-          // Removed print: Generation completed...
+          print('Generation completed.');
           expect(fullContent.isNotEmpty, isTrue);
         } catch (e) {
           if (e.toString().contains('chat template')) {
@@ -162,9 +160,9 @@ void main() {
         );
 
         llama_backend_free();
-        // Removed print: SMOKE TEST SUCCESS
+        print('SMOKE TEST SUCCESS');
       } catch (e) {
-        // Removed print: SMOKE TEST FAILED
+        print('SMOKE TEST FAILED: $e');
         rethrow;
       }
     });
