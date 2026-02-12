@@ -98,7 +98,6 @@ void main() {
       expect(meta, isEmpty);
     });
 
-
     test('generate with mock', () async {
       mockJs.setProperty(
         'createCompletion'.toJS,
