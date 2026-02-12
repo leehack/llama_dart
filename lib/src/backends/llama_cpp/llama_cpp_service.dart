@@ -351,7 +351,11 @@ class LlamaCppService {
       }
 
       final inputText = malloc<mtmd_input_text>();
-      final promptPtr = prompt.toNativeUtf8();
+      final normalizedPrompt = _normalizeMtmdPromptMarkers(
+        prompt,
+        mediaParts.length,
+      );
+      final promptPtr = normalizedPrompt.toNativeUtf8();
       inputText.ref.text = promptPtr.cast();
 
       final bos = llama_vocab_bos(vocab);
@@ -397,6 +401,67 @@ class LlamaCppService {
       mtmd_input_chunks_free(chunks);
     }
     return initialTokens;
+  }
+
+  String _normalizeMtmdPromptMarkers(String prompt, int mediaPartCount) {
+    final markerPtr = mtmd_default_marker();
+    final marker = markerPtr == nullptr
+        ? '<__media__>'
+        : markerPtr.cast<Utf8>().toDartString();
+
+    var normalized = prompt;
+    const directPlaceholders = [
+      '<image>',
+      '[IMG]',
+      '<|image|>',
+      '<img>',
+      '<|img|>',
+    ];
+
+    for (final placeholder in directPlaceholders) {
+      normalized = normalized.replaceAll(placeholder, marker);
+    }
+
+    // Some VLM templates index image placeholders (e.g. <|image_1|>).
+    normalized = normalized.replaceAll(RegExp(r'<\|image_\d+\|>'), marker);
+
+    if (mediaPartCount <= 0) {
+      return normalized;
+    }
+
+    final markerCount = _countOccurrences(normalized, marker);
+    if (markerCount < mediaPartCount) {
+      final missing = mediaPartCount - markerCount;
+      final markerBlock = List.filled(missing, marker).join(' ');
+
+      if (normalized.contains('User:')) {
+        normalized = normalized.replaceFirst('User:', 'User: $markerBlock ');
+      } else if (normalized.contains('user:')) {
+        normalized = normalized.replaceFirst('user:', 'user: $markerBlock ');
+      } else {
+        normalized = '$markerBlock\n$normalized';
+      }
+    }
+
+    return normalized;
+  }
+
+  int _countOccurrences(String text, String pattern) {
+    if (pattern.isEmpty) {
+      return 0;
+    }
+
+    int count = 0;
+    int start = 0;
+    while (true) {
+      final index = text.indexOf(pattern, start);
+      if (index == -1) {
+        break;
+      }
+      count++;
+      start = index + pattern.length;
+    }
+    return count;
   }
 
   int _ingestTextPrompt(

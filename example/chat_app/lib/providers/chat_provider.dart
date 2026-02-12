@@ -223,13 +223,7 @@ class ChatProvider extends ChangeNotifier {
                 !d.toLowerCase().contains("llvm"),
           );
 
-      _messages.add(
-        ChatMessage(
-          text: 'Model loaded successfully! Ready to chat.',
-          isUser: false,
-          isInfo: true,
-        ),
-      );
+      _addInfoMessage('Model loaded successfully! Ready to chat.');
       _isLoaded = true;
     } catch (e, stackTrace) {
       debugPrint('Error loading model: $e');
@@ -424,7 +418,20 @@ class ChatProvider extends ChangeNotifier {
         }
       }
     } catch (e) {
-      _messages.add(ChatMessage(text: 'Error: $e', isUser: false));
+      final errorText = e.toString();
+      if (errorText.contains('mtmd_tokenize failed')) {
+        _messages.add(
+          ChatMessage(
+            text:
+                'Vision processing failed for this prompt. Try reloading the '
+                'model, using the bundled mmproj, or reducing image size.',
+            isUser: false,
+            isInfo: true,
+          ),
+        );
+      } else {
+        _messages.add(ChatMessage(text: 'Error: $e', isUser: false));
+      }
     } finally {
       _isGenerating = false;
       notifyListeners();
@@ -436,29 +443,44 @@ class ChatProvider extends ChangeNotifier {
     List<LlamaToolCallContent> toolCalls,
     int remainingIterations,
   ) async {
+    _removeRawToolCallPlaceholderMessages(toolCalls);
+
     for (final tc in toolCalls) {
+      final toolMessageIndex = _ensureToolCallMessage(tc);
       final handler = _toolHandlers[tc.name];
       if (handler == null) {
-        // Unknown tool - add error message
-        _messages.add(
-          ChatMessage(text: 'Unknown tool: ${tc.name}', isUser: false),
+        final errorResult = 'Unknown tool: ${tc.name}';
+        _appendToolResultToMessage(
+          toolMessageIndex,
+          LlamaToolResultContent(id: tc.id, name: tc.name, result: errorResult),
         );
+
+        _session!.addMessage(
+          LlamaChatMessage.withContent(
+            role: LlamaChatRole.tool,
+            content: [
+              LlamaToolResultContent(
+                id: tc.id,
+                name: tc.name,
+                result: errorResult,
+              ),
+            ],
+          ),
+        );
+
+        notifyListeners();
         continue;
       }
 
-      // Arguments are already a Map from parsing
       final args = tc.arguments;
 
-      // Update UI to show tool is executing
-      if (_messages.isNotEmpty && !_messages.last.isUser) {
-        _messages[_messages.length - 1] = _messages.last.copyWith(
-          text: 'Calling ${tc.name}...',
-        );
-        notifyListeners();
-      }
-
-      // Execute the tool
       final result = await handler(args);
+
+      _appendToolResultToMessage(
+        toolMessageIndex,
+        LlamaToolResultContent(id: tc.id, name: tc.name, result: result),
+      );
+      notifyListeners();
 
       // Add tool result to session
       _session!.addMessage(
@@ -477,6 +499,145 @@ class ChatProvider extends ChangeNotifier {
       parts: [],
       remainingToolIterations: remainingIterations,
     );
+  }
+
+  int _ensureToolCallMessage(LlamaToolCallContent toolCall) {
+    final existingIndex = _findToolCallMessageIndex(toolCall);
+    if (existingIndex >= 0) {
+      return existingIndex;
+    }
+
+    _messages.add(
+      ChatMessage(
+        text: toolCall.rawJson,
+        isUser: false,
+        role: LlamaChatRole.assistant,
+        parts: [toolCall],
+      ),
+    );
+    return _messages.length - 1;
+  }
+
+  int _findToolCallMessageIndex(LlamaToolCallContent target) {
+    final start = _indexAfterLastUserMessage();
+    for (int i = _messages.length - 1; i >= start; i--) {
+      final message = _messages[i];
+      final calls = message.parts?.whereType<LlamaToolCallContent>();
+      if (calls == null) continue;
+
+      for (final call in calls) {
+        if (_isSameToolCall(call, target)) {
+          return i;
+        }
+      }
+    }
+    return -1;
+  }
+
+  int _indexAfterLastUserMessage() {
+    for (int i = _messages.length - 1; i >= 0; i--) {
+      if (_messages[i].isUser) {
+        return i + 1;
+      }
+    }
+    return 0;
+  }
+
+  bool _isSameToolCall(LlamaToolCallContent a, LlamaToolCallContent b) {
+    if (a.id != null && b.id != null) {
+      return a.id == b.id;
+    }
+    return a.name == b.name && mapEquals(a.arguments, b.arguments);
+  }
+
+  void _removeRawToolCallPlaceholderMessages(List<LlamaToolCallContent> calls) {
+    if (calls.isEmpty || _messages.isEmpty) {
+      return;
+    }
+
+    final callNames = calls.map((c) => c.name).toSet();
+    final start = _indexAfterLastUserMessage();
+
+    for (int i = _messages.length - 1; i >= start; i--) {
+      final msg = _messages[i];
+      if (msg.isUser || msg.isInfo) {
+        continue;
+      }
+
+      final hasToolParts =
+          msg.parts?.any(
+            (p) => p is LlamaToolCallContent || p is LlamaToolResultContent,
+          ) ??
+          false;
+      if (hasToolParts) {
+        continue;
+      }
+
+      if (_looksLikeToolCallPlaceholder(msg.text, callNames)) {
+        _messages.removeAt(i);
+      }
+    }
+  }
+
+  bool _looksLikeToolCallPlaceholder(String text, Set<String> callNames) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      return false;
+    }
+
+    final containsToolName = callNames.any((name) => trimmed.contains(name));
+    if (!containsToolName) {
+      return false;
+    }
+
+    final bracketCall = RegExp(r'^\[[^\]]+\(.*\)\]$').hasMatch(trimmed);
+    if (bracketCall) {
+      return true;
+    }
+
+    return trimmed.startsWith('{') ||
+        trimmed.startsWith('<function') ||
+        trimmed.startsWith('<tool_call') ||
+        trimmed.contains('"arguments"') ||
+        trimmed.contains('"tool_call"') ||
+        trimmed.contains('tool_calls');
+  }
+
+  void _appendToolResultToMessage(
+    int messageIndex,
+    LlamaToolResultContent result,
+  ) {
+    if (messageIndex < 0 || messageIndex >= _messages.length) {
+      return;
+    }
+
+    final message = _messages[messageIndex];
+    final updatedParts = List<LlamaContentPart>.from(message.parts ?? const []);
+
+    final hasExistingResult = updatedParts
+        .whereType<LlamaToolResultContent>()
+        .any((existing) {
+          if (result.id != null && existing.id != null) {
+            return existing.id == result.id;
+          }
+          return existing.name == result.name;
+        });
+
+    if (hasExistingResult) {
+      return;
+    }
+
+    updatedParts.add(result);
+    _messages[messageIndex] = message.copyWith(parts: updatedParts);
+  }
+
+  void _addInfoMessage(String text) {
+    final last = _messages.isNotEmpty ? _messages.last : null;
+    if (last != null && last.isInfo && last.text == text) {
+      return;
+    }
+
+    _messages.add(ChatMessage(text: text, isUser: false, isInfo: true));
   }
 
   void addStagedPart(LlamaContentPart part) {

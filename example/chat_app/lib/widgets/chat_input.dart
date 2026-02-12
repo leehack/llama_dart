@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:llamadart/llamadart.dart';
 import 'package:provider/provider.dart';
+
 import '../providers/chat_provider.dart';
 
 class ChatInput extends StatefulWidget {
@@ -22,12 +24,61 @@ class ChatInput extends StatefulWidget {
 }
 
 class _ChatInputState extends State<ChatInput> {
+  bool _hasDraftText = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hasDraftText = widget.controller.text.trim().isNotEmpty;
+    widget.controller.addListener(_onTextChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onTextChanged);
+      widget.controller.addListener(_onTextChanged);
+      _onTextChanged();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onTextChanged);
+    super.dispose();
+  }
+
+  void _onTextChanged() {
+    final hasText = widget.controller.text.trim().isNotEmpty;
+    if (hasText == _hasDraftText || !mounted) return;
+
+    setState(() {
+      _hasDraftText = hasText;
+    });
+  }
+
+  bool _showDesktopShortcutsHint(TargetPlatform platform) {
+    return kIsWeb ||
+        platform == TargetPlatform.macOS ||
+        platform == TargetPlatform.windows ||
+        platform == TargetPlatform.linux;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<ChatProvider>(
       builder: (context, provider, _) {
         final isGenerating = provider.isGenerating;
-        final enabled = !isGenerating && provider.isReady;
+        final isReady = provider.isReady;
+        final hasAttachments = provider.stagedParts.isNotEmpty;
+        final canSubmit =
+            !isGenerating && isReady && (_hasDraftText || hasAttachments);
+        final colorScheme = Theme.of(context).colorScheme;
+        final showShortcutHint = _showDesktopShortcutsHint(
+          Theme.of(context).platform,
+        );
 
         return Container(
           padding: EdgeInsets.fromLTRB(
@@ -37,12 +88,10 @@ class _ChatInputState extends State<ChatInput> {
             16 + MediaQuery.of(context).padding.bottom,
           ),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
+            color: colorScheme.surface,
             border: Border(
               top: BorderSide(
-                color: Theme.of(
-                  context,
-                ).colorScheme.outlineVariant.withValues(alpha: 0.5),
+                color: colorScheme.outlineVariant.withValues(alpha: 0.5),
               ),
             ),
           ),
@@ -50,106 +99,17 @@ class _ChatInputState extends State<ChatInput> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (provider.stagedParts.isNotEmpty)
-                Container(
-                  height: 80,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: provider.stagedParts.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(width: 8),
-                    itemBuilder: (context, index) {
-                      final part = provider.stagedParts[index];
-                      return Stack(
-                        children: [
-                          Container(
-                            width: 80,
-                            height: 80,
-                            decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.outlineVariant,
-                              ),
-                            ),
-                            clipBehavior: Clip.antiAlias,
-                            child: _buildPartPreview(part),
-                          ),
-                          Positioned(
-                            top: 4,
-                            right: 4,
-                            child: GestureDetector(
-                              onTap: () => provider.removeStagedPart(index),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.5),
-                                  shape: BoxShape.circle,
-                                ),
-                                padding: const EdgeInsets.all(4),
-                                child: const Icon(
-                                  Icons.close,
-                                  size: 16,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
+                _buildStagedPartsStrip(context, provider),
               Row(
                 children: [
                   if (provider.supportsVision || provider.supportsAudio)
-                    PopupMenuButton<String>(
-                      icon: Icon(
-                        Icons.add_circle_outline_rounded,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      onSelected: (value) {
-                        if (value == 'image') {
-                          provider.pickImage();
-                        } else if (value == 'audio') {
-                          provider.pickAudio();
-                        }
-                      },
-                      itemBuilder: (context) => [
-                        if (provider.supportsVision)
-                          const PopupMenuItem(
-                            value: 'image',
-                            child: Row(
-                              children: [
-                                Icon(Icons.image_outlined),
-                                SizedBox(width: 12),
-                                Text('Attach Image'),
-                              ],
-                            ),
-                          ),
-                        if (provider.supportsAudio)
-                          const PopupMenuItem(
-                            value: 'audio',
-                            child: Row(
-                              children: [
-                                Icon(Icons.audiotrack_outlined),
-                                SizedBox(width: 12),
-                                Text('Attach Audio'),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
+                    _buildAttachmentMenu(context, provider),
                   Expanded(
                     child: Container(
                       decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest
-                            .withValues(alpha: 0.5),
+                        color: colorScheme.surfaceContainerHighest.withValues(
+                          alpha: 0.5,
+                        ),
                         borderRadius: BorderRadius.circular(28),
                         border: Border.all(color: Colors.transparent),
                       ),
@@ -157,26 +117,44 @@ class _ChatInputState extends State<ChatInput> {
                         bindings: {
                           const SingleActivator(
                             LogicalKeyboardKey.enter,
+                            control: true,
                             includeRepeats: false,
-                          ): widget.onSend,
+                          ): () {
+                            if (canSubmit) {
+                              widget.onSend();
+                            }
+                          },
+                          const SingleActivator(
+                            LogicalKeyboardKey.enter,
+                            meta: true,
+                            includeRepeats: false,
+                          ): () {
+                            if (canSubmit) {
+                              widget.onSend();
+                            }
+                          },
                         },
                         child: TextField(
                           controller: widget.controller,
                           focusNode: widget.focusNode,
-                          enabled: enabled,
+                          enabled: !isGenerating && isReady,
                           maxLines: 6,
                           minLines: 1,
                           textCapitalization: TextCapitalization.sentences,
-                          textInputAction: TextInputAction.send,
+                          textInputAction: showShortcutHint
+                              ? TextInputAction.newline
+                              : TextInputAction.send,
                           onSubmitted: (_) {
-                            if (enabled) {
+                            if (!showShortcutHint && canSubmit) {
                               widget.onSend();
                             }
                           },
-                          decoration: const InputDecoration(
-                            hintText: 'Type a message...',
+                          decoration: InputDecoration(
+                            hintText: showShortcutHint
+                                ? 'Type a message... (Cmd/Ctrl + Enter to send)'
+                                : 'Type a message...',
                             border: InputBorder.none,
-                            contentPadding: EdgeInsets.symmetric(
+                            contentPadding: const EdgeInsets.symmetric(
                               horizontal: 20,
                               vertical: 14,
                             ),
@@ -191,38 +169,134 @@ class _ChatInputState extends State<ChatInput> {
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      color: enabled
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(
-                              context,
-                            ).colorScheme.surfaceContainerHighest,
+                      color: canSubmit
+                          ? colorScheme.primary
+                          : colorScheme.surfaceContainerHighest,
                       shape: BoxShape.circle,
                     ),
                     child: IconButton(
+                      tooltip: isGenerating
+                          ? 'Stop generation'
+                          : 'Send message',
                       onPressed: isGenerating
                           ? () => provider.stopGeneration()
-                          : (enabled ? widget.onSend : null),
+                          : (canSubmit ? widget.onSend : null),
                       icon: isGenerating
-                          ? Icon(
-                              Icons.stop_rounded,
-                              color: Theme.of(context).colorScheme.error,
-                            )
+                          ? Icon(Icons.stop_rounded, color: colorScheme.error)
                           : Icon(
                               Icons.arrow_upward_rounded,
-                              color: enabled
-                                  ? Theme.of(context).colorScheme.onPrimary
-                                  : Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
+                              color: canSubmit
+                                  ? colorScheme.onPrimary
+                                  : colorScheme.onSurfaceVariant,
                             ),
                     ),
                   ),
                 ],
               ),
+              if (showShortcutHint)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      'Tip: Cmd/Ctrl + Enter to send',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildStagedPartsStrip(BuildContext context, ChatProvider provider) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      height: 84,
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: provider.stagedParts.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final part = provider.stagedParts[index];
+          return Stack(
+            children: [
+              Container(
+                width: 84,
+                height: 84,
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: colorScheme.outlineVariant),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: _buildPartPreview(part),
+              ),
+              Positioned(
+                top: 2,
+                right: 2,
+                child: IconButton.filledTonal(
+                  style: IconButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.all(2),
+                    minimumSize: const Size(24, 24),
+                  ),
+                  onPressed: () => provider.removeStagedPart(index),
+                  icon: const Icon(Icons.close_rounded, size: 14),
+                  tooltip: 'Remove attachment',
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildAttachmentMenu(BuildContext context, ChatProvider provider) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.add_circle_outline_rounded, color: colorScheme.primary),
+      tooltip: 'Add attachment',
+      onSelected: (value) {
+        if (value == 'image') {
+          provider.pickImage();
+        } else if (value == 'audio') {
+          provider.pickAudio();
+        }
+      },
+      itemBuilder: (context) => [
+        if (provider.supportsVision)
+          const PopupMenuItem(
+            value: 'image',
+            child: Row(
+              children: [
+                Icon(Icons.image_outlined),
+                SizedBox(width: 12),
+                Text('Attach Image'),
+              ],
+            ),
+          ),
+        if (provider.supportsAudio)
+          const PopupMenuItem(
+            value: 'audio',
+            child: Row(
+              children: [
+                Icon(Icons.audiotrack_outlined),
+                SizedBox(width: 12),
+                Text('Attach Audio'),
+              ],
+            ),
+          ),
+      ],
     );
   }
 

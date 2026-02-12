@@ -25,12 +25,17 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
   bool _wasGenerating = false;
+  bool _showScrollToBottom = false;
+  ChatProvider? _providerForListener;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScrollChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final provider = context.read<ChatProvider>();
+      _providerForListener = provider;
       if (provider.modelPath == null) {
         _openModelSelection();
       }
@@ -40,10 +45,27 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _providerForListener?.removeListener(_onProviderUpdate);
+    _scrollController.removeListener(_onScrollChanged);
     _controller.dispose();
     _scrollController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _onScrollChanged() {
+    if (!_scrollController.hasClients) return;
+
+    final diff =
+        _scrollController.position.maxScrollExtent -
+        _scrollController.position.pixels;
+    final shouldShow = diff > 220;
+
+    if (shouldShow != _showScrollToBottom && mounted) {
+      setState(() {
+        _showScrollToBottom = shouldShow;
+      });
+    }
   }
 
   void _onProviderUpdate() {
@@ -77,6 +99,12 @@ class _ChatScreenState extends State<ChatScreen> {
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
         );
+      }
+
+      if (_showScrollToBottom) {
+        setState(() {
+          _showScrollToBottom = false;
+        });
       }
     }
   }
@@ -112,73 +140,124 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showModelSettings() {
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (!mounted) return;
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        showDragHandle: true,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        builder: (context) =>
-            SettingsSheet(onOpenModelSelection: _openModelSelection),
-      );
-    });
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) =>
+          SettingsSheet(onOpenModelSelection: _openModelSelection),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: _buildAppBar(context),
       body: Container(
-        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface),
-        child: Column(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              colorScheme.surfaceContainerLowest.withValues(alpha: 0.9),
+              colorScheme.surface,
+            ],
+          ),
+        ),
+        child: Stack(
           children: [
-            const PruningIndicator(),
-            Expanded(
-              child: Consumer<ChatProvider>(
-                builder: (context, provider, _) {
-                  if (provider.messages.isEmpty) {
-                    return WelcomeView(
-                      isInitializing: provider.isInitializing,
-                      error: provider.error,
-                      modelPath: provider.modelPath,
-                      isLoaded: provider.isLoaded,
-                      loadingProgress: provider.loadingProgress,
-                      onRetry: () => provider.loadModel(),
-                      onSelectModel: _openModelSelection,
-                    );
-                  }
-
-                  return ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.fromLTRB(16, 120, 16, 24),
-                    itemCount: provider.messages.length,
-                    itemBuilder: (context, index) {
-                      final message = provider.messages[index];
-                      bool isNextSame = false;
-                      if (index + 1 < provider.messages.length) {
-                        isNextSame =
-                            provider.messages[index + 1].isUser ==
-                            message.isUser;
-                      }
-                      return MessageBubble(
-                        message: message,
-                        isNextSame: isNextSame,
-                      );
-                    },
-                  );
-                },
+            Positioned(
+              top: -120,
+              right: -80,
+              child: IgnorePointer(
+                child: Container(
+                  width: 280,
+                  height: 280,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: colorScheme.primary.withValues(alpha: 0.08),
+                  ),
+                ),
               ),
             ),
-            ChatInput(
-              onSend: _sendMessage,
-              controller: _controller,
-              focusNode: _focusNode,
+            Positioned(
+              bottom: -160,
+              left: -100,
+              child: IgnorePointer(
+                child: Container(
+                  width: 320,
+                  height: 320,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: colorScheme.secondary.withValues(alpha: 0.06),
+                  ),
+                ),
+              ),
             ),
+            Column(
+              children: [
+                const PruningIndicator(),
+                Expanded(
+                  child: Consumer<ChatProvider>(
+                    builder: (context, provider, _) {
+                      if (provider.messages.isEmpty) {
+                        return WelcomeView(
+                          isInitializing: provider.isInitializing,
+                          error: provider.error,
+                          modelPath: provider.modelPath,
+                          isLoaded: provider.isLoaded,
+                          loadingProgress: provider.loadingProgress,
+                          onRetry: () => provider.loadModel(),
+                          onSelectModel: _openModelSelection,
+                        );
+                      }
+
+                      return ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.fromLTRB(16, 120, 16, 24),
+                        itemCount: provider.messages.length,
+                        itemBuilder: (context, index) {
+                          final message = provider.messages[index];
+                          bool isNextSame = false;
+                          if (index + 1 < provider.messages.length) {
+                            isNextSame =
+                                provider.messages[index + 1].isUser ==
+                                message.isUser;
+                          }
+                          return MessageBubble(
+                            message: message,
+                            isNextSame: isNextSame,
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+                ChatInput(
+                  onSend: _sendMessage,
+                  controller: _controller,
+                  focusNode: _focusNode,
+                ),
+              ],
+            ),
+            if (_showScrollToBottom)
+              Positioned(
+                right: 20,
+                bottom: 96,
+                child: FloatingActionButton.small(
+                  heroTag: 'scroll-to-bottom',
+                  onPressed: _scrollToBottom,
+                  tooltip: 'Jump to latest',
+                  child: const Icon(Icons.keyboard_arrow_down_rounded),
+                ),
+              ),
           ],
         ),
       ),

@@ -13,6 +13,10 @@ class SettingsSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<ChatProvider>(
       builder: (context, provider, _) {
+        final contextSizeOptions = _buildContextSizeOptions(
+          provider.contextSize,
+        );
+
         return Padding(
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(context).viewInsets.bottom + 24,
@@ -347,7 +351,7 @@ class SettingsSheet extends StatelessWidget {
                       child: DropdownButton<int>(
                         value: provider.contextSize,
                         isExpanded: true,
-                        items: [0, 2048, 4096, 8192, 16384].map((size) {
+                        items: contextSizeOptions.map((size) {
                           return DropdownMenuItem(
                             value: size,
                             child: Text(size == 0 ? "Auto (Native)" : "$size"),
@@ -463,5 +467,18 @@ class SettingsSheet extends StatelessWidget {
       if (d.contains('blas')) backends.add(GpuBackend.blas);
     }
     return backends.toList();
+  }
+
+  List<int> _buildContextSizeOptions(int currentValue) {
+    final options = <int>{
+      0,
+      2048,
+      4096,
+      8192,
+      16384,
+      32768,
+      currentValue,
+    }.toList()..sort();
+    return options;
   }
 }

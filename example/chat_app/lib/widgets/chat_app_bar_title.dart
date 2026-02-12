@@ -58,9 +58,11 @@ class _ContextIndicator extends StatelessWidget {
         final color = percent > 0.9
             ? Colors.red
             : (percent > 0.7 ? Colors.orange : Colors.green);
+        final compactCurrent = _formatCompactTokenCount(currentTokens);
+        final compactLimit = _formatCompactTokenCount(contextLimit);
 
         return Text(
-          'Context: $currentTokens / $contextLimit tokens',
+          'Context $compactCurrent / $compactLimit',
           style: TextStyle(
             fontSize: 10,
             color: color.withValues(alpha: 0.7),
@@ -69,5 +71,15 @@ class _ContextIndicator extends StatelessWidget {
         );
       },
     );
+  }
+
+  String _formatCompactTokenCount(int value) {
+    if (value >= 1000000) {
+      return '${(value / 1000000).toStringAsFixed(1)}M';
+    }
+    if (value >= 1000) {
+      return '${(value / 1000).toStringAsFixed(1)}K';
+    }
+    return '$value';
   }
 }

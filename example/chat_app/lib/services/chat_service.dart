@@ -54,8 +54,11 @@ class ChatService {
         await _engine.loadMultimodalProjector(settings.mmprojPath!);
         debugPrint("Loaded multimodal projector from ${settings.mmprojPath}");
       } catch (e) {
-        debugPrint("Warning: Failed to load multimodal projector: $e");
-        // Do not rethrow; proceed without vision if projector fails
+        debugPrint("Failed to load multimodal projector: $e");
+        throw Exception(
+          'Failed to load multimodal projector (${settings.mmprojPath}). '
+          'Please verify this mmproj matches the selected model.',
+        );
       }
     }
   }

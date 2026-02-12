@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:llamadart/llamadart.dart';
 import 'package:provider/provider.dart';
 import 'package:llamadart_chat_example/widgets/message_bubble.dart';
 import 'package:llamadart_chat_example/widgets/chat_input.dart';
@@ -30,6 +31,40 @@ void main() {
       );
 
       expect(find.text('I am an AI'), findsOneWidget);
+    });
+
+    testWidgets('Displays tool call and result in same box', (
+      WidgetTester tester,
+    ) async {
+      final msg = ChatMessage(
+        text: '',
+        isUser: false,
+        role: LlamaChatRole.assistant,
+        parts: const [
+          LlamaToolCallContent(
+            id: 'call_1',
+            name: 'get_current_weather',
+            arguments: {'location': 'Seoul', 'unit': 'celsius'},
+            rawJson: '{"location":"Seoul","unit":"celsius"}',
+          ),
+          LlamaToolResultContent(
+            id: 'call_1',
+            name: 'get_current_weather',
+            result: 'The weather in Seoul is 21°C and Sunny.',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: MessageBubble(message: msg, isNextSame: false)),
+        ),
+      );
+
+      expect(find.text('Tool execution'), findsOneWidget);
+      expect(find.text('Arguments'), findsOneWidget);
+      expect(find.text('Result'), findsOneWidget);
+      expect(find.textContaining('The weather in Seoul'), findsOneWidget);
     });
   });
 
