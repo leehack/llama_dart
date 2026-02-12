@@ -41,7 +41,6 @@ void main() {
         await engine.loadModel(
           modelPath,
           modelParams: const ModelParams(
-            contextSize: 128,
             gpuLayers: 0,
             chatTemplate:
                 "{% for message in messages %}{{ message['role'] }}: {{ message['content'] }}\n{% endfor %}",
@@ -132,7 +131,8 @@ void main() {
         expect(ctxSize, greaterThan(0));
 
         // 7. Log level test (Silencer)
-        await engine.setLogLevel(LlamaLogLevel.info);
+        await engine.setLogLevel(LlamaLogLevel.none);
+        await engine.setLogLevel(LlamaLogLevel.warn);
 
         // 8. LoRA (should fail gracefully or not crash if path is wrong)
         try {
