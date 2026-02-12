@@ -16,7 +16,7 @@
   - **Apple**: Metal (macOS/iOS)
   - **Android/Linux/Windows**: Vulkan
 - 🖼️ **Multimodal Support**: Run vision and audio models (LLaVA, Gemma 3, Qwen2-VL) with integrated media processing.
-- ⏬ **Resumable Downloads**: Robust background-safe model downloads with parallel chunking and persistence using `.meta` tracking.
+- ⏬ **Resumable Downloads**: Robust background-safe model downloads with parallel chunking and partial-file resume tracking.
 - **LoRA Support**: Apply fine-tuned adapters (GGUF) dynamically at runtime.
 - 🌐 **Web Support**: Run inference in the browser via WASM (powered by `wllama` v2).
 - 💎 **Dart-First API**: Streamlined architecture with decoupled backends.
@@ -27,14 +27,11 @@
 
 ## 🏗️ Architecture
 
-llamadart 0.4.1 uses a modern, decoupled architecture designed for flexibility and platform independence:
+llamadart uses a modern, decoupled architecture designed for flexibility and platform independence:
 
 - **LlamaEngine**: The primary high-level orchestrator. It handles model lifecycle, tokenization, chat templating, and manages the inference stream.
 - **ChatSession**: A stateful wrapper for `LlamaEngine` that automatically manages conversation history, system prompts, and enforces context window limits (sliding window).
-- **LlamaBackend**: A platform-agnostic interface that allows swapping implementation details:
-  - `NativeLlamaBackend`: Uses Dart FFI and background Isolates for high-performance desktop/mobile inference.
-  - `WebLlamaBackend`: Uses WebAssembly and the `wllama` JS library for in-browser inference.
-- **LlamaBackendFactory**: Automatically selects the appropriate backend for your current platform.
+- **LlamaBackend**: A platform-agnostic interface with a default `LlamaBackend()` factory constructor that auto-selects native (`llama.cpp`) or web (`wllama`) implementations.
 
 ---
 
@@ -57,7 +54,7 @@ Add `llamadart` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  llamadart: ^0.4.1
+  llamadart: ^0.4.0
 ```
 
 ### Zero Setup (Native Assets)
@@ -68,6 +65,32 @@ dependencies:
 3. Bundles it seamlessly into your application.
 
 No manual binary downloads, CMake configuration, or platform-specific project changes are needed.
+
+---
+
+## ⚠️ Breaking Changes (Upcoming 0.5.0)
+
+`0.5.0` has not been published yet. This branch includes intentional
+breaking changes while the API is still early.
+
+Before upgrading from `main` / `0.4.0`, read:
+
+- [MIGRATION.md](MIGRATION.md)
+
+High-impact changes:
+
+- `ChatSession` now centers on `create(...)` and streams `LlamaCompletionChunk`.
+- `LlamaChatMessage` named constructors were standardized:
+  - `LlamaChatMessage.text(...)` -> `LlamaChatMessage.fromText(...)`
+  - `LlamaChatMessage.multimodal(...)` -> `LlamaChatMessage.withContent(...)`
+- `ModelParams.logLevel` was removed; logging is now controlled at engine level via:
+  - `setDartLogLevel(...)`
+  - `setNativeLogLevel(...)`
+- Root exports changed; previously exported internals such as `ToolRegistry`,
+  `LlamaTokenizer`, and `ChatTemplateProcessor` are no longer part of the
+  public package surface.
+- Custom backend implementations must match the updated `LlamaBackend`
+  interface (including `getVramInfo` and updated `applyChatTemplate`).
 
 ---
 

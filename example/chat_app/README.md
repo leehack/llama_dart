@@ -136,7 +136,7 @@ final messages = [
 final stream = engine.create(
   messages,
   params: GenerationParams(
-    maxTokens: 4096, // New default in v0.4.1+
+    maxTokens: 4096, // Current default in this branch
     temp: 0.7,
   ),
 );

@@ -1,4 +1,17 @@
 ## Unreleased
+> Upcoming release target: `0.5.0` (not published yet).
+
+*   **[BREAKING] Public API Changes**:
+    *   Root exports were tightened; previously exposed internals such as `ToolRegistry`, `LlamaTokenizer`, and `ChatTemplateProcessor` are no longer part of the public package API.
+    *   `ChatSession` now centers on `create(...)` streaming `LlamaCompletionChunk`; legacy `chat(...)` / `chatText(...)` style usage must migrate.
+    *   `LlamaChatMessage` constructor names were standardized (`.fromText`, `.withContent`) in place of older named constructors.
+    *   Default `maxTokens` in `GenerationParams` increased from `512` to `4096`.
+    *   `LlamaChatMessage.toJson()` no longer includes `name` on `tool` role messages.
+    *   `ModelParams.logLevel` was removed; logging control now lives on `LlamaEngine` via `setDartLogLevel(...)` and `setNativeLogLevel(...)`.
+    *   `LlamaBackend` interface changed for custom backend implementers (notably `getVramInfo` and updated `applyChatTemplate`).
+    *   Model reload behavior is stricter: `loadModel(...)` now requires unloading first.
+    *   Migration details are documented in `MIGRATION.md`.
+
 *   **Template/Parser Parity Expansion**:
     *   Added llama.cpp-aligned format detection and handlers for additional templates including FireFunction v2, Functionary v3.2, Functionary v3.1 (Llama 3.1), GPT-OSS, Seed-OSS, Nemotron V2, Apertus, Solar Open, EXAONE MoE, Xiaomi MiMo, and TranslateGemma.
     *   Improved parser parity for format-specific tool-calling and reasoning extraction, including `<|python_tag|>` parsing for Llama 3 flows.
@@ -13,13 +26,9 @@
 *   **Chat App Improvements**:
     *   Added model capability badges and per-model generation presets.
     *   Added template-aware tool enablement guardrails and separate Dart/native log level settings in the UI.
-
-## 0.4.1
-*   **API Serialization & Defaults Improvements**:
-    *   **[BREAKING]** Increased default `maxTokens` in `GenerationParams` from 512 to 4096 to accommodate modern reasoning models (e.g., DeepSeek R1).
-    *   **[BREAKING]** Modified `LlamaChatMessage.toJson()` to remove the `name` field from `tool` role messages, aligning with strict OpenAI specification.
 *   **Test Suite Overhaul**:
-    *   Added 5 new unit test files covering exceptions, logging, and core model definitions, significantly improving code coverage.
+    *   Expanded template parity coverage (detection, handlers, grammar, workarounds, registry precedence, and integration scenarios).
+    *   Added additional unit tests for exceptions, logging, and core model definitions.
 
 ## 0.4.0
 *   **Cross-Platform Architecture**: 
