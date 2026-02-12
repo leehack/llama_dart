@@ -42,7 +42,7 @@ void main() {
       'meta-llama-Llama-3.1-8B-Instruct.jinja': ChatFormat.llama3,
       'meta-llama-Llama-3.2-3B-Instruct.jinja': ChatFormat.llama3,
       'meta-llama-Llama-3.3-70B-Instruct.jinja': ChatFormat.llama3,
-      'microsoft-Phi-3.5-mini-instruct.jinja': ChatFormat.contentOnly,
+      'microsoft-Phi-3.5-mini-instruct.jinja': ChatFormat.generic,
       'mistralai-Ministral-3-14B-Reasoning-2512.jinja': ChatFormat.magistral,
       'mistralai-Mistral-Nemo-Instruct-2407.jinja': ChatFormat.mistralNemo,
       'moonshotai-Kimi-K2.jinja': ChatFormat.kimiK2,

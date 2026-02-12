@@ -153,7 +153,9 @@ class ChatProvider extends ChangeNotifier {
   Future<void> _init() async {
     _settings = await _settingsService.loadSettings();
     try {
-      _availableDevices = [await _chatService.engine.getBackendName()];
+      final backendInfo = await _chatService.engine.getBackendName();
+      _availableDevices = _parseBackendDevices(backendInfo);
+      _activeBackend = _deriveActiveBackendLabel(backendInfo);
     } catch (e) {
       debugPrint("Error fetching devices: $e");
     }
@@ -205,7 +207,8 @@ class ChatProvider extends ChangeNotifier {
       );
 
       final rawBackend = await _chatService.engine.getBackendName();
-      _activeBackend = rawBackend;
+      _availableDevices = _parseBackendDevices(rawBackend);
+      _activeBackend = _deriveActiveBackendLabel(rawBackend);
 
       _contextLimit = await _chatService.engine.getContextSize();
       _supportsVision = await _chatService.engine.supportsVision;
@@ -597,7 +600,11 @@ class ChatProvider extends ChangeNotifier {
 
     return trimmed.startsWith('{') ||
         trimmed.startsWith('<function') ||
+        trimmed.startsWith('<start_function_call>') ||
+        trimmed.startsWith('<start_function_response>') ||
         trimmed.startsWith('<tool_call') ||
+        trimmed.contains('<end_function_call>') ||
+        trimmed.contains('<end_function_response>') ||
         trimmed.contains('"arguments"') ||
         trimmed.contains('"tool_call"') ||
         trimmed.contains('tool_calls');
@@ -819,6 +826,58 @@ class ChatProvider extends ChangeNotifier {
         return false;
       default:
         return true;
+    }
+  }
+
+  List<String> _parseBackendDevices(String backendInfo) {
+    final parts = backendInfo
+        .split(',')
+        .map((entry) => entry.trim())
+        .where((entry) => entry.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    if (parts.isEmpty) {
+      return [backendInfo];
+    }
+    return parts;
+  }
+
+  String _deriveActiveBackendLabel(String backendInfo) {
+    if (_containsBackendMarker(backendInfo, GpuBackend.metal)) {
+      return 'METAL';
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.vulkan)) {
+      return 'VULKAN';
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.cuda)) {
+      return 'CUDA';
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.blas)) {
+      return 'BLAS';
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.cpu)) {
+      return 'CPU';
+    }
+
+    return backendInfo;
+  }
+
+  bool _containsBackendMarker(String value, GpuBackend backend) {
+    final lower = value.toLowerCase();
+    switch (backend) {
+      case GpuBackend.metal:
+        return lower.contains('metal') || lower.contains('mtl');
+      case GpuBackend.vulkan:
+        return lower.contains('vulkan');
+      case GpuBackend.cuda:
+        return lower.contains('cuda');
+      case GpuBackend.blas:
+        return lower.contains('blas');
+      case GpuBackend.cpu:
+        return lower.contains('cpu') || lower.contains('llvm');
+      case GpuBackend.auto:
+        return false;
     }
   }
 

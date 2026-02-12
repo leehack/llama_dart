@@ -58,19 +58,35 @@ class GenericHandler extends ChatTemplateHandler {
     });
 
     final hasTools = tools != null && tools.isNotEmpty;
+    final stops = _inferStopsFromTemplate(effectiveTemplate);
+
     return LlamaChatTemplateResult(
       prompt: prompt,
       format: format.index,
       grammar: buildGrammar(tools),
       grammarLazy: hasTools,
-      additionalStops: getStops(
-        hasTools: hasTools,
-        enableThinking: enableThinking,
-      ),
+      additionalStops: stops,
       grammarTriggers: hasTools
           ? [const GrammarTrigger(type: 0, value: '<tool_call>')]
           : [],
     );
+  }
+
+  List<String> _inferStopsFromTemplate(String templateSource) {
+    final stops = <String>{};
+
+    if (templateSource.contains('<|im_end|>')) {
+      stops.add('<|im_end|>');
+    }
+    if (templateSource.contains('<|end|>')) {
+      stops.add('<|end|>');
+    }
+
+    if (stops.isEmpty) {
+      stops.addAll(additionalStops);
+    }
+
+    return stops.toList(growable: false);
   }
 
   @override

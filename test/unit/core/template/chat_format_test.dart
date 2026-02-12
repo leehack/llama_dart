@@ -24,6 +24,12 @@ void main() {
       expect(format, equals(ChatFormat.generic));
     });
 
+    test('detects Phi-style chat template as generic', () {
+      const source = '<|user|>hi<|end|><|assistant|>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.generic));
+    });
+
     test('detects GPT-OSS format', () {
       const source = '<|start|>assistant<|channel|>final<|message|>';
       final format = detectChatFormat(source);

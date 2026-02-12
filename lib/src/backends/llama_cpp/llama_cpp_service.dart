@@ -724,15 +724,32 @@ class LlamaCppService {
   /// Returns information about available backend devices.
   List<String> getBackendInfo() {
     final count = ggml_backend_dev_count();
-    final devices = <String>[];
+    final devices = <String>{};
     for (var i = 0; i < count; i++) {
       final dev = ggml_backend_dev_get(i);
       if (dev == nullptr) continue;
-      final ptr = ggml_backend_dev_name(dev);
-      if (ptr == nullptr) continue;
-      devices.add(ptr.cast<Utf8>().toDartString());
+
+      final devNamePtr = ggml_backend_dev_name(dev);
+      if (devNamePtr == nullptr) continue;
+      final devName = devNamePtr.cast<Utf8>().toDartString();
+
+      String label = devName;
+      final reg = ggml_backend_dev_backend_reg(dev);
+      if (reg != nullptr) {
+        final regNamePtr = ggml_backend_reg_name(reg);
+        if (regNamePtr != nullptr) {
+          final regName = regNamePtr.cast<Utf8>().toDartString();
+          if (regName.toLowerCase() == devName.toLowerCase()) {
+            label = regName;
+          } else {
+            label = '$regName ($devName)';
+          }
+        }
+      }
+
+      devices.add(label);
     }
-    return devices;
+    return devices.toList(growable: false);
   }
 
   /// Returns whether GPU offloading is supported.

@@ -287,6 +287,13 @@ ChatFormat detectChatFormat(String? templateSource) {
     return ChatFormat.generic;
   }
 
+  // Phi-style chat templates (e.g. <|user|>...<|end|><|assistant|>)
+  if (templateSource.contains('<|user|>') &&
+      templateSource.contains('<|assistant|>') &&
+      templateSource.contains('<|end|>')) {
+    return ChatFormat.generic;
+  }
+
   // No recognized pattern
   return ChatFormat.contentOnly;
 }

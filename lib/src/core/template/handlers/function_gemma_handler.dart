@@ -1,8 +1,12 @@
+import 'dart:convert';
+
 import 'package:dinja/dinja.dart';
 
 import '../../models/chat/chat_message.dart';
+import '../../models/chat/chat_role.dart';
 import '../../models/chat/chat_template_result.dart';
 import '../../models/chat/completion_chunk.dart';
+import '../../models/chat/content_part.dart';
 import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
@@ -30,14 +34,61 @@ class FunctionGemmaHandler extends ChatTemplateHandler {
     List<ToolDefinition>? tools,
     bool enableThinking = true,
   }) {
+    return _renderInternal(
+      templateSource: templateSource,
+      messages: messages,
+      metadata: metadata,
+      addAssistant: addAssistant,
+      tools: tools,
+      enableThinking: enableThinking,
+      multimodalContent: false,
+    );
+  }
+
+  @override
+  LlamaChatTemplateResult renderWithMultimodalContent({
+    required String templateSource,
+    required List<LlamaChatMessage> messages,
+    required Map<String, String> metadata,
+    bool addAssistant = true,
+    List<ToolDefinition>? tools,
+    bool enableThinking = true,
+  }) {
+    return _renderInternal(
+      templateSource: templateSource,
+      messages: messages,
+      metadata: metadata,
+      addAssistant: addAssistant,
+      tools: tools,
+      enableThinking: enableThinking,
+      multimodalContent: true,
+    );
+  }
+
+  LlamaChatTemplateResult _renderInternal({
+    required String templateSource,
+    required List<LlamaChatMessage> messages,
+    required Map<String, String> metadata,
+    required bool addAssistant,
+    required List<ToolDefinition>? tools,
+    required bool enableThinking,
+    required bool multimodalContent,
+  }) {
     final template = Template(templateSource);
-    final prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
+    var prompt = template.render({
+      'messages': _serializeMessages(
+        messages,
+        multimodalContent: multimodalContent,
+      ),
       'add_generation_prompt': addAssistant,
       'tools': tools?.map((t) => t.toJson()).toList(),
       'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<bos>',
       'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<eos>',
     });
+
+    if (multimodalContent) {
+      prompt = prompt.replaceAll('<start_of_image>', '<__media__>');
+    }
 
     final hasTools = tools != null && tools.isNotEmpty;
     return LlamaChatTemplateResult(
@@ -53,6 +104,86 @@ class FunctionGemmaHandler extends ChatTemplateHandler {
           ? [const GrammarTrigger(type: 0, value: '<start_function_call>')]
           : [],
     );
+  }
+
+  List<Map<String, dynamic>> _serializeMessages(
+    List<LlamaChatMessage> messages, {
+    required bool multimodalContent,
+  }) {
+    return messages
+        .map((message) {
+          if (message.role == LlamaChatRole.tool) {
+            return _serializeToolMessage(message);
+          }
+
+          return multimodalContent
+              ? message.toJsonMultimodal()
+              : message.toJson();
+        })
+        .toList(growable: false);
+  }
+
+  Map<String, dynamic> _serializeToolMessage(LlamaChatMessage message) {
+    final toolResults = message.parts
+        .whereType<LlamaToolResultContent>()
+        .toList();
+    if (toolResults.isEmpty) {
+      return message.toJson();
+    }
+
+    if (toolResults.length == 1) {
+      final result = toolResults.first;
+      return {
+        'role': 'tool',
+        'content': {
+          'name': result.name,
+          'response': _normalizeToolResponse(result.result),
+        },
+      };
+    }
+
+    return {
+      'role': 'tool',
+      'content': toolResults
+          .map(
+            (result) => {
+              'name': result.name,
+              'response': _normalizeToolResponse(result.result),
+            },
+          )
+          .toList(growable: false),
+    };
+  }
+
+  Map<String, dynamic> _normalizeToolResponse(Object? result) {
+    if (result == null) {
+      return {'value': null};
+    }
+
+    if (result is Map<String, dynamic>) {
+      return result;
+    }
+
+    if (result is Map) {
+      return result.map((key, value) => MapEntry('$key', value));
+    }
+
+    if (result is String) {
+      try {
+        final decoded = jsonDecode(result);
+        if (decoded is Map<String, dynamic>) {
+          return decoded;
+        }
+        if (decoded is Map) {
+          return decoded.map((key, value) => MapEntry('$key', value));
+        }
+      } catch (_) {
+        // Keep scalar string value below.
+      }
+      return {'value': result};
+    }
+
+    return {'value': result};
   }
 
   @override
@@ -119,12 +250,21 @@ class FunctionGemmaHandler extends ChatTemplateHandler {
   /// Input:  `{location:"London",unit:"celsius"}`
   /// Output: `{"location":"London","unit":"celsius"}`
   String _toValidJson(String input) {
-    // Quote unquoted keys: match word chars before a colon that aren't already quoted
-    final result = input.replaceAllMapped(
-      RegExp(r'(?<=[{,])\s*([a-zA-Z_]\w*)\s*:'),
-      (m) => '"${m.group(1)}":',
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) {
+      return '{}';
+    }
+
+    final normalized = trimmed.replaceAllMapped(
+      RegExp(r'(^|[{,])\s*([a-zA-Z_]\w*)\s*:'),
+      (m) => '${m.group(1)}"${m.group(2)}":',
     );
-    return result;
+
+    if (normalized.startsWith('{') && normalized.endsWith('}')) {
+      return normalized;
+    }
+
+    return '{$normalized}';
   }
 
   @override

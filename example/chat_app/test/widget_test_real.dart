@@ -6,6 +6,7 @@ import 'package:llamadart_chat_example/widgets/message_bubble.dart';
 import 'package:llamadart_chat_example/widgets/chat_input.dart';
 import 'package:llamadart_chat_example/models/chat_message.dart';
 import 'package:llamadart_chat_example/providers/chat_provider.dart';
+import 'package:llamadart_chat_example/widgets/settings_sheet.dart';
 
 import 'mocks.dart';
 
@@ -131,6 +132,40 @@ void main() {
 
       // Initially shows arrow icon
       expect(find.byIcon(Icons.arrow_upward_rounded), findsOneWidget);
+    });
+  });
+
+  group('SettingsSheet Tests', () {
+    late MockChatService mockChatService;
+    late MockSettingsService mockSettingsService;
+    late ChatProvider provider;
+
+    setUp(() {
+      mockChatService = MockChatService();
+      mockSettingsService = MockSettingsService();
+      provider = ChatProvider(
+        chatService: mockChatService,
+        settingsService: mockSettingsService,
+      );
+      provider.updateContextSize(32768);
+    });
+
+    testWidgets('supports non-default context size in dropdown', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChangeNotifierProvider<ChatProvider>.value(
+            value: provider,
+            child: Scaffold(body: SettingsSheet(onOpenModelSelection: () {})),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('32768'), findsWidgets);
+      expect(tester.takeException(), isNull);
     });
   });
 }
