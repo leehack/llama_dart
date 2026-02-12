@@ -1,3 +1,6 @@
+@TestOn('vm')
+library;
+
 import 'dart:io';
 import 'package:llamadart/src/core/template/chat_format.dart';
 import 'package:test/test.dart';

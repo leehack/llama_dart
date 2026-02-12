@@ -1,3 +1,6 @@
+@TestOn('vm')
+library;
+
 import 'package:test/test.dart';
 import 'package:llamadart/llamadart.dart';
 import '../test_helper.dart';

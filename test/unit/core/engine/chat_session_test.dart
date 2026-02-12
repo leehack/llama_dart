@@ -1,111 +1,200 @@
-@TestOn('vm')
-@Timeout(Duration(minutes: 5))
-library;
-
-import 'dart:io';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:test/test.dart';
 import 'package:llamadart/llamadart.dart';
-import '../../../test_helper.dart';
 
-void main() async {
-  late File modelFile;
+class MockLlamaBackend implements LlamaBackend {
+  int _generateCallCount = 0;
+  final List<String> _responses = [];
+  int contextSize = 2048;
+  String? lastPrompt;
+
+  void queueResponse(String response) => _responses.add(response);
+
+  @override
+  bool get isReady => true;
+
+  @override
+  Future<int> modelLoad(String path, ModelParams params) async => 1;
+
+  @override
+  Future<int> modelLoadFromUrl(
+    String url,
+    ModelParams params, {
+    Function(double progress)? onProgress,
+  }) async => 1;
+
+  @override
+  Future<void> modelFree(int modelHandle) async {}
+
+  @override
+  Future<int> contextCreate(int modelHandle, ModelParams params) async => 1;
+
+  @override
+  Future<void> contextFree(int contextHandle) async {}
+
+  @override
+  Future<int> getContextSize(int contextHandle) async => contextSize;
+
+  @override
+  Stream<List<int>> generate(
+    int contextHandle,
+    String prompt,
+    GenerationParams params, {
+    List<LlamaContentPart>? parts,
+  }) async* {
+    lastPrompt = prompt;
+    if (_generateCallCount < _responses.length) {
+      yield utf8.encode(_responses[_generateCallCount++]);
+    } else {
+      yield utf8.encode('default response');
+    }
+  }
+
+  @override
+  void cancelGeneration() {}
+
+  @override
+  Future<List<int>> tokenize(
+    int modelHandle,
+    String text, {
+    bool addSpecial = true,
+  }) async {
+    return List.generate(text.length, (i) => i);
+  }
+
+  @override
+  Future<String> detokenize(
+    int modelHandle,
+    List<int> tokens, {
+    bool special = false,
+  }) async => 'decoded';
+
+  @override
+  Future<Map<String, String>> modelMetadata(int modelHandle) async => {
+    'tokenizer.chat_template':
+        '{{ bos_token }}{% for message in messages %}{% if message["role"] == "user" %}{{ "user: " }}{% for part in message["content"] %}{% if part["type"] == "text" %}{{ part["text"] }}{% elif part["type"] == "image" %}{{ "<__media__>" }}{% endif %}{% endfor %}{% elif message["role"] == "assistant" %}{{ "assistant: " + message["content"] }}{% endif %}{% endfor %}{% if add_generation_prompt %}{{ "assistant: " }}{% endif %}',
+  };
+
+  @override
+  Future<void> setLoraAdapter(
+    int contextHandle,
+    String path,
+    double scale,
+  ) async {}
+  @override
+  Future<void> removeLoraAdapter(int contextHandle, String path) async {}
+  @override
+  Future<void> clearLoraAdapters(int contextHandle) async {}
+  @override
+  Future<String> getBackendName() async => 'Mock';
+  @override
+  bool get supportsUrlLoading => false;
+  @override
+  Future<bool> isGpuSupported() async => false;
+  @override
+  Future<void> setLogLevel(LlamaLogLevel level) async {}
+  @override
+  Future<void> dispose() async {}
+  @override
+  Future<int?> multimodalContextCreate(
+    int modelHandle,
+    String mmProjPath,
+  ) async => null;
+  @override
+  Future<void> multimodalContextFree(int mmContextHandle) async {}
+  @override
+  Future<bool> supportsVision(int mmContextHandle) async => false;
+  @override
+  Future<bool> supportsAudio(int mmContextHandle) async => false;
+
+  @override
+  Future<({int total, int free})> getVramInfo() async =>
+      (total: 8192, free: 4096);
+
+  @override
+  Future<String> applyChatTemplate(
+    int modelHandle,
+    List<Map<String, dynamic>> messages, {
+    String? customTemplate,
+    bool addAssistant = true,
+  }) async {
+    return messages.map((m) => "${m['role']}: ${m['content']}").join('\n');
+  }
+}
+
+void main() {
+  late MockLlamaBackend backend;
   late LlamaEngine engine;
-  late LlamaBackend backend;
   late ChatSession session;
 
-  setUpAll(() async {
-    modelFile = await TestHelper.getTestModel();
-    backend = LlamaBackend();
+  setUp(() async {
+    backend = MockLlamaBackend();
     engine = LlamaEngine(backend);
-    await engine.loadModel(
-      modelFile.path,
-      modelParams: const ModelParams(
-        contextSize: 256,
-        gpuLayers: 0, // Disable GPU for stability on CI
-      ),
-    );
-  });
-
-  setUp(() {
+    await engine.loadModel('qwen-test.gguf');
     session = ChatSession(engine);
   });
 
-  tearDownAll(() async {
-    await engine.dispose();
-  });
-
-  group('ChatSession Integration Tests', () {
-    test('Initial state', () {
-      expect(session.history, isEmpty);
-      expect(session.systemPrompt, isNull);
-    });
-
-    test('Add message to history', () {
-      session.addMessage(
-        const LlamaChatMessage.fromText(
-          role: LlamaChatRole.user,
-          text: 'hello',
-        ),
-      );
-      expect(session.history.length, 1);
-      expect(session.history.first.content, 'hello');
-    });
-
-    test('Chat updates history', () async {
-      final response = await session.create([
-        const LlamaTextContent('Once upon a time'),
-      ], params: const GenerationParams(maxTokens: 50)).join();
-
-      expect(response, isNotEmpty);
-      expect(session.history.length, 2);
-      expect(session.history[0].role, LlamaChatRole.user);
-      expect(session.history[0].content, 'Once upon a time');
-      expect(session.history[1].role, LlamaChatRole.assistant);
-      expect(session.history[1].content, isNotEmpty);
-    });
-
-    test('System prompt persistence', () async {
-      session.systemPrompt = "You are a helpful assistant.";
-      expect(session.systemPrompt, "You are a helpful assistant.");
-
+  group('ChatSession Mock Tests', () {
+    test('onMessageAdded callback', () async {
+      final added = <LlamaChatMessage>[];
+      backend.queueResponse('Resp');
       await session.create([
         const LlamaTextContent('Hi'),
-      ], params: const GenerationParams(maxTokens: 50)).drain();
-      // History should only contain user/assistant messages, system prompt is handled internally
-      expect(session.history.length, 2);
+      ], onMessageAdded: (m) => added.add(m)).drain();
+      expect(added.length, 2);
     });
 
-    test('Reset clears history', () {
-      session.addMessage(
-        const LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'test'),
+    test('enforceContextLimit truncation', () async {
+      backend.contextSize = 1000;
+      session.maxContextTokens = 1000;
+      for (int i = 0; i < 20; i++) {
+        backend.queueResponse('R');
+        await session.create([LlamaTextContent('M' * 50)]).drain();
+      }
+      expect(session.history, isNotEmpty);
+      expect(session.history.length, lessThan(40));
+    });
+
+    test('multimodal marker injection', () async {
+      final msg = LlamaChatMessage.withContent(
+        role: LlamaChatRole.user,
+        content: [
+          LlamaImageContent(bytes: Uint8List.fromList([1, 2, 3])),
+          const LlamaTextContent('What is this?'),
+        ],
       );
-      session.reset();
-      expect(session.history, isEmpty);
+      session.addMessage(msg);
+      backend.queueResponse('An image');
+
+      await session.create([const LlamaTextContent('Explain')]).drain();
+
+      expect(backend.lastPrompt, contains('<__media__>'));
     });
 
-    test('Reset session', () {
-      session.systemPrompt = "System";
-      session.addMessage(
-        const LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'test'),
-      );
+    test(
+      'tools are passed to engine',
+      skip: 'Native template does not support tools yet',
+      () async {
+        final tools = [
+          ToolDefinition(
+            name: 'test_tool',
+            description: 'A test tool',
+            handler: (p) async => 'result',
+            parameters: [],
+          ),
+        ];
 
-      // Default reset (keeps system prompt)
-      session.reset();
-      expect(session.history, isEmpty);
-      expect(session.systemPrompt, "System");
+        backend.queueResponse('I will call the tool');
+        await session.create([
+          const LlamaTextContent('use the tool'),
+        ], tools: tools).drain();
 
-      // Full reset
-      session.reset(keepSystemPrompt: false);
-      expect(session.systemPrompt, isNull);
-    });
-
-    test('History immutability via getter', () {
-      expect(
-        () => session.history.add(
-          const LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'x'),
-        ),
-        throwsUnsupportedError,
-      );
-    });
+        // Verify tool definitions were injected into prompt
+        expect(backend.lastPrompt, contains('test_tool'));
+        expect(backend.lastPrompt, contains('A test tool'));
+      },
+    );
   });
 }

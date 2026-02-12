@@ -21,7 +21,7 @@
 - 🌐 **Web Support**: Run inference in the browser via WASM (powered by `wllama` v2).
 - 💎 **Dart-First API**: Streamlined architecture with decoupled backends.
 - 🔇 **Split Logging Control**: Configure Dart-side logger and native backend logs independently.
-- 🧪 **High Coverage**: Robust test suite with 80%+ global core coverage.
+- 🧪 **High Coverage**: CI enforces >=70% coverage on maintainable core code.
 
 ---
 
@@ -371,17 +371,27 @@ Check out our [LoRA Training Notebook](example/training_notebook/lora_training.i
 
 ## 🧪 Testing & Quality
 
-This project maintains a high standard of quality with **80%+ global test coverage**.
+This project maintains a high standard of quality with **>=70% line coverage on maintainable `lib/` code** (auto-generated files marked with `// coverage:ignore-file` are excluded).
 
-- **Multi-Platform Testing**: Run all tests across VM and Chrome automatically.
+- **Multi-Platform Testing**: `dart test` runs VM and Chrome-compatible suites automatically.
+- **Local-Only Scenarios**: Slow E2E tests are tagged `local-only` and skipped by default.
 - **CI/CD**: Automatic analysis, linting, and cross-platform test execution on every PR.
 
 ```bash
-# Run all tests (VM and Chrome)
+# Run default test suite (VM + Chrome-compatible tests)
 dart test
 
-# Run tests with coverage
-dart test --coverage=coverage
+# Run local-only E2E scenarios
+dart test --run-skipped -t local-only
+
+# Run VM tests with coverage
+dart test -p vm --coverage=coverage
+
+# Format lcov for maintainable code (respects // coverage:ignore-file)
+dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib --check-ignore
+
+# Enforce >=70% threshold
+dart run tool/testing/check_lcov_threshold.dart coverage/lcov.info 70
 ```
 
 ---

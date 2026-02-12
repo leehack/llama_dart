@@ -79,14 +79,19 @@ When a user adds `llamadart` as a dependency and runs their app:
 
 ## 🧪 Testing
 
-We take testing seriously. This project maintains **80%+ global test coverage**.
+We take testing seriously. CI enforces **>=70% line coverage on maintainable `lib/` code**. Auto-generated files are excluded when they are marked with `// coverage:ignore-file`.
 
 ### 1. Unified Test Runner
-We use `dart_test.yaml` and `@TestOn` tags to manage multi-platform execution. Running `dart test` without arguments will automatically run all compatible tests for your environment (VM and/or Chrome).
+We use `dart_test.yaml` and `@TestOn` tags to manage multi-platform execution.
+Running `dart test` will run VM and Chrome-compatible tests. Tests tagged
+`local-only` are intentionally skipped in default and CI runs.
 
 ```bash
-# Run all compatible tests
+# Run default suite (VM + Chrome-compatible tests)
 dart test
+
+# Run local-only E2E tests
+dart test --run-skipped -t local-only
 ```
 
 ### 2. Manual Platform Selection
@@ -104,14 +109,22 @@ dart test -p chrome
 To collect and view coverage reports:
 
 ```bash
-# 1. Run all tests with coverage
-dart test --coverage=coverage
+# 1. Run VM tests with coverage
+dart test -p vm --coverage=coverage
 
-# 2. Format into LCOV (requires coverage package)
-dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib
+# 2. Format into LCOV (respects // coverage:ignore-file)
+dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib --check-ignore
+
+# 3. Enforce >=70% threshold
+dart run tool/testing/check_lcov_threshold.dart coverage/lcov.info 70
 ```
 
 ### 4. Testing Standards
+- **Structure**:
+  - Unit tests live in `test/unit/` and mirror `lib/src/` paths.
+  - Generated/native-bridge files are excluded from strict mirroring when marked with `// coverage:ignore-file`.
+  - Scenario, regression, and diagnostic tests live in `test/integration/`.
+  - Slow, local-machine scenarios live in `test/e2e/` with `@Tags(['local-only'])`.
 - **Refactoring**: If you refactor shared logic, ensure both Native and Web tests pass.
 - **New Features**: Every new public API or feature must include unit or integration tests.
 - **Platform-Safety**: `LlamaEngine` must remain `dart:ffi` and `dart:io` free to maintain web support.

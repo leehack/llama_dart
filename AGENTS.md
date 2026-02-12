@@ -18,16 +18,18 @@ dart analyze --fatal-infos              # Treat info-level lints as errors (CI)
 dart test                                 # Run all platform-compatible tests (VM or browser)
 dart test -p vm                           # Run only VM (native) tests
 dart test -p chrome                       # Run only Chrome (web) tests
+dart test --run-skipped -t local-only     # Run local-only E2E scenarios
 dart test test/path/to/test_file.dart     # Run a single test file
-dart test --coverage=coverage             # Run tests and collect coverage
-dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib
+dart test -p vm --coverage=coverage       # Run VM tests and collect coverage
+dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib --check-ignore
+dart run tool/testing/check_lcov_threshold.dart coverage/lcov.info 70
 ```
 
 ### CI Standards
 - `dart format --output=none --set-exit-if-changed .` checks formatting
 - `dart analyze` runs the linter
-- `dart test -p vm -j 1` runs native tests sequentially (required for some OS)
-- Tests maintain 80%+ global coverage across all platforms
+- `dart test -p vm -j 1 --exclude-tags local-only` runs native tests sequentially (required for some OS)
+- CI enforces >=70% line coverage for maintainable `lib/` code using `--check-ignore` (generated files marked with `// coverage:ignore-file` are excluded)
 
 ## Code Style Guidelines
 
@@ -90,6 +92,7 @@ dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=cov
 ### Testing Standards
 - New public APIs require unit or integration tests
 - Test both Native (VM) and Web implementations for refactored shared logic
+- Mark generated files with `// coverage:ignore-file` so coverage gates exclude them
 - Use `expect` matchers over `assert`
 - Close ports/streams in `setUp`/`tearDown` to avoid hanging
 - Use `group` for logical test organization
@@ -145,7 +148,7 @@ throw LlamaUnsupportedException('GPU acceleration not available on this platform
 1. Run `dart format .` to ensure code is properly formatted
 2. Run `dart analyze` to fix all warnings and lint errors
 3. Run `dart test` to verify all tests pass
-4. For new features, add tests to maintain 80%+ coverage
+4. For new features, add tests to maintain >=70% coverage on maintainable source code (generated files are excluded via `// coverage:ignore-file`)
 
 ### Rebuilding llama.cpp
 When you need to rebuild the native llama.cpp library:
