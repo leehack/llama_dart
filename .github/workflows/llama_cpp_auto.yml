@@ -228,7 +228,7 @@ jobs:
         with:
           name: updated_source
           path: |
-            lib/src/generated/llama_bindings.dart
+            lib/src/backends/llama_cpp/bindings.dart
             hook/build.dart
 
   # ---------------------------------------------------------------------------
@@ -394,5 +394,5 @@ jobs:
           branch: automation/llama-cpp-${{ needs.codegen.outputs.tag }}
           labels: automation/llama-cpp
           add-paths: |
-            lib/src/generated/llama_bindings.dart
+            lib/src/backends/llama_cpp/bindings.dart
             hook/build.dart
