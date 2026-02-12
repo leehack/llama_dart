@@ -1,3 +1,27 @@
+enum ModelCapability { toolCalling, thinking, vision, audio, video }
+
+class ModelPreset {
+  final double temperature;
+  final int topK;
+  final double topP;
+  final int contextSize;
+  final int maxTokens;
+  final bool forceToolCall;
+
+  /// A value of 99 keeps auto-estimation behavior in ChatProvider.
+  final int gpuLayers;
+
+  const ModelPreset({
+    this.temperature = 0.7,
+    this.topK = 40,
+    this.topP = 0.9,
+    this.contextSize = 4096,
+    this.maxTokens = 4096,
+    this.gpuLayers = 99,
+    this.forceToolCall = false,
+  });
+}
+
 class DownloadableModel {
   final String name;
   final String description;
@@ -8,6 +32,12 @@ class DownloadableModel {
   final int sizeBytes;
   final bool supportsVision;
   final bool supportsAudio;
+  final bool supportsVideo;
+  final bool supportsToolCalling;
+  final bool supportsThinking;
+
+  /// Recommended generation/model-loading preset for this model.
+  final ModelPreset preset;
 
   /// Minimum RAM/VRAM in GB recommended for this model.
   final int minRamGb;
@@ -22,24 +52,43 @@ class DownloadableModel {
     this.mmprojFilename,
     this.supportsVision = false,
     this.supportsAudio = false,
+    this.supportsVideo = false,
+    this.supportsToolCalling = false,
+    this.supportsThinking = false,
     this.minRamGb = 2,
+    this.preset = const ModelPreset(),
   });
 
   bool get isMultimodal => supportsVision || supportsAudio;
 
+  List<ModelCapability> get capabilities => [
+    if (supportsToolCalling) ModelCapability.toolCalling,
+    if (supportsThinking) ModelCapability.thinking,
+    if (supportsVision) ModelCapability.vision,
+    if (supportsAudio) ModelCapability.audio,
+    if (supportsVideo) ModelCapability.video,
+  ];
+
   String get sizeMb => (sizeBytes / (1024 * 1024)).toStringAsFixed(1);
 
   static const List<DownloadableModel> defaultModels = [
-    // ===== SMALL MODELS (Mobile/Low-end) =====
     DownloadableModel(
-      name: 'Qwen 2.5 0.5B',
-      description:
-          '⚡ Tiny (400MB) • Min: 2GB RAM • Fast but limited instruction following.',
+      name: 'FunctionGemma 270M',
+      description: '🛠️ Tiny (180MB) • Tool-calling specialized small model.',
       url:
-          'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true',
-      filename: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
-      sizeBytes: 398000000,
+          'https://huggingface.co/unsloth/functiongemma-270m-it-GGUF/resolve/main/functiongemma-270m-it-Q4_K_M.gguf?download=true',
+      filename: 'functiongemma-270m-it-Q4_K_M.gguf',
+      sizeBytes: 180000000,
       minRamGb: 2,
+      supportsToolCalling: true,
+      preset: ModelPreset(
+        temperature: 0.0,
+        topK: 40,
+        topP: 0.9,
+        contextSize: 4096,
+        maxTokens: 1024,
+        forceToolCall: true,
+      ),
     ),
     DownloadableModel(
       name: 'SmolVLM 500M Instruct',
@@ -54,26 +103,30 @@ class DownloadableModel {
       supportsVision: true,
       sizeBytes: 636000000,
       minRamGb: 2,
+      preset: ModelPreset(
+        temperature: 0.2,
+        topK: 40,
+        topP: 0.9,
+        contextSize: 4096,
+        maxTokens: 1024,
+      ),
     ),
     DownloadableModel(
-      name: 'Gemma 3 1B',
-      description: '📝 Text (850MB) • Min: 2GB RAM • Lightweight Google model.',
+      name: 'DeepSeek R1 Qwen 1.5B',
+      description: '🧠 Reasoning (1.1GB) • R1 reasoning in a compact size.',
       url:
-          'https://huggingface.co/bartowski/google_gemma-3-1b-it-GGUF/resolve/main/google_gemma-3-1b-it-Q4_K_M.gguf?download=true',
-      filename: 'google_gemma-3-1b-it-Q4_K_M.gguf',
-      sizeBytes: 850000000,
-      minRamGb: 2,
-    ),
-
-    // ===== MEDIUM MODELS (Desktop/Tablets) =====
-    DownloadableModel(
-      name: 'LFM 2.5 1.2B',
-      description: '📝 Text (800MB) • Min: 3GB RAM • Long context support.',
-      url:
-          'https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/main/LFM2.5-1.2B-Instruct-Q4_K_M.gguf?download=true',
-      filename: 'LFM2.5-1.2B-Instruct-Q4_K_M.gguf',
-      sizeBytes: 800000000,
+          'https://huggingface.co/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf?download=true',
+      filename: 'DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf',
+      sizeBytes: 1100000000,
       minRamGb: 3,
+      supportsThinking: true,
+      preset: ModelPreset(
+        temperature: 0.6,
+        topK: 40,
+        topP: 0.95,
+        contextSize: 8192,
+        maxTokens: 4096,
+      ),
     ),
     DownloadableModel(
       name: 'Ultravox v0.5 1B',
@@ -83,31 +136,157 @@ class DownloadableModel {
       filename: 'ultravox-v0.5-1b-q4_k_m.gguf',
       mmprojUrl:
           'https://huggingface.co/ggml-org/ultravox-v0_5-llama-3_2-1b-GGUF/resolve/main/mmproj-ultravox-v0_5-llama-3_2-1b-f16.gguf?download=true',
-      mmprojFilename: 'ultravox-v0.5-mmproj-f16.gguf',
+      mmprojFilename: 'mmproj-ultravox-v0_5-llama-3_2-1b-f16.gguf',
       supportsAudio: true,
       sizeBytes: 1100000000,
       minRamGb: 3,
+      preset: ModelPreset(
+        temperature: 0.2,
+        topK: 40,
+        topP: 0.9,
+        contextSize: 4096,
+        maxTokens: 1024,
+      ),
     ),
     DownloadableModel(
-      name: 'Qwen 2.5 3B Instruct',
-      description: '🛠️ Text (2GB) • Min: 4GB RAM • Good for tool calling.',
+      name: 'LFM 2.5 1.2B Thinking',
+      description: '🧠 Reasoning (1.3GB) • Liquid foundation reasoning model.',
       url:
-          'https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf?download=true',
-      filename: 'qwen2.5-3b-instruct-q4_k_m.gguf',
-      sizeBytes: 2000000000,
+          'https://huggingface.co/unsloth/LFM2.5-1.2B-Thinking-GGUF/resolve/main/LFM2.5-1.2B-Thinking-Q4_K_M.gguf?download=true',
+      filename: 'LFM2.5-1.2B-Thinking-Q4_K_M.gguf',
+      sizeBytes: 1300000000,
+      minRamGb: 3,
+      supportsToolCalling: true,
+      supportsThinking: true,
+      preset: ModelPreset(
+        temperature: 0.05,
+        topK: 50,
+        topP: 0.1,
+        contextSize: 32768,
+        maxTokens: 4096,
+      ),
+    ),
+    DownloadableModel(
+      name: 'Llama 3.2 3B Instruct',
+      description: '🏠 General (2.1GB) • Excellent balanced mobile model.',
+      url:
+          'https://huggingface.co/unsloth/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf?download=true',
+      filename: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+      sizeBytes: 2100000000,
       minRamGb: 4,
+      supportsToolCalling: true,
+      preset: ModelPreset(
+        temperature: 0.2,
+        topK: 40,
+        topP: 0.9,
+        contextSize: 4096,
+        maxTokens: 2048,
+      ),
     ),
-
-    // ===== LARGE MODELS (High-end Desktop/Workstation) =====
     DownloadableModel(
-      name: 'Qwen 2.5 7B Instruct',
-      description:
-          '🛠️ Text (4.7GB) • Min: 8GB RAM • Excellent instruction following & tools.',
+      name: 'Ministral 3B Reasoning',
+      description: '🧠 Reasoning (2.3GB) • High-performance reasoning.',
       url:
-          'https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf?download=true',
-      filename: 'qwen2.5-7b-instruct-q4_k_m.gguf',
-      sizeBytes: 4700000000,
+          'https://huggingface.co/unsloth/Ministral-3-3B-Reasoning-2512-GGUF/resolve/main/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf?download=true',
+      filename: 'Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf',
+      sizeBytes: 2300000000,
+      minRamGb: 4,
+      supportsToolCalling: true,
+      supportsThinking: true,
+      preset: ModelPreset(
+        temperature: 0.7,
+        topK: 40,
+        topP: 0.95,
+        contextSize: 4096,
+        maxTokens: 2048,
+      ),
+    ),
+    DownloadableModel(
+      name: 'Phi-4 Mini Reasoning',
+      description: '🧠 Reasoning (2.6GB) • Microsoft reasoning specialist.',
+      url:
+          'https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF/resolve/main/Phi-4-mini-instruct-Q4_K_M.gguf',
+      filename: 'Phi-4-mini-instruct-Q4_K_M.gguf',
+      sizeBytes: 2600000000,
+      minRamGb: 4,
+      supportsToolCalling: true,
+      supportsThinking: true,
+      preset: ModelPreset(
+        temperature: 0.0,
+        topK: 40,
+        topP: 0.9,
+        contextSize: 4096,
+        maxTokens: 2048,
+      ),
+    ),
+    DownloadableModel(
+      name: 'Gemma 3n E4B it',
+      description: '🧠 Reasoning (2.8GB) • Experimental Google reasoning.',
+      url:
+          'https://huggingface.co/unsloth/gemma-3n-E4B-it-GGUF/resolve/main/gemma-3n-E4B-it-Q4_K_M.gguf?download=true',
+      filename: 'gemma-3n-E4B-it-Q4_K_M.gguf',
+      sizeBytes: 2800000000,
+      minRamGb: 6,
+      supportsThinking: true,
+      preset: ModelPreset(
+        temperature: 1.0,
+        topK: 64,
+        topP: 0.95,
+        contextSize: 32768,
+        maxTokens: 2048,
+      ),
+    ),
+    DownloadableModel(
+      name: 'Qwen 3 4B',
+      description: '🧠 Thinking (3.0GB) • Latest Qwen intelligence.',
+      url:
+          'https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true',
+      filename: 'Qwen3-4B-Q4_K_M.gguf',
+      sizeBytes: 3000000000,
+      minRamGb: 6,
+      supportsToolCalling: true,
+      supportsThinking: true,
+      preset: ModelPreset(
+        temperature: 0.6,
+        topK: 20,
+        topP: 0.95,
+        contextSize: 8192,
+        maxTokens: 4096,
+      ),
+    ),
+    DownloadableModel(
+      name: 'Gemma 3 4B it',
+      description: '🧠 General (3.2GB) • Strong multilingual reasoning model.',
+      url:
+          'https://huggingface.co/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf?download=true',
+      filename: 'gemma-3-4b-it-Q4_K_M.gguf',
+      sizeBytes: 3200000000,
+      minRamGb: 6,
+      supportsThinking: true,
+      preset: ModelPreset(
+        temperature: 1.0,
+        topK: 64,
+        topP: 0.95,
+        contextSize: 8192,
+        maxTokens: 2048,
+      ),
+    ),
+    DownloadableModel(
+      name: 'DeepSeek R1 Llama 8B',
+      description: '🧠 Reasoning (5.3GB) • Powerful R1 logic in 8B format.',
+      url:
+          'https://huggingface.co/unsloth/DeepSeek-R1-Distill-Llama-8B-GGUF/resolve/main/DeepSeek-R1-Distill-Llama-8B-Q4_K_M.gguf?download=true',
+      filename: 'DeepSeek-R1-Distill-Llama-8B-Q4_K_M.gguf',
+      sizeBytes: 5300000000,
       minRamGb: 8,
+      supportsThinking: true,
+      preset: ModelPreset(
+        temperature: 0.6,
+        topK: 40,
+        topP: 0.95,
+        contextSize: 8192,
+        maxTokens: 4096,
+      ),
     ),
   ];
 }

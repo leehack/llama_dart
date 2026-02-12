@@ -97,4 +97,6 @@ jobs:
         run: flutter pub get
 
       - name: Run native tests
+        env:
+          GGML_METAL_DEVICES: "0"
         run: dart test -p vm -j 1

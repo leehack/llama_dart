@@ -149,8 +149,8 @@ class SettingsSheet extends StatelessWidget {
                 const SizedBox(height: 24),
                 _buildSettingItem(
                   context,
-                  title: 'Log Level',
-                  subtitle: 'Controls llama.cpp verbosity',
+                  title: 'Dart Log Level',
+                  subtitle: 'Controls llamadart logger verbosity',
                   child: Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -173,6 +173,39 @@ class SettingsSheet extends StatelessWidget {
                         onChanged: (value) {
                           if (value != null) {
                             provider.updateLogLevel(value);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _buildSettingItem(
+                  context,
+                  title: 'Native Log Level',
+                  subtitle: 'Controls llama.cpp backend verbosity',
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<LlamaLogLevel>(
+                        value: provider.settings.nativeLogLevel,
+                        isExpanded: true,
+                        items: LlamaLogLevel.values.map((level) {
+                          return DropdownMenuItem(
+                            value: level,
+                            child: Text(level.name.toUpperCase()),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            provider.updateNativeLogLevel(value);
                           }
                         },
                       ),
@@ -327,6 +360,20 @@ class SettingsSheet extends StatelessWidget {
                         },
                       ),
                     ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                _buildSettingItem(
+                  context,
+                  title: 'Max Output Tokens',
+                  subtitle: provider.maxGenerationTokens.toString(),
+                  child: Slider(
+                    value: provider.maxGenerationTokens.toDouble(),
+                    min: 512.0,
+                    max: 32768.0,
+                    divisions: (32768 - 512) ~/ 512,
+                    onChanged: (value) =>
+                        provider.updateMaxTokens(value.toInt()),
                   ),
                 ),
                 const SizedBox(height: 24),

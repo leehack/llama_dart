@@ -84,3 +84,8 @@ third_party/Vulkan-Headers/
 
 coverage/
 *.log
+
+# Test artifacts
+test_output.txt
+test_output_*.txt
+test_failure_details.txt

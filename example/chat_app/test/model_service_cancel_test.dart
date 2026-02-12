@@ -125,16 +125,14 @@ void main() {
       // Wait for the download future to complete
       await downloadFuture;
 
-      // Verify partial file exists
+      // Verify partial temp file exists and final file has not been promoted.
+      final partialFile = File(
+        p.join(tempDir.path, 'large_model.bin.download'),
+      );
       final file = File(p.join(tempDir.path, 'large_model.bin'));
-      expect(file.existsSync(), isTrue);
-      expect(file.lengthSync(), greaterThan(0));
-      // File is pre-allocated so lengthSync is totalBytes.
-      // relying on meta file existence to verify incompleteness.
-
-      // Verify meta file exists (so it can be resumed)
-      final metaFile = File(p.join(tempDir.path, 'large_model.bin.meta'));
-      expect(metaFile.existsSync(), isTrue);
+      expect(partialFile.existsSync(), isTrue);
+      expect(partialFile.lengthSync(), greaterThan(0));
+      expect(file.existsSync(), isFalse);
     },
   );
 }

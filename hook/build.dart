@@ -7,7 +7,7 @@ import 'package:path/path.dart' as path;
 
 // Constants for release
 // This should match the pinned llama.cpp submodule tag in third_party/llama_cpp
-const _llamaCppTag = 'b7898';
+const _llamaCppTag = 'b8007';
 const _baseUrl =
     'https://github.com/leehack/llamadart/releases/download/$_llamaCppTag';
 
@@ -28,9 +28,15 @@ const _extDll = 'dll';
 
 void main(List<String> args) async {
   Logger.root.level = Level.ALL;
-  Logger.root.onRecord.listen(
-    (r) => print('${r.level.name}: ${r.time}: ${r.message}'),
-  );
+  Logger.root.onRecord.listen((r) {
+    print('${r.level.name}: ${r.time}: ${r.message}');
+    File(
+      path.join(Directory.systemTemp.path, 'hook_debug.log'),
+    ).writeAsStringSync(
+      '${r.level.name}: ${r.message}\n',
+      mode: FileMode.append,
+    );
+  });
   final log = Logger('${_packageName}_hook');
 
   await build(args, (input, output) async {

@@ -20,14 +20,14 @@
 - **LoRA Support**: Apply fine-tuned adapters (GGUF) dynamically at runtime.
 - 🌐 **Web Support**: Run inference in the browser via WASM (powered by `wllama` v2).
 - 💎 **Dart-First API**: Streamlined architecture with decoupled backends.
-- 🔇 **Logging Control**: Toggle native engine output or use granular filtering on Web.
+- 🔇 **Split Logging Control**: Configure Dart-side logger and native backend logs independently.
 - 🧪 **High Coverage**: Robust test suite with 80%+ global core coverage.
 
 ---
 
 ## 🏗️ Architecture
 
-llamadart 0.3.0+ uses a modern, decoupled architecture designed for flexibility and platform independence:
+llamadart 0.4.1 uses a modern, decoupled architecture designed for flexibility and platform independence:
 
 - **LlamaEngine**: The primary high-level orchestrator. It handles model lifecycle, tokenization, chat templating, and manages the inference stream.
 - **ChatSession**: A stateful wrapper for `LlamaEngine` that automatically manages conversation history, system prompts, and enforces context window limits (sliding window).
@@ -57,7 +57,7 @@ Add `llamadart` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  llamadart: ^0.4.0
+  llamadart: ^0.4.1
 ```
 
 ### Zero Setup (Native Assets)
@@ -112,17 +112,15 @@ void main() async {
   try {
     await engine.loadModel('model.gguf');
 
-    // Create a session with a system prompt and optional tools
+    // Create a session with a system prompt
     final session = ChatSession(
       engine, 
       systemPrompt: 'You are a helpful assistant.',
-      toolRegistry: myToolRegistry, // Optional
     );
 
-    // Just send user text; history and tools are handled automatically
-    // The model decides when to use tools or respond directly.
-    await for (final token in session.chat('What is the capital of France?')) {
-      stdout.write(token);
+    // Send a message
+    await for (final chunk in session.create([LlamaTextContent('What is the capital of France?')])) {
+      stdout.write(chunk.choices.first.delta.content ?? '');
     }
   } finally {
     await engine.dispose();
@@ -135,7 +133,7 @@ void main() async {
 `llamadart` supports intelligent tool calling where the model can use external functions to help it answer questions.
   
 ```dart
-final registry = ToolRegistry([
+final tools = [
   ToolDefinition(
     name: 'get_weather',
     description: 'Get the current weather',
@@ -147,19 +145,117 @@ final registry = ToolRegistry([
       return 'It is 22°C and sunny in $location';
     },
   ),
-]);
+];
 
-final session = ChatSession(engine, toolRegistry: registry);
+final session = ChatSession(engine);
 
-// "how's the weather in London?" -> Calls get_weather -> "It is 22°C and sunny in London"
-await for (final token in session.chat("how's the weather in London?")) {
-  stdout.write(token);
+// Pass tools per-request
+await for (final chunk in session.create(
+  [LlamaTextContent("how's the weather in London?")],
+  tools: tools,
+)) {
+  final delta = chunk.choices.first.delta;
+  if (delta.content != null) stdout.write(delta.content);
 }
+```
+
+### 3.5 Custom Template Handlers and Overrides (Advanced)
+
+If you need behavior for a model-specific template that is not built in yet,
+you can register your own handler and/or template override.
+
+```dart
+import 'package:llamadart/llamadart.dart';
+
+class MyHandler extends ChatTemplateHandler {
+  @override
+  ChatFormat get format => ChatFormat.generic;
+
+  @override
+  List<String> get additionalStops => const [];
+
+  @override
+  LlamaChatTemplateResult render({
+    required String templateSource,
+    required List<LlamaChatMessage> messages,
+    required Map<String, String> metadata,
+    bool addAssistant = true,
+    List<ToolDefinition>? tools,
+    bool enableThinking = true,
+  }) {
+    final prompt = messages.map((m) => m.content).join('\n');
+    return LlamaChatTemplateResult(prompt: prompt, format: format.index);
+  }
+
+  @override
+  ChatParseResult parse(
+    String output, {
+    bool isPartial = false,
+    bool parseToolCalls = true,
+    bool thinkingForcedOpen = false,
+  }) {
+    return ChatParseResult(content: output.trim());
+  }
+
+  @override
+  String? buildGrammar(List<ToolDefinition>? tools) => null;
+}
+
+void configureTemplateRouting() {
+  // 1) Register a custom handler
+  ChatTemplateEngine.registerHandler(
+    id: 'my-handler',
+    handler: MyHandler(),
+    matcher: (ctx) =>
+        (ctx.metadata['general.name'] ?? '').contains('MyModel'),
+  );
+
+  // 2) Register a global template override
+  ChatTemplateEngine.registerTemplateOverride(
+    id: 'my-template-override',
+    templateSource: '{{ messages[0]["content"] }}',
+    matcher: (ctx) => ctx.hasTools,
+  );
+}
+
+Future<void> usePerCallOverride(LlamaEngine engine) async {
+  final template = await engine.chatTemplate(
+    [
+      const LlamaChatMessage.fromText(
+        role: LlamaChatRole.user,
+        text: 'hello',
+      ),
+    ],
+    customTemplate: '{{ "CUSTOM:" ~ messages[0]["content"] }}',
+    customHandlerId: 'my-handler',
+  );
+
+  print(template.prompt);
+}
+```
+
+### 3.6 Logging Control
+
+Use separate log levels for Dart and native output when debugging:
+
+```dart
+import 'package:llamadart/llamadart.dart';
+
+final engine = LlamaEngine(LlamaBackend());
+
+// Dart-side logs (template routing, parser diagnostics, etc.)
+await engine.setDartLogLevel(LlamaLogLevel.info);
+
+// Native llama.cpp / ggml logs
+await engine.setNativeLogLevel(LlamaLogLevel.warn);
+
+// Convenience: set both at once
+await engine.setLogLevel(LlamaLogLevel.none);
 ```
 
 ### 4. Multimodal Usage (Vision/Audio)
 
-`llamadart` supports multimodal models (vision and audio) using `LlamaChatMessage.multimodal`.
+`llamadart` supports multimodal models (vision and audio) using `LlamaChatMessage.withContent`.
 
 ```dart
 import 'package:llamadart/llamadart.dart';
@@ -175,18 +271,20 @@ void main() async {
 
     // Create a multimodal message
     final messages = [
-      LlamaChatMessage.multimodal(
+      LlamaChatMessage.withContent(
         role: LlamaChatRole.user,
-        parts: [
+        content: [
           LlamaImageContent(path: 'image.jpg'),
           LlamaTextContent('What is in this image?'),
         ],
       ),
     ];
 
-    // Use singleTurn for one-off multimodal requests
-    final response = await ChatSession.singleTurn(engine, messages);
-    print(response);
+    // Use stateless engine.create for one-off multimodal requests
+    final response = engine.create(messages);
+    await for (final chunk in response) {
+      stdout.write(chunk.choices.first.delta.content ?? '');
+    }
   } finally {
     await engine.dispose();
   }

@@ -8,7 +8,14 @@ class ChatSettings {
   final int topK;
   final double topP;
   final int contextSize;
+  final int maxTokens;
+  final int gpuLayers;
+
+  /// Dart-side logger verbosity (llamadart logger).
   final LlamaLogLevel logLevel;
+
+  /// Native llama.cpp backend logger verbosity.
+  final LlamaLogLevel nativeLogLevel;
   final bool toolsEnabled;
   final bool forceToolCall;
 
@@ -19,8 +26,11 @@ class ChatSettings {
     this.temperature = 0.7,
     this.topK = 40,
     this.topP = 0.9,
-    this.contextSize = 0,
-    this.logLevel = LlamaLogLevel.error,
+    this.contextSize = 4096,
+    this.maxTokens = 4096,
+    this.gpuLayers = 32,
+    this.logLevel = LlamaLogLevel.none,
+    this.nativeLogLevel = LlamaLogLevel.warn,
     this.toolsEnabled = true,
     this.forceToolCall = false,
   });
@@ -33,7 +43,10 @@ class ChatSettings {
     int? topK,
     double? topP,
     int? contextSize,
+    int? maxTokens,
+    int? gpuLayers,
     LlamaLogLevel? logLevel,
+    LlamaLogLevel? nativeLogLevel,
     bool? toolsEnabled,
     bool? forceToolCall,
   }) {
@@ -45,7 +58,10 @@ class ChatSettings {
       topK: topK ?? this.topK,
       topP: topP ?? this.topP,
       contextSize: contextSize ?? this.contextSize,
+      maxTokens: maxTokens ?? this.maxTokens,
+      gpuLayers: gpuLayers ?? this.gpuLayers,
       logLevel: logLevel ?? this.logLevel,
+      nativeLogLevel: nativeLogLevel ?? this.nativeLogLevel,
       toolsEnabled: toolsEnabled ?? this.toolsEnabled,
       forceToolCall: forceToolCall ?? this.forceToolCall,
     );

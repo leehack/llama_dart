@@ -66,9 +66,9 @@ void main(List<String> arguments) async {
   final modelService = ModelService();
   final llamaService = LlamaCliService();
 
-  // Define sample tools using the typed ToolRegistry API
-  final toolRegistry = enableToolTest
-      ? ToolRegistry([
+  // Define sample tools using ToolDefinition
+  final tools = enableToolTest
+      ? <ToolDefinition>[
           ToolDefinition(
             name: 'get_weather',
             description: 'Get the current weather for a location.',
@@ -93,7 +93,7 @@ void main(List<String> arguments) async {
               return 'The weather in $location is $temp$unitSymbol and Sunny.';
             },
           ),
-        ])
+        ]
       : null;
 
   try {
@@ -109,7 +109,7 @@ void main(List<String> arguments) async {
       modelFile.path,
       loras: loras,
       logLevel: enableLog ? LlamaLogLevel.info : LlamaLogLevel.none,
-      toolRegistry: toolRegistry,
+      tools: tools,
     );
     print('Model loaded successfully.\n');
 

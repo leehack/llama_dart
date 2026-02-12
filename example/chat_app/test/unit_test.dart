@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:llamadart/llamadart.dart';
 import 'package:llamadart_chat_example/providers/chat_provider.dart';
 import 'package:llamadart_chat_example/models/chat_settings.dart';
+import 'package:llamadart_chat_example/models/downloadable_model.dart';
 
 import 'mocks.dart';
 
@@ -45,7 +47,7 @@ void main() {
         isTrue,
       );
       expect(mockEngine.initialized, isTrue);
-      expect(provider.maxTokens, greaterThan(0));
+      expect(provider.maxGenerationTokens, greaterThan(0));
     });
 
     test('loadModel failure', () async {
@@ -72,9 +74,9 @@ void main() {
       // Wait, let's look at MockLlamaBackend:
       // yield [72, 105, 32, 116, 104, 101, 114, 101]; // "Hi there"
       // That's one yield. Our current implementation increments _currentTokens for each YIELD in the stream.
-      // MockLlamaEngine.chat yields once. So prompt(5) + 1 = 6.
-
-      expect(provider.currentTokens, 6);
+      // MockLlamaEngine.create yields once. So 1 generated token.
+      // ChatProvider _currentTokens only tracks generated tokens.
+      expect(provider.currentTokens, 1);
     });
 
     test('clearConversation resets tokens', () async {
@@ -93,6 +95,77 @@ void main() {
 
       provider.updateTopK(20);
       expect(provider.settings.topK, 20);
+
+      provider.updateLogLevel(LlamaLogLevel.info);
+      expect(provider.settings.logLevel, LlamaLogLevel.info);
+
+      provider.updateNativeLogLevel(LlamaLogLevel.warn);
+      expect(provider.settings.nativeLogLevel, LlamaLogLevel.warn);
+    });
+
+    test('applyModelPreset updates generation and tool settings', () {
+      const model = DownloadableModel(
+        name: 'Preset model',
+        description: 'Preset test model',
+        url: 'https://example.com/model.gguf',
+        filename: 'model.gguf',
+        sizeBytes: 1,
+        supportsToolCalling: true,
+        preset: ModelPreset(
+          temperature: 0.1,
+          topK: 12,
+          topP: 0.8,
+          contextSize: 8192,
+          maxTokens: 512,
+          gpuLayers: 99,
+        ),
+      );
+
+      provider.applyModelPreset(model);
+
+      expect(provider.settings.temperature, 0.1);
+      expect(provider.settings.topK, 12);
+      expect(provider.settings.topP, 0.8);
+      expect(provider.settings.contextSize, 8192);
+      expect(provider.settings.maxTokens, 512);
+      expect(provider.settings.gpuLayers, 99);
+      expect(provider.settings.toolsEnabled, isTrue);
+      expect(provider.settings.forceToolCall, isFalse);
+    });
+
+    test('applyModelPreset disables tools when unsupported', () {
+      const model = DownloadableModel(
+        name: 'No tools model',
+        description: 'No tools preset model',
+        url: 'https://example.com/no-tools.gguf',
+        filename: 'no-tools.gguf',
+        sizeBytes: 1,
+        supportsToolCalling: false,
+      );
+
+      provider.updateToolsEnabled(true);
+      provider.updateForceToolCall(true);
+      provider.applyModelPreset(model);
+
+      expect(provider.settings.toolsEnabled, isFalse);
+      expect(provider.settings.forceToolCall, isFalse);
+    });
+
+    test('applyModelPreset can force tool calling when configured', () {
+      const model = DownloadableModel(
+        name: 'Forced tool model',
+        description: 'Force tool test model',
+        url: 'https://example.com/forced-tools.gguf',
+        filename: 'forced-tools.gguf',
+        sizeBytes: 1,
+        supportsToolCalling: true,
+        preset: ModelPreset(forceToolCall: true),
+      );
+
+      provider.applyModelPreset(model);
+
+      expect(provider.settings.toolsEnabled, isTrue);
+      expect(provider.settings.forceToolCall, isTrue);
     });
   });
 

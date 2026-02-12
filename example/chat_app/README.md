@@ -7,8 +7,12 @@ A Flutter chat application demonstrating real-world usage of llamadart with UI.
 - 🦙 Real-time chat with local LLM
 - 🖼️ **Vision & Audio Support**: Attach images and audio clips to your messages.
 - 📱 Material Design 3 UI
-- ⚙️ Model configuration (path, backend selection)
+- ⚙️ Model configuration (path, backend selection, GPU layers, context size)
+- 🧩 Capability badges per model (Tools / Thinking / Vision / Audio / Video)
+- 🎯 Per-model presets for temperature, Top-K, Top-P, context, and max tokens
+- 🛠️ Tool-calling toggles with template support checks
 - 💾 Settings persistence
+- 🔇 Separate Dart vs native log level controls
 - 🔄 Streaming generation
 - 🎨 User and AI message bubbles
 
@@ -23,14 +27,15 @@ flutter run
 
 ### 2. Choose and Download a Model
 1. The app will open to a **Model Selection** screen.
-2. Select one of the pre-configured models (e.g., Qwen 2.5 0.5B).
+2. Select one of the pre-configured models (for example: FunctionGemma 270M, Llama 3.2 3B, Qwen 3 4B, Gemma 3/3n, DeepSeek R1 distills).
 3. Tap the **Download** icon. The app uses `Dio` to download the model directly to your device's documents directory.
 4. Once downloaded, tap **Select** to load the model.
 
 ### 3. Advanced Configuration (Optional)
 1. Tap the settings icon (⚙️) in the app bar.
-2. Adjust **GPU Layers**, **Context Size**, or **Preferred Backend**.
-3. Tap **Load Model** to apply changes.
+2. Adjust **GPU Layers**, **Context Size**, **Preferred Backend**, **Dart Log Level**, and **Native Log Level**.
+3. Optionally toggle **Enable Tools** / **Force Tool Call** depending on model/template support.
+4. Tap **Load Model** to apply changes.
 
 
 ## Testing Scenarios
@@ -119,25 +124,25 @@ if (mmprojPath != null) {
 ### Sending a Multimodal Message
 ```dart
 final messages = [
-  LlamaChatMessage.multimodal(
+  LlamaChatMessage.withContent(
     role: LlamaChatRole.user,
-    parts: [
+    content: [
       LlamaImageContent(path: 'path/to/image.jpg'),
       LlamaTextContent('What is this image?'),
     ],
   ),
 ];
 
-final stream = engine.chat(
+final stream = engine.create(
   messages,
   params: GenerationParams(
-    maxTokens: 512,
+    maxTokens: 4096, // New default in v0.4.1+
     temp: 0.7,
   ),
 );
 
-await for (final token in stream) {
-  stdout.write(token);
+await for (final chunk in stream) {
+  stdout.write(chunk.choices.first.delta.content ?? '');
 }
 ```
 
@@ -195,11 +200,13 @@ _(Add screenshots here when complete)_
 | Web      | ✅ Tested | CPU (Wasm) |
 
 
-## Future Enhancements (Implemented ✅)
+## Implemented Highlights ✅
 
 - [x] Conversation history maintenance
 - [x] Multiple model support & switching
+- [x] Per-model sampling/runtime presets
+- [x] Model capability badges in selection cards
 - [x] Professional layered architecture
 - [x] Real-time streaming UI
-- [x] Persistent settings & log control
+- [x] Persistent settings & split Dart/native log control
 - [x] Advanced sampling parameters (Temp/Top-K/Top-P)

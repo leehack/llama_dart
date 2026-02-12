@@ -49,18 +49,18 @@ class _ContextIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Selector<ChatProvider, (bool, int, int)>(
-      selector: (_, p) => (p.isReady, p.currentTokens, p.maxTokens),
+      selector: (_, p) => (p.isReady, p.currentTokens, p.contextLimit),
       builder: (context, data, _) {
-        final (isReady, currentTokens, maxTokens) = data;
+        final (isReady, currentTokens, contextLimit) = data;
         if (!isReady) return const SizedBox.shrink();
 
-        final percent = maxTokens > 0 ? (currentTokens / maxTokens) : 0.0;
+        final percent = contextLimit > 0 ? (currentTokens / contextLimit) : 0.0;
         final color = percent > 0.9
             ? Colors.red
             : (percent > 0.7 ? Colors.orange : Colors.green);
 
         return Text(
-          'Context: $currentTokens / $maxTokens tokens',
+          'Context: $currentTokens / $contextLimit tokens',
           style: TextStyle(
             fontSize: 10,
             color: color.withValues(alpha: 0.7),

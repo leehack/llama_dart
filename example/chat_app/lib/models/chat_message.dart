@@ -34,6 +34,12 @@ class ChatMessage {
     return false;
   }
 
+  /// Derived property to get thinking content if present.
+  String? get thinkingText {
+    final thinkingPart = parts?.whereType<LlamaThinkingContent>().firstOrNull;
+    return thinkingPart?.thinking;
+  }
+
   ChatMessage copyWith({
     String? text,
     bool? isUser,
