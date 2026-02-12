@@ -30,7 +30,9 @@ void main(List<String> args) async {
   Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen((r) {
     print('${r.level.name}: ${r.time}: ${r.message}');
-    File('/tmp/hook_debug.log').writeAsStringSync(
+    File(
+      path.join(Directory.systemTemp.path, 'hook_debug.log'),
+    ).writeAsStringSync(
       '${r.level.name}: ${r.message}\n',
       mode: FileMode.append,
     );
