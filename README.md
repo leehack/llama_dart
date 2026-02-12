@@ -48,6 +48,20 @@ llamadart uses a modern, decoupled architecture designed for flexibility and pla
 
 ---
 
+## 🌐 Web Backend Notes (wllama)
+
+When running on the web backend (`wllama`), keep these current limitations in mind:
+
+- Web is currently **WASM/CPU only** (no WebGPU acceleration in this binding yet).
+- **Multimodal projector loading is not supported on web** (`loadMultimodalProjector`).
+- `supportsVision` / `supportsAudio` report `false` on web.
+- **LoRA runtime adapter APIs are not supported** on web in the current implementation.
+- Changing log level via `setLogLevel`/`setNativeLogLevel` applies on the next model load.
+
+If your app targets both native and web, gate feature toggles by platform/capability checks.
+
+---
+
 ## 📦 Installation
 
 Add `llamadart` to your `pubspec.yaml`:

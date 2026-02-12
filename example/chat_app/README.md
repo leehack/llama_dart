@@ -5,7 +5,7 @@ A Flutter chat application demonstrating real-world usage of llamadart with UI.
 ## Features
 
 - 🦙 Real-time chat with local LLM
-- 🖼️ **Vision & Audio Support**: Attach images and audio clips to your messages.
+- 🖼️ **Vision & Audio Support (Native)**: Attach images and audio clips to your messages on native platforms.
 - 📱 Material Design 3 UI
 - ⚙️ Model configuration (path, backend selection, GPU layers, context size)
 - 🧩 Capability badges per model (Tools / Thinking / Vision / Audio / Video)
@@ -206,6 +206,13 @@ _(Add screenshots here when complete)_
 | Linux    | 🟡 Expected | Vulkan |
 | Windows  | ✅ Tested | Vulkan |
 | Web      | ✅ Tested | CPU (Wasm) |
+
+### Web Limitations
+
+- Web uses the `wllama` backend and currently runs on **WASM/CPU**.
+- Multimodal projector loading is not supported on web.
+- Vision/audio model capabilities are currently native-only in this example.
+- On web, model files are loaded by URL (local file download/cache flow differs from native).
 
 
 ## Implemented Highlights ✅

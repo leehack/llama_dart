@@ -122,6 +122,12 @@ example/
 | **Windows** | x64 | Vulkan | ✅ Tested |
 | **Web** | WASM | CPU | ✅ Tested |
 
+### Web Notes
+
+- Web examples run with the `wllama` backend on WASM/CPU.
+- Multimodal projector loading and native LoRA flows are not available on web.
+- `chat_app` on web uses model URLs rather than native file download storage.
+
 ## Troubleshooting
 
 **Common Issues:**

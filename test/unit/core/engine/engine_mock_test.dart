@@ -4,9 +4,16 @@ import 'package:test/test.dart';
 import 'package:llamadart/llamadart.dart';
 
 class MockLlamaBackend implements LlamaBackend {
+  MockLlamaBackend({
+    this.backendName = 'Mock',
+    this.urlLoadingSupported = false,
+  });
+
   bool _isReady = false;
   String? lastLoraPath;
   double? lastLoraScale;
+  final String backendName;
+  final bool urlLoadingSupported;
 
   @override
   bool get isReady => _isReady;
@@ -94,10 +101,10 @@ class MockLlamaBackend implements LlamaBackend {
   }
 
   @override
-  Future<String> getBackendName() async => 'Mock';
+  Future<String> getBackendName() async => backendName;
 
   @override
-  bool get supportsUrlLoading => false;
+  bool get supportsUrlLoading => urlLoadingSupported;
 
   @override
   Future<bool> isGpuSupported() async => false;
@@ -164,6 +171,23 @@ void main() {
         throwsUnimplementedError,
       );
     });
+
+    test(
+      'loadModelFromUrl marks engine ready on URL-capable backend',
+      () async {
+        final webBackend = MockLlamaBackend(
+          backendName: 'WASM (Web)',
+          urlLoadingSupported: true,
+        );
+        final webEngine = LlamaEngine(webBackend);
+
+        await webEngine.loadModelFromUrl('https://example.com/model.gguf');
+
+        expect(webEngine.isReady, isTrue);
+        expect(webEngine.modelHandle, isNotNull);
+        expect(webEngine.contextHandle, isNotNull);
+      },
+    );
 
     test('create throws when not ready', () {
       expect(

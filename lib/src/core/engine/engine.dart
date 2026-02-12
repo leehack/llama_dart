@@ -168,24 +168,44 @@ class LlamaEngine {
     final modelName = url.split('/').last;
     LlamaLogger.instance.info('Loading model from URL: $modelName');
 
+    if (!backend.supportsUrlLoading) {
+      throw UnimplementedError(
+        "loadModelFromUrl for Native should be handled by the caller or a helper.",
+      );
+    }
+
     try {
-      final backendName = await backend.getBackendName();
-      if (backendName.startsWith("WASM")) {
-        _modelHandle = await backend.modelLoadFromUrl(
-          url,
-          modelParams,
-          onProgress: onProgress,
-        );
-        _contextHandle = await backend.contextCreate(
-          _modelHandle!,
-          modelParams,
-        );
-        LlamaLogger.instance.info(
-          'Model $modelName loaded successfully from $url',
-        );
-        return;
-      }
+      await backend.setLogLevel(_nativeLogLevel);
+      _ensureNotReady();
+      _modelPath = url;
+
+      _modelHandle = await backend.modelLoadFromUrl(
+        url,
+        modelParams,
+        onProgress: onProgress,
+      );
+      _contextHandle = await backend.contextCreate(_modelHandle!, modelParams);
+      _isReady = true;
+
+      LlamaLogger.instance.info(
+        'Model $modelName loaded successfully from $url',
+      );
     } catch (e, stackTrace) {
+      if (_contextHandle != null) {
+        try {
+          await backend.contextFree(_contextHandle!);
+        } catch (_) {}
+        _contextHandle = null;
+      }
+      if (_modelHandle != null) {
+        try {
+          await backend.modelFree(_modelHandle!);
+        } catch (_) {}
+        _modelHandle = null;
+      }
+      _modelPath = null;
+      _isReady = false;
+
       LlamaLogger.instance.error(
         'Failed to load model $modelName from URL $url',
         e,
@@ -193,10 +213,6 @@ class LlamaEngine {
       );
       throw LlamaModelException("Failed to load model from $url", e);
     }
-
-    throw UnimplementedError(
-      "loadModelFromUrl for Native should be handled by the caller or a helper.",
-    );
   }
 
   /// Loads a multimodal projector model for vision/audio support.

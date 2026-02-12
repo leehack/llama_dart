@@ -200,6 +200,10 @@ class ChatProvider extends ChangeNotifier {
         },
       );
 
+      if (!_chatService.engine.isReady) {
+        throw Exception('Engine initialization did not complete.');
+      }
+
       // Create chat session
       _session = ChatSession(
         _chatService.engine,
@@ -257,6 +261,18 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> sendMessage(String text) async {
     if (_isGenerating || _session == null) return;
+
+    if (!_chatService.engine.isReady) {
+      _messages.add(
+        ChatMessage(
+          text: 'Model is not ready yet. Please reload and try again.',
+          isUser: false,
+          isInfo: true,
+        ),
+      );
+      notifyListeners();
+      return;
+    }
 
     final parts = List<LlamaContentPart>.from(_stagedParts);
     // Don't add text here - ChatSession.chat will handle it
