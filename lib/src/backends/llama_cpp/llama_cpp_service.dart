@@ -121,8 +121,8 @@ class LlamaCppService {
     ctxParams.n_ctx = nCtx;
     ctxParams.n_batch = nCtx; // logic from original code
     ctxParams.n_ubatch = nCtx; // logic from original code
-    ctxParams.n_threads = 1;
-    ctxParams.n_threads_batch = 1;
+    ctxParams.n_threads = params.numberOfThreads;
+    ctxParams.n_threads_batch = params.numberOfThreadsBatch;
 
     final ctxPtr = llama_init_from_model(model.pointer, ctxParams);
     if (ctxPtr == nullptr) {

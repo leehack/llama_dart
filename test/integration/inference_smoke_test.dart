@@ -43,6 +43,8 @@ void main() {
           modelParams: const ModelParams(
             contextSize: 128,
             gpuLayers: 0,
+            numberOfThreads: 1,
+            numberOfThreadsBatch: 1,
             chatTemplate:
                 "{% for message in messages %}{{ message['role'] }}: {{ message['content'] }}\n{% endfor %}",
           ),

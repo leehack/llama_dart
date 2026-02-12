@@ -32,6 +32,16 @@ class ModelParams {
   /// Optional chat template to override the model's default template.
   final String? chatTemplate;
 
+  /// Number of threads to use for generation (n_threads).
+  ///
+  /// Set to 0 for automatic detection.
+  final int numberOfThreads;
+
+  /// Number of threads to use for batch processing (n_threads_batch).
+  ///
+  /// Set to 0 for automatic detection.
+  final int numberOfThreadsBatch;
+
   /// Maximum number of GPU layers to safely offload all layers.
   static const int maxGpuLayers = 999;
 
@@ -42,22 +52,20 @@ class ModelParams {
     this.preferredBackend = GpuBackend.auto,
     this.loras = const [],
     this.chatTemplate,
+    this.numberOfThreads = 0,
+    this.numberOfThreadsBatch = 0,
   });
 
   /// Creates a copy of this [ModelParams] with updated fields.
-  ModelParams copyWith({
-    int? contextSize,
-    int? gpuLayers,
-    GpuBackend? preferredBackend,
-    List<LoraAdapterConfig>? loras,
-    String? chatTemplate,
-  }) {
+  ModelParams copyWith({int? numberOfThreads, int? numberOfThreadsBatch}) {
     return ModelParams(
       contextSize: contextSize ?? this.contextSize,
       gpuLayers: gpuLayers ?? this.gpuLayers,
       preferredBackend: preferredBackend ?? this.preferredBackend,
       loras: loras ?? this.loras,
       chatTemplate: chatTemplate ?? this.chatTemplate,
+      numberOfThreads: numberOfThreads ?? this.numberOfThreads,
+      numberOfThreadsBatch: numberOfThreadsBatch ?? this.numberOfThreadsBatch,
     );
   }
 }
