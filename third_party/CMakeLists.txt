@@ -63,9 +63,7 @@ target_include_directories(mtmd PRIVATE llama_cpp llama_cpp/vendor llama_cpp/too
 target_link_libraries(mtmd PUBLIC ggml llama Threads::Threads)
 target_compile_features(mtmd PRIVATE cxx_std_17)
 
-set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Build llama.cpp examples" FORCE)
-set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Build llama.cpp server" FORCE)
-set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "Build llama.cpp tools" FORCE)
+
 
 add_subdirectory(llama_cpp)
 
@@ -108,11 +106,11 @@ elseif (MSVC)
         endif()
     endforeach()
 
-    add_library(llamadart_lib SHARED "llamadart_windows.cpp" ${COMBINED_OBJECTS})
+    add_library(llamadart_lib SHARED "libllamadart/llama_dart_wrapper.cpp" ${COMBINED_OBJECTS})
     target_link_libraries(llamadart_lib PUBLIC ${ACTIVE_LIBS})
     target_compile_definitions(llamadart_lib PRIVATE LLAMA_SHARED GGML_SHARED LLAMA_BUILD GGML_BUILD)
 elseif (CMAKE_SYSTEM_NAME MATCHES "Android|Linux" OR MINGW)
-    add_library(llamadart_lib SHARED "llamadart_empty.cpp")
+    add_library(llamadart_lib SHARED "libllamadart/llama_dart_wrapper.cpp")
     if (MINGW)
         target_link_options(llamadart_lib PRIVATE -Wl,--export-all-symbols)
     endif()
@@ -126,7 +124,7 @@ elseif (CMAKE_SYSTEM_NAME MATCHES "Android|Linux" OR MINGW)
 
     target_link_libraries(llamadart_lib PUBLIC -Wl,--whole-archive ${WHOLE_ARCHIVE_LIBS} -Wl,--no-whole-archive)
 else()
-    add_library(llamadart_lib SHARED "llamadart_empty.cpp")
+    add_library(llamadart_lib SHARED "libllamadart/llama_dart_wrapper.cpp")
     target_link_libraries(llamadart_lib PUBLIC llama)
 endif()
 
