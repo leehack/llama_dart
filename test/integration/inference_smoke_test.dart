@@ -41,6 +41,7 @@ void main() {
         await engine.loadModel(
           modelPath,
           modelParams: const ModelParams(
+            contextSize: 128,
             gpuLayers: 0,
             chatTemplate:
                 "{% for message in messages %}{{ message['role'] }}: {{ message['content'] }}\n{% endfor %}",
