@@ -9,7 +9,7 @@ extern "C" {
 // Opaque pointer to the templates structure
 
 // Sets the log level for llama.cpp
-void llama_dart_set_log_level(int level);
+LLAMA_API void llama_dart_set_log_level(int level);
 
 #ifdef __cplusplus
 }
