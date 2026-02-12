@@ -307,7 +307,7 @@ jobs:
           if [ ! -f "models/stories15M.gguf" ]; then
             curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf
           fi
-          dart test --timeout 5m test/inference_smoke_test.dart
+          dart test --timeout 5m test/integration/inference_smoke_test.dart
 
   # ---------------------------------------------------------------------------
   # Stage D: Release & PR
