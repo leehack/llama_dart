@@ -38,6 +38,25 @@ flutter pub get
 flutter run
 ```
 
+## Testing
+
+- `basic_app` (Dart console):
+
+```bash
+cd basic_app
+dart test
+```
+
+- `chat_app` (Flutter UI):
+
+```bash
+cd chat_app
+flutter test
+```
+
+Note: `chat_app` uses Flutter libraries (`dart:ui`), so `dart test` is not
+the correct runner for that example.
+
 ## Quick Start
 
 1. **Choose an example**: Basic (console) or Chat (Flutter)

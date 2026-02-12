@@ -62,6 +62,14 @@ dart run -- -p "What is the capital of France?"
 - `--penalty`: Repeat penalty (default `1.1`).
 - `-h, --help`: Show help message.
 
+## Tests
+
+Run the basic app test suite with:
+
+```bash
+dart test
+```
+
 ## Project Structure
 
 - **`bin/llamadart_basic_example.dart`**: The CLI entry point and user interface logic.

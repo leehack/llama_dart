@@ -10,6 +10,10 @@ import 'package:llamadart/src/core/template/chat_template_engine.dart';
 import 'package:test/test.dart';
 
 void main() {
+  final hasVendoredLlamaCppTemplates = Directory(
+    'third_party/llama_cpp/models/templates',
+  ).existsSync();
+
   group('FirefunctionV2Handler', () {
     test('parses prefixed tool-call array', () {
       const output =
@@ -68,31 +72,37 @@ void main() {
       expect(result.format, equals(ChatFormat.contentOnly.index));
     });
 
-    test('renders llama.cpp firefunction template with tool context', () {
-      final source = File(
-        'third_party/llama_cpp/models/templates/fireworks-ai-llama-3-firefunction-v2.jinja',
-      ).readAsStringSync();
+    test(
+      'renders llama.cpp firefunction template with tool context',
+      () {
+        final source = File(
+          'third_party/llama_cpp/models/templates/fireworks-ai-llama-3-firefunction-v2.jinja',
+        ).readAsStringSync();
 
-      final result = ChatTemplateEngine.render(
-        templateSource: source,
-        messages: const [
-          LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
-        ],
-        metadata: const {},
-        tools: [
-          ToolDefinition(
-            name: 'get_weather',
-            description: 'Get weather',
-            parameters: [ToolParam.string('city')],
-            handler: _noopHandler,
-          ),
-        ],
-      );
+        final result = ChatTemplateEngine.render(
+          templateSource: source,
+          messages: const [
+            LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+          ],
+          metadata: const {},
+          tools: [
+            ToolDefinition(
+              name: 'get_weather',
+              description: 'Get weather',
+              parameters: [ToolParam.string('city')],
+              handler: _noopHandler,
+            ),
+          ],
+        );
 
-      expect(result.format, equals(ChatFormat.firefunctionV2.index));
-      expect(result.prompt, contains('functools'));
-      expect(result.prompt, contains('Today is'));
-    });
+        expect(result.format, equals(ChatFormat.firefunctionV2.index));
+        expect(result.prompt, contains('functools'));
+        expect(result.prompt, contains('Today is'));
+      },
+      skip: hasVendoredLlamaCppTemplates
+          ? false
+          : 'Requires local third_party llama.cpp template fixtures.',
+    );
   });
 
   group('FunctionaryV32Handler', () {
@@ -143,30 +153,36 @@ void main() {
       );
     });
 
-    test('renders llama.cpp functionary v3.2 template', () {
-      final source = File(
-        'third_party/llama_cpp/models/templates/meetkai-functionary-medium-v3.2.jinja',
-      ).readAsStringSync();
+    test(
+      'renders llama.cpp functionary v3.2 template',
+      () {
+        final source = File(
+          'third_party/llama_cpp/models/templates/meetkai-functionary-medium-v3.2.jinja',
+        ).readAsStringSync();
 
-      final result = ChatTemplateEngine.render(
-        templateSource: source,
-        messages: const [
-          LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
-        ],
-        metadata: const {},
-        tools: [
-          ToolDefinition(
-            name: 'special_function',
-            description: 'Call me',
-            parameters: [ToolParam.integer('arg1')],
-            handler: _noopHandler,
-          ),
-        ],
-      );
+        final result = ChatTemplateEngine.render(
+          templateSource: source,
+          messages: const [
+            LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+          ],
+          metadata: const {},
+          tools: [
+            ToolDefinition(
+              name: 'special_function',
+              description: 'Call me',
+              parameters: [ToolParam.integer('arg1')],
+              handler: _noopHandler,
+            ),
+          ],
+        );
 
-      expect(result.format, equals(ChatFormat.functionaryV32.index));
-      expect(result.prompt, contains('>>>'));
-    });
+        expect(result.format, equals(ChatFormat.functionaryV32.index));
+        expect(result.prompt, contains('>>>'));
+      },
+      skip: hasVendoredLlamaCppTemplates
+          ? false
+          : 'Requires local third_party llama.cpp template fixtures.',
+    );
   });
 
   group('FunctionaryV31Llama31Handler', () {
@@ -204,30 +220,36 @@ void main() {
       );
     });
 
-    test('renders llama.cpp functionary v3.1 template', () {
-      final source = File(
-        'third_party/llama_cpp/models/templates/meetkai-functionary-medium-v3.1.jinja',
-      ).readAsStringSync();
+    test(
+      'renders llama.cpp functionary v3.1 template',
+      () {
+        final source = File(
+          'third_party/llama_cpp/models/templates/meetkai-functionary-medium-v3.1.jinja',
+        ).readAsStringSync();
 
-      final result = ChatTemplateEngine.render(
-        templateSource: source,
-        messages: const [
-          LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
-        ],
-        metadata: const {},
-        tools: [
-          ToolDefinition(
-            name: 'special_function',
-            description: 'Call me',
-            parameters: [ToolParam.integer('arg1')],
-            handler: _noopHandler,
-          ),
-        ],
-      );
+        final result = ChatTemplateEngine.render(
+          templateSource: source,
+          messages: const [
+            LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+          ],
+          metadata: const {},
+          tools: [
+            ToolDefinition(
+              name: 'special_function',
+              description: 'Call me',
+              parameters: [ToolParam.integer('arg1')],
+              handler: _noopHandler,
+            ),
+          ],
+        );
 
-      expect(result.format, equals(ChatFormat.functionaryV31Llama31.index));
-      expect(result.prompt, contains('<function='));
-    });
+        expect(result.format, equals(ChatFormat.functionaryV31Llama31.index));
+        expect(result.prompt, contains('<function='));
+      },
+      skip: hasVendoredLlamaCppTemplates
+          ? false
+          : 'Requires local third_party llama.cpp template fixtures.',
+    );
   });
 
   group('Llama3Handler builtin python tag', () {

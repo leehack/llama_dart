@@ -4,6 +4,9 @@ import 'package:llamadart/src/core/template/chat_format.dart';
 import 'package:test/test.dart';
 
 void main() {
+  final templatesDir = Directory('third_party/llama_cpp/models/templates');
+  final hasVendoredLlamaCppTemplates = templatesDir.existsSync();
+
   group('llama.cpp template detection parity', () {
     final expected = <String, ChatFormat>{
       'Apertus-8B-Instruct.jinja': ChatFormat.apertus,
@@ -50,41 +53,52 @@ void main() {
     };
 
     for (final entry in expected.entries) {
-      test('detects ${entry.key}', () {
-        final file = File(
-          'third_party/llama_cpp/models/templates/${entry.key}',
-        );
-        expect(
-          file.existsSync(),
-          isTrue,
-          reason: 'Missing llama.cpp template fixture',
-        );
+      test(
+        'detects ${entry.key}',
+        () {
+          final file = File(
+            'third_party/llama_cpp/models/templates/${entry.key}',
+          );
+          expect(
+            file.existsSync(),
+            isTrue,
+            reason: 'Missing llama.cpp template fixture',
+          );
 
-        final source = file.readAsStringSync();
-        final detected = detectChatFormat(source);
-        expect(detected, equals(entry.value));
-      });
+          final source = file.readAsStringSync();
+          final detected = detectChatFormat(source);
+          expect(detected, equals(entry.value));
+        },
+        skip: hasVendoredLlamaCppTemplates
+            ? false
+            : 'Requires local third_party llama.cpp template fixtures.',
+      );
     }
 
-    test('maps every vendored llama.cpp template', () {
-      final dir = Directory('third_party/llama_cpp/models/templates');
-      expect(dir.existsSync(), isTrue);
+    test(
+      'maps every vendored llama.cpp template',
+      () {
+        expect(templatesDir.existsSync(), isTrue);
 
-      final files = dir
-          .listSync()
-          .whereType<File>()
-          .where((f) => f.path.endsWith('.jinja'))
-          .map((f) => f.path.split('/').last)
-          .toSet();
+        final files = templatesDir
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.jinja'))
+            .map((f) => f.uri.pathSegments.last)
+            .toSet();
 
-      final missing =
-          files.where((name) => !expected.containsKey(name)).toList()..sort();
-      expect(
-        missing,
-        isEmpty,
-        reason:
-            'Unmapped llama.cpp templates detected. Add expectations for: ${missing.join(', ')}',
-      );
-    });
+        final missing =
+            files.where((name) => !expected.containsKey(name)).toList()..sort();
+        expect(
+          missing,
+          isEmpty,
+          reason:
+              'Unmapped llama.cpp templates detected. Add expectations for: ${missing.join(', ')}',
+        );
+      },
+      skip: hasVendoredLlamaCppTemplates
+          ? false
+          : 'Requires local third_party llama.cpp template fixtures.',
+    );
   });
 }

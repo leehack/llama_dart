@@ -25,6 +25,14 @@ flutter pub get
 flutter run
 ```
 
+### 1.1 Run Tests
+```bash
+cd example/chat_app
+flutter test
+```
+
+Note: this is a Flutter app, so use `flutter test` (not `dart test`).
+
 ### 2. Choose and Download a Model
 1. The app will open to a **Model Selection** screen.
 2. Select one of the pre-configured models (for example: FunctionGemma 270M, Llama 3.2 3B, Qwen 3 4B, Gemma 3/3n, DeepSeek R1 distills).
