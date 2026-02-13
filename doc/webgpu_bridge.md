@@ -78,8 +78,7 @@ verifies checksums when `sha256sums.txt` is available.
 Bridge wasm build CI is owned by `leehack/llama-web-bridge` and includes a
 dedicated `Build WebGPU Bridge (WASM)` job that:
 
-- resolves the pinned llama.cpp tag from `hook/build.dart`
-- clones llama.cpp source
+- clones llama.cpp source at a pinned tag (`b8011` by default)
 - builds the bridge with Emscripten
 - verifies expected wasm/js artifacts exist
 
