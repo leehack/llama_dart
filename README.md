@@ -56,15 +56,17 @@ both WebGPU and CPU execution paths.
 Current limitations:
 
 - Web mode is currently **experimental** and depends on an external JS bridge runtime.
-- Bridge API contract: `doc/webgpu_bridge.md`.
-- Prebuilt web bridge assets are intended to be published from
-  `leehack/llama-web-bridge` to `leehack/llama-web-bridge-assets`.
-- `example/chat_app` uses local bridge files first and falls back to jsDelivr
-  (`llama-web-bridge-assets`) when local assets are missing.
+- Bridge API contract: [WebGPU bridge contract](doc/webgpu_bridge.md).
+- Prebuilt web bridge assets are published from
+  [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge)
+  to
+  [`leehack/llama-web-bridge-assets`](https://github.com/leehack/llama-web-bridge-assets).
+- [`example/chat_app`](example/chat_app) uses local bridge files first and
+  falls back to jsDelivr assets when local assets are missing.
 - To self-host pinned assets at build time:
   `WEBGPU_BRIDGE_ASSETS_TAG=<tag> ./scripts/fetch_webgpu_bridge_assets.sh`.
-- Bridge wasm build/publish CI lives in `leehack/llama-web-bridge`.
-- Bridge runtime implementation is maintained in `leehack/llama-web-bridge`.
+- Bridge wasm build/publish CI and runtime implementation are maintained in
+  [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge).
 - `loadMultimodalProjector` is available on web when using URL-based model/mmproj assets.
 - `supportsVision` / `supportsAudio` reflect loaded projector capabilities on web.
 - **LoRA runtime adapter APIs are not supported** on web in the current implementation.

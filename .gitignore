@@ -89,6 +89,7 @@ coverage/
 test_output.txt
 test_output_*.txt
 test_failure_details.txt
+full_log.txt
 
 # Emscripten sanity outputs
 a.out.js
