@@ -23,16 +23,24 @@ class ModelServiceIO implements ModelService {
     List<DownloadableModel> models,
   ) async {
     final dirPath = await getModelsDirectory();
-    final dir = Directory(dirPath);
     final Set<String> downloaded = {};
 
-    if (await dir.exists()) {
-      await for (final file in dir.list()) {
-        if (file is File) {
-          downloaded.add(p.basename(file.path));
-        }
+    for (final model in models) {
+      final modelFile = File(p.join(dirPath, model.filename));
+      final partialFile = File(p.join(dirPath, '${model.filename}.download'));
+      final legacyMeta = File(p.join(dirPath, '${model.filename}.meta'));
+      final hasRequiredMmproj =
+          model.mmprojFilename == null ||
+          await File(p.join(dirPath, model.mmprojFilename!)).exists();
+
+      if (await modelFile.exists() &&
+          !await partialFile.exists() &&
+          !await legacyMeta.exists() &&
+          hasRequiredMmproj) {
+        downloaded.add(model.filename);
       }
     }
+
     return downloaded;
   }
 

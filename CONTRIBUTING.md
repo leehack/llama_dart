@@ -6,7 +6,7 @@ Thank you for your interest in contributing to `llamadart`! We welcome contribut
 
 Before you begin, ensure you have the following installed:
 
--   **Dart SDK**: >= 3.0.0
+-   **Dart SDK**: >= 3.10.0
 -   **Flutter SDK**: (Optional, for running UI examples)
 -   **CMake**: >= 3.10
 -   **C++ Compiler**:
@@ -19,11 +19,11 @@ Before you begin, ensure you have the following installed:
 
 The project follows a modular, decoupled architecture:
 
--   `lib/src/engine/`: Core orchestration (LlamaEngine, Tokenizer, Template Processor).
--   `lib/src/backend/`: Platform-agnostic interfaces and concrete implementations (Native, Web).
--   `lib/src/models/`: Shared data models (Params, Messages, etc.).
--   `lib/src/common/`: Shared utilities (Exceptions, Loaders).
--   `lib/src/compat/`: Backward compatibility layer (LlamaService).
+-   `lib/src/core/engine/`: Core orchestration (`LlamaEngine`, `ChatSession`).
+-   `lib/src/core/template/`: Chat template routing, handlers, parser logic.
+-   `lib/src/backends/`: Platform-agnostic backend interface and native/web backends.
+-   `lib/src/core/models/`: Shared data models (messages, params, tools, config).
+-   `lib/src/core/`: Shared utilities (exceptions, logger, grammar helpers).
 -   `third_party/`: `llama.cpp` core engine and build infrastructure.
 
 ## 🛡️ Zero-Patch Strategy
@@ -39,10 +39,9 @@ This project follows a **Zero-Patch Strategy** for external submodules (like `ll
 `llamadart` uses a modern binary distribution lifecycle:
 
 ### 1. Binary Production (CI)
-When a maintainer pushes a tag in the format `libs-v*`, the GitHub Action workflow (`.github/workflows/build_native.yml`) is triggered:
-- It uses the consolidated build logic in `third_party/` to compile `llama.cpp` for **Android, iOS, macOS, Linux, and Windows**.
-- It bundles the submodules (pinned to stable tags) and applies necessary hardware acceleration flags (Metal, Vulkan).
-- The resulting binaries are uploaded to **GitHub Releases**.
+Maintainer workflows under `.github/workflows/` use scripts in `third_party/`
+to build and validate native binaries for **Android, iOS, macOS, Linux, and Windows**.
+Release artifacts are published to **GitHub Releases** and consumed by the build hook.
 
 ### 2. Binary Consumption (Hook)
 When a user adds `llamadart` as a dependency and runs their app:
@@ -52,7 +51,7 @@ When a user adds `llamadart` as a dependency and runs their app:
 - It reports the binary to the Dart VM as a **`CodeAsset`** with the ID `package:llamadart/llamadart`.
 
 ### 3. Runtime Resolution (FFI)
-- The library uses **`@Native`** top-level bindings in `lib/src/generated/llama_bindings.dart`.
+- The library uses **`@Native`** top-level bindings in `lib/src/backends/llama_cpp/bindings.dart`.
 - The Dart VM automatically resolves these calls to the downloaded binary reported by the hook.
 - This provides a "Zero-Setup" experience while maintaining high-performance native execution.
 
@@ -80,14 +79,19 @@ When a user adds `llamadart` as a dependency and runs their app:
 
 ## 🧪 Testing
 
-We take testing seriously. This project maintains **80%+ global test coverage**.
+We take testing seriously. CI enforces **>=70% line coverage on maintainable `lib/` code**. Auto-generated files are excluded when they are marked with `// coverage:ignore-file`.
 
 ### 1. Unified Test Runner
-We use `dart_test.yaml` and `@TestOn` tags to manage multi-platform execution. Running `dart test` without arguments will automatically run all compatible tests for your environment (VM and/or Chrome).
+We use `dart_test.yaml` and `@TestOn` tags to manage multi-platform execution.
+Running `dart test` will run VM and Chrome-compatible tests. Tests tagged
+`local-only` are intentionally skipped in default and CI runs.
 
 ```bash
-# Run all compatible tests
+# Run default suite (VM + Chrome-compatible tests)
 dart test
+
+# Run local-only E2E tests
+dart test --run-skipped -t local-only
 ```
 
 ### 2. Manual Platform Selection
@@ -105,14 +109,22 @@ dart test -p chrome
 To collect and view coverage reports:
 
 ```bash
-# 1. Run all tests with coverage
-dart test --coverage=coverage
+# 1. Run VM tests with coverage
+dart test -p vm --coverage=coverage
 
-# 2. Format into LCOV (requires coverage package)
-dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib
+# 2. Format into LCOV (respects // coverage:ignore-file)
+dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib --check-ignore
+
+# 3. Enforce >=70% threshold
+dart run tool/testing/check_lcov_threshold.dart coverage/lcov.info 70
 ```
 
 ### 4. Testing Standards
+- **Structure**:
+  - Unit tests live in `test/unit/` and mirror `lib/src/` paths.
+  - Generated/native-bridge files are excluded from strict mirroring when marked with `// coverage:ignore-file`.
+  - Scenario, regression, and diagnostic tests live in `test/integration/`.
+  - Slow, local-machine scenarios live in `test/e2e/` with `@Tags(['local-only'])`.
 - **Refactoring**: If you refactor shared logic, ensure both Native and Web tests pass.
 - **New Features**: Every new public API or feature must include unit or integration tests.
 - **Platform-Safety**: `LlamaEngine` must remain `dart:ffi` and `dart:io` free to maintain web support.

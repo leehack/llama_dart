@@ -16,25 +16,22 @@
   - **Apple**: Metal (macOS/iOS)
   - **Android/Linux/Windows**: Vulkan
 - 🖼️ **Multimodal Support**: Run vision and audio models (LLaVA, Gemma 3, Qwen2-VL) with integrated media processing.
-- ⏬ **Resumable Downloads**: Robust background-safe model downloads with parallel chunking and persistence using `.meta` tracking.
+- ⏬ **Resumable Downloads**: Robust background-safe model downloads with parallel chunking and partial-file resume tracking.
 - **LoRA Support**: Apply fine-tuned adapters (GGUF) dynamically at runtime.
-- 🌐 **Web Support**: Run inference in the browser via WASM (powered by `wllama` v2).
+- 🌐 **Web Support**: Web backend router with WebGPU bridge support and WASM fallback.
 - 💎 **Dart-First API**: Streamlined architecture with decoupled backends.
-- 🔇 **Logging Control**: Toggle native engine output or use granular filtering on Web.
-- 🧪 **High Coverage**: Robust test suite with 80%+ global core coverage.
+- 🔇 **Split Logging Control**: Configure Dart-side logger and native backend logs independently.
+- 🧪 **High Coverage**: CI enforces >=70% coverage on maintainable core code.
 
 ---
 
 ## 🏗️ Architecture
 
-llamadart 0.3.0+ uses a modern, decoupled architecture designed for flexibility and platform independence:
+llamadart uses a modern, decoupled architecture designed for flexibility and platform independence:
 
 - **LlamaEngine**: The primary high-level orchestrator. It handles model lifecycle, tokenization, chat templating, and manages the inference stream.
 - **ChatSession**: A stateful wrapper for `LlamaEngine` that automatically manages conversation history, system prompts, and enforces context window limits (sliding window).
-- **LlamaBackend**: A platform-agnostic interface that allows swapping implementation details:
-  - `NativeLlamaBackend`: Uses Dart FFI and background Isolates for high-performance desktop/mobile inference.
-  - `WebLlamaBackend`: Uses WebAssembly and the `wllama` JS library for in-browser inference.
-- **LlamaBackendFactory**: Automatically selects the appropriate backend for your current platform.
+- **LlamaBackend**: A platform-agnostic interface with a default `LlamaBackend()` factory constructor that auto-selects native (`llama.cpp`) or web (WebGPU bridge first, WASM fallback) implementations.
 
 ---
 
@@ -47,7 +44,52 @@ llamadart 0.3.0+ uses a modern, decoupled architecture designed for flexibility 
 | **Android** | arm64-v8a, x86_64 | Vulkan | ✅ Tested |
 | **Linux** | arm64, x86_64 | Vulkan | ✅ Tested |
 | **Windows** | x64 | Vulkan | ✅ Tested |
-| **Web** | WASM | CPU | ✅ Tested |
+| **Web** | WASM / WebGPU Bridge | CPU / Experimental WebGPU | ✅ Tested (WASM) |
+
+---
+
+## 🌐 Web Backend Notes (Router)
+
+The default web backend uses the bridge runtime (`WebGpuLlamaBackend`) for
+both WebGPU and CPU execution paths.
+
+Current limitations:
+
+- Web mode is currently **experimental** and depends on an external JS bridge runtime.
+- Bridge API contract: [WebGPU bridge contract](doc/webgpu_bridge.md).
+- Prebuilt web bridge assets are published from
+  [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge)
+  to
+  [`leehack/llama-web-bridge-assets`](https://github.com/leehack/llama-web-bridge-assets).
+- [`example/chat_app`](example/chat_app) uses local bridge files first and
+  falls back to jsDelivr assets when local assets are missing.
+- Bridge model loading now uses browser Cache Storage when `useCache` is true
+  (enabled by default in `llamadart` web backend), so repeat loads of the same
+  model URL can avoid full re-download.
+- To self-host pinned assets at build time:
+  `WEBGPU_BRIDGE_ASSETS_TAG=<tag> ./scripts/fetch_webgpu_bridge_assets.sh`.
+- The fetch script applies a Safari compatibility patch by default for universal
+  browser use (`WEBGPU_BRIDGE_PATCH_SAFARI_COMPAT=1`,
+  `WEBGPU_BRIDGE_MIN_SAFARI_VERSION=170400`).
+- The same patch flow also updates legacy bridge chunk assembly logic to avoid
+  Safari stream-reader buffer reuse issues during model downloads.
+- `example/chat_app/web/index.html` applies the same Safari compatibility patch
+  at runtime for bridge core loading (including CDN fallback paths).
+- Bridge wasm build/publish CI and runtime implementation are maintained in
+  [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge).
+- Current bridge browser targets in this repo: Chrome >= 128, Firefox >= 129,
+  Safari >= 17.4.
+- Safari GPU execution uses a compatibility gate: legacy bridge assets are
+  forced to CPU by default, while adaptive bridge assets can probe/cap GPU
+  layers and auto-fallback to CPU when generation looks unstable.
+- You can bypass the legacy safeguard with
+  `window.__llamadartAllowSafariWebGpu = true` before model load.
+- `loadMultimodalProjector` is available on web when using URL-based model/mmproj assets.
+- `supportsVision` / `supportsAudio` reflect loaded projector capabilities on web.
+- **LoRA runtime adapter APIs are not supported** on web in the current implementation.
+- Changing log level via `setLogLevel`/`setNativeLogLevel` applies on the next model load.
+
+If your app targets both native and web, gate feature toggles by platform/capability checks.
 
 ---
 
@@ -68,6 +110,32 @@ dependencies:
 3. Bundles it seamlessly into your application.
 
 No manual binary downloads, CMake configuration, or platform-specific project changes are needed.
+
+---
+
+## ⚠️ Breaking Changes (Upcoming 0.5.0)
+
+`0.5.0` has not been published yet. This branch includes intentional
+breaking changes while the API is still early.
+
+Before upgrading from `main` / `0.4.0`, read:
+
+- [MIGRATION.md](MIGRATION.md)
+
+High-impact changes:
+
+- `ChatSession` now centers on `create(...)` and streams `LlamaCompletionChunk`.
+- `LlamaChatMessage` named constructors were standardized:
+  - `LlamaChatMessage.text(...)` -> `LlamaChatMessage.fromText(...)`
+  - `LlamaChatMessage.multimodal(...)` -> `LlamaChatMessage.withContent(...)`
+- `ModelParams.logLevel` was removed; logging is now controlled at engine level via:
+  - `setDartLogLevel(...)`
+  - `setNativeLogLevel(...)`
+- Root exports changed; previously exported internals such as `ToolRegistry`,
+  `LlamaTokenizer`, and `ChatTemplateProcessor` are no longer part of the
+  public package surface.
+- Custom backend implementations must match the updated `LlamaBackend`
+  interface (including `getVramInfo` and updated `applyChatTemplate`).
 
 ---
 
@@ -112,17 +180,15 @@ void main() async {
   try {
     await engine.loadModel('model.gguf');
 
-    // Create a session with a system prompt and optional tools
+    // Create a session with a system prompt
     final session = ChatSession(
       engine, 
       systemPrompt: 'You are a helpful assistant.',
-      toolRegistry: myToolRegistry, // Optional
     );
 
-    // Just send user text; history and tools are handled automatically
-    // The model decides when to use tools or respond directly.
-    await for (final token in session.chat('What is the capital of France?')) {
-      stdout.write(token);
+    // Send a message
+    await for (final chunk in session.create([LlamaTextContent('What is the capital of France?')])) {
+      stdout.write(chunk.choices.first.delta.content ?? '');
     }
   } finally {
     await engine.dispose();
@@ -135,7 +201,7 @@ void main() async {
 `llamadart` supports intelligent tool calling where the model can use external functions to help it answer questions.
   
 ```dart
-final registry = ToolRegistry([
+final tools = [
   ToolDefinition(
     name: 'get_weather',
     description: 'Get the current weather',
@@ -147,19 +213,117 @@ final registry = ToolRegistry([
       return 'It is 22°C and sunny in $location';
     },
   ),
-]);
+];
 
-final session = ChatSession(engine, toolRegistry: registry);
+final session = ChatSession(engine);
 
-// "how's the weather in London?" -> Calls get_weather -> "It is 22°C and sunny in London"
-await for (final token in session.chat("how's the weather in London?")) {
-  stdout.write(token);
+// Pass tools per-request
+await for (final chunk in session.create(
+  [LlamaTextContent("how's the weather in London?")],
+  tools: tools,
+)) {
+  final delta = chunk.choices.first.delta;
+  if (delta.content != null) stdout.write(delta.content);
 }
+```
+
+### 3.5 Custom Template Handlers and Overrides (Advanced)
+
+If you need behavior for a model-specific template that is not built in yet,
+you can register your own handler and/or template override.
+
+```dart
+import 'package:llamadart/llamadart.dart';
+
+class MyHandler extends ChatTemplateHandler {
+  @override
+  ChatFormat get format => ChatFormat.generic;
+
+  @override
+  List<String> get additionalStops => const [];
+
+  @override
+  LlamaChatTemplateResult render({
+    required String templateSource,
+    required List<LlamaChatMessage> messages,
+    required Map<String, String> metadata,
+    bool addAssistant = true,
+    List<ToolDefinition>? tools,
+    bool enableThinking = true,
+  }) {
+    final prompt = messages.map((m) => m.content).join('\n');
+    return LlamaChatTemplateResult(prompt: prompt, format: format.index);
+  }
+
+  @override
+  ChatParseResult parse(
+    String output, {
+    bool isPartial = false,
+    bool parseToolCalls = true,
+    bool thinkingForcedOpen = false,
+  }) {
+    return ChatParseResult(content: output.trim());
+  }
+
+  @override
+  String? buildGrammar(List<ToolDefinition>? tools) => null;
+}
+
+void configureTemplateRouting() {
+  // 1) Register a custom handler
+  ChatTemplateEngine.registerHandler(
+    id: 'my-handler',
+    handler: MyHandler(),
+    matcher: (ctx) =>
+        (ctx.metadata['general.name'] ?? '').contains('MyModel'),
+  );
+
+  // 2) Register a global template override
+  ChatTemplateEngine.registerTemplateOverride(
+    id: 'my-template-override',
+    templateSource: '{{ messages[0]["content"] }}',
+    matcher: (ctx) => ctx.hasTools,
+  );
+}
+
+Future<void> usePerCallOverride(LlamaEngine engine) async {
+  final template = await engine.chatTemplate(
+    [
+      const LlamaChatMessage.fromText(
+        role: LlamaChatRole.user,
+        text: 'hello',
+      ),
+    ],
+    customTemplate: '{{ "CUSTOM:" ~ messages[0]["content"] }}',
+    customHandlerId: 'my-handler',
+  );
+
+  print(template.prompt);
+}
+```
+
+### 3.6 Logging Control
+
+Use separate log levels for Dart and native output when debugging:
+
+```dart
+import 'package:llamadart/llamadart.dart';
+
+final engine = LlamaEngine(LlamaBackend());
+
+// Dart-side logs (template routing, parser diagnostics, etc.)
+await engine.setDartLogLevel(LlamaLogLevel.info);
+
+// Native llama.cpp / ggml logs
+await engine.setNativeLogLevel(LlamaLogLevel.warn);
+
+// Convenience: set both at once
+await engine.setLogLevel(LlamaLogLevel.none);
 ```
 
 ### 4. Multimodal Usage (Vision/Audio)
 
-`llamadart` supports multimodal models (vision and audio) using `LlamaChatMessage.multimodal`.
+`llamadart` supports multimodal models (vision and audio) using `LlamaChatMessage.withContent`.
 
 ```dart
 import 'package:llamadart/llamadart.dart';
@@ -175,23 +339,31 @@ void main() async {
 
     // Create a multimodal message
     final messages = [
-      LlamaChatMessage.multimodal(
+      LlamaChatMessage.withContent(
         role: LlamaChatRole.user,
-        parts: [
+        content: [
           LlamaImageContent(path: 'image.jpg'),
           LlamaTextContent('What is in this image?'),
         ],
       ),
     ];
 
-    // Use singleTurn for one-off multimodal requests
-    final response = await ChatSession.singleTurn(engine, messages);
-    print(response);
+    // Use stateless engine.create for one-off multimodal requests
+    final response = engine.create(messages);
+    await for (final chunk in response) {
+      stdout.write(chunk.choices.first.delta.content ?? '');
+    }
   } finally {
     await engine.dispose();
   }
 }
 ```
+
+Web-specific note:
+
+- Load model/mmproj with URL-based assets (`loadModelFromUrl` + URL projector).
+- For user-picked browser files, send media as bytes (`LlamaImageContent(bytes: ...)`,
+  `LlamaAudioContent(bytes: ...)`) rather than local file paths.
 
 ### 💡 Model-Specific Notes
 
@@ -236,17 +408,27 @@ Check out our [LoRA Training Notebook](example/training_notebook/lora_training.i
 
 ## 🧪 Testing & Quality
 
-This project maintains a high standard of quality with **80%+ global test coverage**.
+This project maintains a high standard of quality with **>=70% line coverage on maintainable `lib/` code** (auto-generated files marked with `// coverage:ignore-file` are excluded).
 
-- **Multi-Platform Testing**: Run all tests across VM and Chrome automatically.
+- **Multi-Platform Testing**: `dart test` runs VM and Chrome-compatible suites automatically.
+- **Local-Only Scenarios**: Slow E2E tests are tagged `local-only` and skipped by default.
 - **CI/CD**: Automatic analysis, linting, and cross-platform test execution on every PR.
 
 ```bash
-# Run all tests (VM and Chrome)
+# Run default test suite (VM + Chrome-compatible tests)
 dart test
 
-# Run tests with coverage
-dart test --coverage=coverage
+# Run local-only E2E scenarios
+dart test --run-skipped -t local-only
+
+# Run VM tests with coverage
+dart test -p vm --coverage=coverage
+
+# Format lcov for maintainable code (respects // coverage:ignore-file)
+dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib --check-ignore
+
+# Enforce >=70% threshold
+dart run tool/testing/check_lcov_threshold.dart coverage/lcov.info 70
 ```
 
 ---

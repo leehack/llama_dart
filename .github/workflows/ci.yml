@@ -59,12 +59,16 @@ jobs:
       - name: Install Coverage tool
         run: dart pub global activate coverage
 
-      - name: Run tests
-        run: dart test --coverage=coverage
+      - name: Run VM tests (with coverage)
+        run: dart test -p vm --exclude-tags local-only --coverage=coverage
+
+      - name: Run Browser tests
+        run: dart test -p chrome --exclude-tags local-only
 
       - name: Format coverage
         run: |
-          dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib
+          dart pub global run coverage:format_coverage --lcov --in=coverage/test --out=coverage/lcov.info --report-on=lib --check-ignore
+          dart run tool/testing/check_lcov_threshold.dart coverage/lcov.info 70
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -97,4 +101,6 @@ jobs:
         run: flutter pub get
 
       - name: Run native tests
-        run: dart test -p vm -j 1
+        env:
+          GGML_METAL_DEVICES: "0"
+        run: dart test -p vm -j 1 --exclude-tags local-only

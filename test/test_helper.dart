@@ -28,4 +28,26 @@ class TestHelper {
     print('Test model downloaded to ${modelFile.path}');
     return modelFile;
   }
+
+  static Future<File> ensureModel(String url, String filename) async {
+    final modelsDir = Directory(path.join(Directory.current.path, 'models'));
+    if (!modelsDir.existsSync()) {
+      modelsDir.createSync(recursive: true);
+    }
+
+    final modelFile = File(path.join(modelsDir.path, filename));
+    if (modelFile.existsSync()) {
+      return modelFile;
+    }
+
+    print('Downloading model from $url...');
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode != 200) {
+      throw Exception('Failed to download model: ${response.statusCode}');
+    }
+
+    await modelFile.writeAsBytes(response.bodyBytes);
+    print('Model downloaded to ${modelFile.path}');
+    return modelFile;
+  }
 }

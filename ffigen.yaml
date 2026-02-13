@@ -1,6 +1,6 @@
 name: LlamaCpp
 description: Bindings to llama.cpp
-output: 'lib/src/generated/llama_bindings.dart'
+output: 'lib/src/backends/llama_cpp/bindings.dart'
 headers:
   entry-points:
     - 'third_party/llama_cpp/include/llama.h'
@@ -8,12 +8,14 @@ headers:
     - 'third_party/llama_cpp/ggml/include/ggml-backend.h'
     - 'third_party/llama_cpp/tools/mtmd/mtmd.h'
     - 'third_party/llama_cpp/tools/mtmd/mtmd-helper.h'
+    - 'third_party/libllamadart/llama_dart_wrapper.h'
   include-directives:
     - 'third_party/llama_cpp/include/llama.h'
     - 'third_party/llama_cpp/ggml/include/ggml.h'
     - 'third_party/llama_cpp/ggml/include/ggml-backend.h'
     - 'third_party/llama_cpp/tools/mtmd/mtmd.h'
     - 'third_party/llama_cpp/tools/mtmd/mtmd-helper.h'
+    - 'third_party/libllamadart/llama_dart_wrapper.h'
 compiler-opts:
   - '-Ithird_party/llama_cpp/ggml/include'
   - '-Ithird_party/llama_cpp/include'
@@ -24,9 +26,6 @@ preamble: |
   // ignore_for_file: camel_case_types
   // ignore_for_file: non_constant_identifier_names
   /// @nodoc
-comments:
-  style: any
-  length: full
 silence-enum-warning: true
 ffi-native:
   asset-id: 'package:llamadart/llamadart'

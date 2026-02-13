@@ -146,16 +146,12 @@ void main() {
       );
     } catch (_) {}
 
-    // Verify partial state
+    // Verify partial state uses the temp file.
     final file = File(p.join(tempDir.path, 'model.gguf'));
-    final meta = File(p.join(tempDir.path, 'model.gguf.meta'));
+    final tempFile = File(p.join(tempDir.path, 'model.gguf.download'));
 
-    expect(file.existsSync(), isTrue);
-    expect(meta.existsSync(), isTrue);
-    expect(file.lengthSync(), equals(testDataSize)); // Pre-allocated
-    // We expect some parts to be missing (zeros) or just trust meta
-    final metaContent = meta.readAsStringSync();
-    expect(metaContent, contains(",")); // Basic csv check
+    expect(tempFile.existsSync(), isTrue);
+    expect(tempFile.lengthSync(), greaterThan(0));
     expect(simulatedCrash, isTrue);
 
     // 2. Resume download
@@ -169,9 +165,10 @@ void main() {
     );
 
     // Verify final state
+    expect(file.existsSync(), isTrue);
     expect(file.lengthSync(), testDataSize);
     expect(file.readAsBytesSync(), testData);
-    expect(meta.existsSync(), isFalse); // Should be cleaned up
+    expect(tempFile.existsSync(), isFalse); // Should be cleaned up
   });
 
   test('Incomplete download is not marked as downloaded', () async {
@@ -183,29 +180,29 @@ void main() {
       sizeBytes: testDataSize,
     );
 
-    // Create fake partial file
+    // Create fake complete file with legacy/incomplete markers.
     final file = File(p.join(tempDir.path, 'existing.gguf'));
     final meta = File(p.join(tempDir.path, 'existing.gguf.meta'));
+    final tempFile = File(p.join(tempDir.path, 'existing.gguf.download'));
     await file.create();
     await file.writeAsBytes(testData); // Full size
-    await meta.create(); // Meta exists -> incomplete
+    await meta.create(); // Legacy partial marker
+    await tempFile.writeAsBytes(
+      testData.sublist(0, 1024),
+    ); // Active partial marker
 
-    final downloaded = await service.getDownloadedModels([model]);
+    var downloaded = await service.getDownloadedModels([model]);
     expect(downloaded, isNot(contains(model.filename)));
 
-    // valid without meta
+    // Still incomplete while .download exists.
     await meta.delete();
-    await service.getDownloadedModels([model]);
-    // Note: getDownloadedModels uses getApplicationDocumentsDirectory which is mocked/stubbed in flutter_test usually to a temp dir,
-    // but in unit test it might default to something else or fail if not mocked.
-    // Wait, ModelService uses getApplicationDocumentsDirectory.
-    // In strict unit test without PathProviderPlatform mock, this fails.
-    // However, we can inject the path or just override it?
-    // ModelService.getModelsDirectory() calls getApplicationDocumentsDirectory().
-    // We haven't mocked PathProvider in this integration test.
-    // We should subclass ModelService or mock the method.
-    // OR we can just use the fact that we can't easily test this without mocking.
-    // Actually, let's just create a subclass of ModelService that overrides getModelsDirectory for testing.
+    downloaded = await service.getDownloadedModels([model]);
+    expect(downloaded, isNot(contains(model.filename)));
+
+    // Valid once partial marker is removed.
+    await tempFile.delete();
+    downloaded = await service.getDownloadedModels([model]);
+    expect(downloaded, contains(model.filename));
   });
 }
 

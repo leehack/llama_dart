@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../models/chat_message.dart';
 import '../models/chat_settings.dart';
+import '../models/downloadable_model.dart';
 import '../services/chat_service.dart';
 import '../services/settings_service.dart';
 
@@ -20,8 +21,10 @@ class ChatProvider extends ChangeNotifier {
   // Chat session for stateful conversation
   ChatSession? _session;
 
-  // Typed tool registry using the new API
-  late final ToolRegistry _toolRegistry;
+  // Tool definitions and handlers
+  final List<ToolDefinition> _tools = [];
+  final Map<String, Future<String> Function(Map<String, dynamic>)>
+  _toolHandlers = {};
 
   String _activeBackend = "Unknown";
   bool _gpuSupported = false;
@@ -31,12 +34,24 @@ class ChatProvider extends ChangeNotifier {
   bool _isGenerating = false;
   bool _supportsVision = false;
   bool _supportsAudio = false;
+  bool _templateSupportsTools = true;
+  ChatFormat? _detectedChatFormat;
   String? _error;
 
   // Telemetry
-  int _maxTokens = 2048;
+  int _contextLimit = 2048;
   int _currentTokens = 0;
   bool _isPruning = false;
+  String _runtimeBackendRaw = '';
+  bool _runtimeGpuActive = false;
+  int? _runtimeGpuLayers;
+  int? _runtimeThreads;
+  String? _runtimeModelArchitecture;
+  String? _runtimeModelSource;
+  String? _runtimeModelCacheState;
+  String? _runtimeBridgeNotes;
+  int? _lastFirstTokenLatencyMs;
+  int? _lastGenerationLatencyMs;
 
   List<String> _availableDevices = [];
 
@@ -54,15 +69,34 @@ class ChatProvider extends ChangeNotifier {
   bool get isGenerating => _isGenerating;
   bool get supportsVision => _supportsVision;
   bool get supportsAudio => _supportsAudio;
+  bool get templateSupportsTools => _templateSupportsTools;
+  ChatFormat? get detectedChatFormat => _detectedChatFormat;
   String? get error => _error;
   double get temperature => _settings.temperature;
   int get topK => _settings.topK;
   double get topP => _settings.topP;
   int get contextSize => _settings.contextSize;
-  int get maxTokens => _maxTokens;
+  int get gpuLayers => _settings.gpuLayers;
+  LlamaLogLevel get dartLogLevel => _settings.logLevel;
+  LlamaLogLevel get nativeLogLevel => _settings.nativeLogLevel;
+  int get contextLimit => _contextLimit; // Renamed from maxTokens
+  int get maxGenerationTokens => _settings.maxTokens;
   int get currentTokens => _currentTokens;
   bool get isPruning => _isPruning;
   List<String> get availableDevices => _availableDevices;
+  String get runtimeBackendRaw => _runtimeBackendRaw;
+  bool get runtimeGpuActive => _runtimeGpuActive;
+  int? get runtimeGpuLayers => _runtimeGpuLayers;
+  int? get runtimeThreads => _runtimeThreads;
+  String? get runtimeModelArchitecture => _runtimeModelArchitecture;
+  String? get runtimeModelSource => _runtimeModelSource;
+  String? get runtimeModelCacheState => _runtimeModelCacheState;
+  String? get runtimeBridgeNotes => _runtimeBridgeNotes;
+  int? get lastFirstTokenLatencyMs => _lastFirstTokenLatencyMs;
+  int? get lastGenerationLatencyMs => _lastGenerationLatencyMs;
+  bool get usingWebGpu =>
+      _runtimeBackendRaw.toLowerCase().contains('webgpu') ||
+      _activeBackend == 'WEBGPU';
   bool get toolsEnabled => _settings.toolsEnabled;
   bool get forceToolCall => _settings.forceToolCall;
 
@@ -75,26 +109,50 @@ class ChatProvider extends ChangeNotifier {
   }) : _chatService = chatService ?? ChatService(),
        _settingsService = settingsService ?? SettingsService(),
        _settings = initialSettings ?? const ChatSettings() {
-    _initToolRegistry();
+    _initTools();
     if (chatService == null && settingsService == null) {
       _init();
     }
   }
 
-  /// Initialize the tool registry with typed tool definitions.
-  void _initToolRegistry() {
-    _toolRegistry = ToolRegistry([
-      // Time tool - no parameters
+  /// Initialize tool definitions with inline handlers.
+  void _initTools() {
+    // Time tool - no parameters
+    _toolHandlers['get_current_time'] = (args) async {
+      return DateTime.now().toIso8601String();
+    };
+    _tools.add(
       ToolDefinition(
         name: 'get_current_time',
         description: 'Get the current date and time',
         parameters: [],
-        handler: (params) async {
-          return DateTime.now().toIso8601String();
-        },
+        handler: (params) async => DateTime.now().toIso8601String(),
       ),
+    );
 
-      // Weather tool - with typed parameters
+    // Weather tool - with typed parameters
+    _toolHandlers['get_current_weather'] = (args) async {
+      final location = args['location'] as String? ?? 'Unknown';
+      final unit = args['unit'] as String? ?? 'celsius';
+
+      // Mock weather response
+      final random = Random();
+      final temp = 15 + random.nextInt(20);
+      final conditions = [
+        'Sunny',
+        'Cloudy',
+        'Rainy',
+        'Clear',
+      ][random.nextInt(4)];
+
+      final unitSymbol = unit == 'fahrenheit' ? '°F' : '°C';
+      final displayTemp = unit == 'fahrenheit'
+          ? (temp * 9 / 5 + 32).round()
+          : temp;
+
+      return 'The weather in $location is $displayTemp$unitSymbol and $conditions.';
+    };
+    _tools.add(
       ToolDefinition(
         name: 'get_current_weather',
         description: 'Get the current weather for a location',
@@ -110,35 +168,17 @@ class ChatProvider extends ChangeNotifier {
             description: 'Temperature unit',
           ),
         ],
-        handler: (params) async {
-          final location = params.getRequiredString('location');
-          final unit = params.getString('unit') ?? 'celsius';
-
-          // Mock weather response
-          final random = Random();
-          final temp = 15 + random.nextInt(20);
-          final conditions = [
-            'Sunny',
-            'Cloudy',
-            'Rainy',
-            'Clear',
-          ][random.nextInt(4)];
-
-          final unitSymbol = unit == 'fahrenheit' ? '°F' : '°C';
-          final displayTemp = unit == 'fahrenheit'
-              ? (temp * 9 / 5 + 32).round()
-              : temp;
-
-          return 'The weather in $location is $displayTemp$unitSymbol and $conditions.';
-        },
+        handler: (params) async => '', // Not used, we use _toolHandlers instead
       ),
-    ]);
+    );
   }
 
   Future<void> _init() async {
     _settings = await _settingsService.loadSettings();
     try {
-      _availableDevices = [await _chatService.engine.getBackendName()];
+      final backendInfo = await _chatService.engine.getBackendName();
+      _availableDevices = _parseBackendDevices(backendInfo);
+      _activeBackend = _deriveActiveBackendLabel(backendInfo);
     } catch (e) {
       debugPrint("Error fetching devices: $e");
     }
@@ -160,8 +200,19 @@ class ChatProvider extends ChangeNotifier {
     _activeBackend = "Refreshing...";
     notifyListeners();
 
+    // Estimate dynamic settings if we have a model path but no custom settings yet
+    // or if we're reloading and want to be safe.
+    if (_settings.gpuLayers == 32 || _settings.gpuLayers == 99) {
+      try {
+        await estimateDynamicSettings();
+      } catch (e) {
+        debugPrint("Dynamic estimation failed: $e");
+      }
+    }
+
     try {
-      await _chatService.engine.setLogLevel(_settings.logLevel);
+      await _chatService.engine.setDartLogLevel(_settings.logLevel);
+      await _chatService.engine.setNativeLogLevel(_settings.nativeLogLevel);
       await _chatService.init(
         _settings,
         onProgress: (progress) {
@@ -172,23 +223,32 @@ class ChatProvider extends ChangeNotifier {
         },
       );
 
-      // Create chat session with tool registry
+      if (!_chatService.engine.isReady) {
+        throw Exception('Engine initialization did not complete.');
+      }
+
+      // Create chat session
       _session = ChatSession(
         _chatService.engine,
         maxContextTokens: _settings.contextSize,
-        toolRegistry: _toolRegistry,
-        toolsEnabled: _settings.toolsEnabled,
-        forceToolCall: _settings.forceToolCall,
       );
 
       final rawBackend = await _chatService.engine.getBackendName();
-      _activeBackend = rawBackend;
+      _availableDevices = _parseBackendDevices(rawBackend);
+      _activeBackend = _deriveActiveBackendLabel(rawBackend);
 
-      _maxTokens = await _chatService.engine.getContextSize();
+      _contextLimit = await _chatService.engine.getContextSize();
       _supportsVision = await _chatService.engine.supportsVision;
       _supportsAudio = await _chatService.engine.supportsAudio;
+      final metadata = await _chatService.engine.getMetadata();
+      _updateToolTemplateSupport(metadata);
 
       final libSupported = await _chatService.engine.isGpuSupported();
+      _updateRuntimeDiagnostics(
+        backendInfo: rawBackend,
+        metadata: metadata,
+        gpuActive: libSupported,
+      );
 
       _gpuSupported =
           libSupported ||
@@ -198,13 +258,7 @@ class ChatProvider extends ChangeNotifier {
                 !d.toLowerCase().contains("llvm"),
           );
 
-      _messages.add(
-        ChatMessage(
-          text: 'Model loaded successfully! Ready to chat.',
-          isUser: false,
-          isInfo: true,
-        ),
-      );
+      _addInfoMessage('Model loaded successfully! Ready to chat.');
       _isLoaded = true;
     } catch (e, stackTrace) {
       debugPrint('Error loading model: $e');
@@ -218,7 +272,7 @@ class ChatProvider extends ChangeNotifier {
 
   void clearConversation() {
     _messages.clear();
-    _session?.clearHistory();
+    _session?.reset();
     _currentTokens = 0;
     _isPruning = false;
     _isGenerating = false;
@@ -236,48 +290,86 @@ class ChatProvider extends ChangeNotifier {
   Future<void> sendMessage(String text) async {
     if (_isGenerating || _session == null) return;
 
-    final parts = List<LlamaContentPart>.from(_stagedParts);
-    if (text.isNotEmpty) {
-      parts.add(LlamaTextContent(text));
+    if (!_chatService.engine.isReady) {
+      _messages.add(
+        ChatMessage(
+          text: 'Model is not ready yet. Please reload and try again.',
+          isUser: false,
+          isInfo: true,
+        ),
+      );
+      notifyListeners();
+      return;
     }
 
-    if (parts.isEmpty) return;
+    final parts = List<LlamaContentPart>.from(_stagedParts);
+    // Don't add text here - ChatSession.chat will handle it
 
-    final userMsg = ChatMessage(text: text, isUser: true, parts: parts);
+    if (parts.isEmpty && text.isEmpty) return;
+
+    // For UI display, include text in parts
+    final displayParts = [
+      ...parts,
+      if (text.isNotEmpty) LlamaTextContent(text),
+    ];
+    final userMsg = ChatMessage(text: text, isUser: true, parts: displayParts);
     _messages.add(userMsg);
     _stagedParts.clear();
     _isGenerating = true;
     notifyListeners();
 
-    await _generateResponse(text);
+    await _generateResponse(text, parts: parts.isEmpty ? null : parts);
   }
 
-  Future<void> _generateResponse(String text) async {
+  /// Maximum number of tool call iterations per user message.
+  static const int _maxToolIterations = 5;
+
+  Future<void> _generateResponse(
+    String text, {
+    List<LlamaContentPart>? parts,
+    int remainingToolIterations = _maxToolIterations,
+  }) async {
+    final generationStopwatch = Stopwatch()..start();
+    var sawFirstToken = false;
+    String fullResponse = "";
+    String fullThinking = "";
+    _lastFirstTokenLatencyMs = null;
+
     try {
       _messages.add(ChatMessage(text: "...", isUser: false));
       notifyListeners();
 
-      String fullResponse = "";
       DateTime lastUpdate = DateTime.now();
 
       // Use ChatSession for generation
       final params = GenerationParams(
+        maxTokens: _settings.maxTokens,
         temp: _settings.temperature,
         topK: _settings.topK,
         topP: _settings.topP,
         penalty: 1.1,
       );
 
-      await for (final token in _session!.chat(
-        text,
+      // Build parts list with text
+      final chatParts = <LlamaContentPart>[
+        ...?parts,
+        if (text.isNotEmpty) LlamaTextContent(text),
+      ];
+
+      // Tools passed per-request now (caller-managed pattern)
+      final tools = _settings.toolsEnabled ? _tools : null;
+      final toolChoice = _settings.forceToolCall
+          ? ToolChoice.required
+          : ToolChoice.auto;
+
+      await for (final chunk in _session!.create(
+        chatParts,
         params: params,
+        tools: tools,
+        toolChoice: tools != null ? toolChoice : null,
         onMessageAdded: (msg) {
-          // Handle intermediate tool messages
-          final hasToolCall = msg.parts.any((p) => p is LlamaToolCallContent);
-          final toolResultPart = msg.parts
-              .whereType<LlamaToolResultContent>()
-              .firstOrNull;
-          final isJsonAssistant =
+          // Handle intermediate messages for UI
+          final isJson =
               msg.role == LlamaChatRole.assistant &&
               msg.parts.any(
                 (p) =>
@@ -286,24 +378,8 @@ class ChatProvider extends ChangeNotifier {
                         p.text.trim().startsWith('[{')),
               );
 
-          if (toolResultPart != null) {
-            // MERGE: Find the preceding tool call and attach this result to it
-            for (int i = _messages.length - 1; i >= 0; i--) {
-              final m = _messages[i];
-              if (m.isToolCall &&
-                  !m.parts!.any((p) => p is LlamaToolResultContent)) {
-                _messages[i] = m.copyWith(parts: [...m.parts!, toolResultPart]);
-                notifyListeners();
-                return;
-              }
-            }
-          }
-
-          if (msg.role == LlamaChatRole.tool ||
-              toolResultPart != null ||
-              hasToolCall ||
-              isJsonAssistant) {
-            // Insert new tool call before the last message (the streaming bubble)
+          if (isJson) {
+            // Insert tool call before the streaming bubble
             if (_messages.isNotEmpty) {
               _messages.insert(
                 _messages.length - 1,
@@ -314,17 +390,50 @@ class ChatProvider extends ChangeNotifier {
           }
         },
       )) {
-        if (!_isGenerating) break;
+        if (!_isGenerating) {
+          break;
+        }
 
-        fullResponse += token;
+        final delta = chunk.choices.first.delta;
+
+        // Accumulate both content and thinking
+        final content = delta.content ?? '';
+        final thinking = delta.thinking ?? '';
+
+        if (!sawFirstToken &&
+            (content.isNotEmpty ||
+                thinking.isNotEmpty ||
+                (delta.toolCalls?.isNotEmpty ?? false))) {
+          _lastFirstTokenLatencyMs = generationStopwatch.elapsedMilliseconds;
+          sawFirstToken = true;
+        }
+
+        fullResponse += content;
+
+        // Unescape literal newlines/returns if they appear in thinking content
+        // This handles cases where the model outputs escaped strings
+        final unescapedThinking = thinking
+            .replaceAll(r'\n', '\n')
+            .replaceAll(r'\r', '\r');
+        fullThinking += unescapedThinking;
+
         _currentTokens++;
 
         final cleanText = _chatService.cleanResponse(fullResponse);
 
         // Find the "current" assistant message (should be the last one)
         if (_messages.isNotEmpty && !_messages.last.isUser) {
+          final parts = <LlamaContentPart>[];
+          if (fullThinking.isNotEmpty) {
+            parts.add(LlamaThinkingContent(fullThinking));
+          }
+          if (cleanText.isNotEmpty) {
+            parts.add(LlamaTextContent(cleanText));
+          }
+
           _messages[_messages.length - 1] = _messages.last.copyWith(
             text: cleanText,
+            parts: parts,
           );
 
           if (DateTime.now().difference(lastUpdate).inMilliseconds > 50) {
@@ -337,19 +446,303 @@ class ChatProvider extends ChangeNotifier {
       // Final update
       if (_messages.isNotEmpty && !_messages.last.isUser) {
         final finalText = _chatService.cleanResponse(fullResponse);
+
+        final parts = <LlamaContentPart>[];
+        if (fullThinking.isNotEmpty) {
+          parts.add(LlamaThinkingContent(fullThinking));
+        }
+        if (finalText.isNotEmpty) {
+          parts.add(LlamaTextContent(finalText));
+        }
+
         _messages[_messages.length - 1] = _messages.last.copyWith(
           text: finalText,
+          parts: parts,
         );
         _messages.last.tokenCount = await _chatService.engine.getTokenCount(
           finalText,
         );
       }
+
+      // Check for tool calls in the session history and execute them
+      if (_settings.toolsEnabled && _session!.history.isNotEmpty) {
+        final lastMsg = _session!.history.last;
+        final toolCalls = lastMsg.parts
+            .whereType<LlamaToolCallContent>()
+            .toList();
+
+        if (toolCalls.isNotEmpty && remainingToolIterations > 0) {
+          await _executeToolCalls(toolCalls, remainingToolIterations - 1);
+          return; // _executeToolCalls handles the rest
+        }
+      }
     } catch (e) {
-      _messages.add(ChatMessage(text: 'Error: $e', isUser: false));
+      final errorText = e.toString();
+      if (errorText.contains('mtmd_tokenize failed')) {
+        _messages.add(
+          ChatMessage(
+            text:
+                'Vision processing failed for this prompt. Try reloading the '
+                'model, using the bundled mmproj, or reducing image size.',
+            isUser: false,
+            isInfo: true,
+          ),
+        );
+      } else {
+        _messages.add(ChatMessage(text: 'Error: $e', isUser: false));
+      }
     } finally {
+      generationStopwatch.stop();
+      if (sawFirstToken || fullResponse.isNotEmpty || fullThinking.isNotEmpty) {
+        _lastGenerationLatencyMs = generationStopwatch.elapsedMilliseconds;
+      }
       _isGenerating = false;
       notifyListeners();
     }
+  }
+
+  void _updateRuntimeDiagnostics({
+    required String backendInfo,
+    required Map<String, String> metadata,
+    required bool gpuActive,
+  }) {
+    _runtimeBackendRaw = backendInfo;
+    _runtimeGpuLayers = int.tryParse(
+      metadata['llamadart.webgpu.n_gpu_layers'] ?? '',
+    );
+    _runtimeThreads = int.tryParse(
+      metadata['llamadart.webgpu.n_threads'] ?? '',
+    );
+    _runtimeModelArchitecture = metadata['general.architecture'];
+    final modelSource = metadata['llamadart.webgpu.model_source']?.trim();
+    _runtimeModelSource = modelSource == null || modelSource.isEmpty
+        ? null
+        : modelSource.toUpperCase();
+    final cacheState = metadata['llamadart.webgpu.model_cache_state']?.trim();
+    _runtimeModelCacheState = cacheState == null || cacheState.isEmpty
+        ? null
+        : cacheState;
+    final runtimeNotes = metadata['llamadart.webgpu.runtime_notes']?.trim();
+    _runtimeBridgeNotes = runtimeNotes == null || runtimeNotes.isEmpty
+        ? null
+        : runtimeNotes;
+
+    final lower = backendInfo.toLowerCase();
+    final likelyGpuBackend =
+        lower.contains('webgpu') ||
+        _containsBackendMarker(backendInfo, GpuBackend.metal) ||
+        _containsBackendMarker(backendInfo, GpuBackend.vulkan) ||
+        _containsBackendMarker(backendInfo, GpuBackend.cuda) ||
+        _containsBackendMarker(backendInfo, GpuBackend.blas);
+
+    final allowsGpuLayers = _runtimeGpuLayers == null || _runtimeGpuLayers != 0;
+    _runtimeGpuActive = allowsGpuLayers && (gpuActive || likelyGpuBackend);
+  }
+
+  /// Execute tool calls and continue the conversation with results.
+  Future<void> _executeToolCalls(
+    List<LlamaToolCallContent> toolCalls,
+    int remainingIterations,
+  ) async {
+    _removeRawToolCallPlaceholderMessages(toolCalls);
+
+    for (final tc in toolCalls) {
+      final toolMessageIndex = _ensureToolCallMessage(tc);
+      final handler = _toolHandlers[tc.name];
+      if (handler == null) {
+        final errorResult = 'Unknown tool: ${tc.name}';
+        _appendToolResultToMessage(
+          toolMessageIndex,
+          LlamaToolResultContent(id: tc.id, name: tc.name, result: errorResult),
+        );
+
+        _session!.addMessage(
+          LlamaChatMessage.withContent(
+            role: LlamaChatRole.tool,
+            content: [
+              LlamaToolResultContent(
+                id: tc.id,
+                name: tc.name,
+                result: errorResult,
+              ),
+            ],
+          ),
+        );
+
+        notifyListeners();
+        continue;
+      }
+
+      final args = tc.arguments;
+
+      final result = await handler(args);
+
+      _appendToolResultToMessage(
+        toolMessageIndex,
+        LlamaToolResultContent(id: tc.id, name: tc.name, result: result),
+      );
+      notifyListeners();
+
+      // Add tool result to session
+      _session!.addMessage(
+        LlamaChatMessage.withContent(
+          role: LlamaChatRole.tool,
+          content: [
+            LlamaToolResultContent(id: tc.id, name: tc.name, result: result),
+          ],
+        ),
+      );
+    }
+
+    // Continue generation to get final response with tool results
+    await _generateResponse(
+      '',
+      parts: [],
+      remainingToolIterations: remainingIterations,
+    );
+  }
+
+  int _ensureToolCallMessage(LlamaToolCallContent toolCall) {
+    final existingIndex = _findToolCallMessageIndex(toolCall);
+    if (existingIndex >= 0) {
+      return existingIndex;
+    }
+
+    _messages.add(
+      ChatMessage(
+        text: toolCall.rawJson,
+        isUser: false,
+        role: LlamaChatRole.assistant,
+        parts: [toolCall],
+      ),
+    );
+    return _messages.length - 1;
+  }
+
+  int _findToolCallMessageIndex(LlamaToolCallContent target) {
+    final start = _indexAfterLastUserMessage();
+    for (int i = _messages.length - 1; i >= start; i--) {
+      final message = _messages[i];
+      final calls = message.parts?.whereType<LlamaToolCallContent>();
+      if (calls == null) continue;
+
+      for (final call in calls) {
+        if (_isSameToolCall(call, target)) {
+          return i;
+        }
+      }
+    }
+    return -1;
+  }
+
+  int _indexAfterLastUserMessage() {
+    for (int i = _messages.length - 1; i >= 0; i--) {
+      if (_messages[i].isUser) {
+        return i + 1;
+      }
+    }
+    return 0;
+  }
+
+  bool _isSameToolCall(LlamaToolCallContent a, LlamaToolCallContent b) {
+    if (a.id != null && b.id != null) {
+      return a.id == b.id;
+    }
+    return a.name == b.name && mapEquals(a.arguments, b.arguments);
+  }
+
+  void _removeRawToolCallPlaceholderMessages(List<LlamaToolCallContent> calls) {
+    if (calls.isEmpty || _messages.isEmpty) {
+      return;
+    }
+
+    final callNames = calls.map((c) => c.name).toSet();
+    final start = _indexAfterLastUserMessage();
+
+    for (int i = _messages.length - 1; i >= start; i--) {
+      final msg = _messages[i];
+      if (msg.isUser || msg.isInfo) {
+        continue;
+      }
+
+      final hasToolParts =
+          msg.parts?.any(
+            (p) => p is LlamaToolCallContent || p is LlamaToolResultContent,
+          ) ??
+          false;
+      if (hasToolParts) {
+        continue;
+      }
+
+      if (_looksLikeToolCallPlaceholder(msg.text, callNames)) {
+        _messages.removeAt(i);
+      }
+    }
+  }
+
+  bool _looksLikeToolCallPlaceholder(String text, Set<String> callNames) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      return false;
+    }
+
+    final containsToolName = callNames.any((name) => trimmed.contains(name));
+    if (!containsToolName) {
+      return false;
+    }
+
+    final bracketCall = RegExp(r'^\[[^\]]+\(.*\)\]$').hasMatch(trimmed);
+    if (bracketCall) {
+      return true;
+    }
+
+    return trimmed.startsWith('{') ||
+        trimmed.startsWith('<function') ||
+        trimmed.startsWith('<start_function_call>') ||
+        trimmed.startsWith('<start_function_response>') ||
+        trimmed.startsWith('<tool_call') ||
+        trimmed.contains('<end_function_call>') ||
+        trimmed.contains('<end_function_response>') ||
+        trimmed.contains('"arguments"') ||
+        trimmed.contains('"tool_call"') ||
+        trimmed.contains('tool_calls');
+  }
+
+  void _appendToolResultToMessage(
+    int messageIndex,
+    LlamaToolResultContent result,
+  ) {
+    if (messageIndex < 0 || messageIndex >= _messages.length) {
+      return;
+    }
+
+    final message = _messages[messageIndex];
+    final updatedParts = List<LlamaContentPart>.from(message.parts ?? const []);
+
+    final hasExistingResult = updatedParts
+        .whereType<LlamaToolResultContent>()
+        .any((existing) {
+          if (result.id != null && existing.id != null) {
+            return existing.id == result.id;
+          }
+          return existing.name == result.name;
+        });
+
+    if (hasExistingResult) {
+      return;
+    }
+
+    updatedParts.add(result);
+    _messages[messageIndex] = message.copyWith(parts: updatedParts);
+  }
+
+  void _addInfoMessage(String text) {
+    final last = _messages.isNotEmpty ? _messages.last : null;
+    if (last != null && last.isInfo && last.text == text) {
+      return;
+    }
+
+    _messages.add(ChatMessage(text: text, isUser: false, isInfo: true));
   }
 
   void addStagedPart(LlamaContentPart part) {
@@ -369,10 +762,38 @@ class ChatProvider extends ChangeNotifier {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: false,
+        withData: kIsWeb,
       );
-      if (result != null && result.files.single.path != null) {
-        addStagedPart(LlamaImageContent(path: result.files.single.path));
+      if (result == null || result.files.isEmpty) {
+        return;
       }
+
+      final file = result.files.single;
+      if (kIsWeb) {
+        if (file.bytes != null && file.bytes!.isNotEmpty) {
+          addStagedPart(LlamaImageContent(bytes: file.bytes!));
+          return;
+        }
+
+        _addInfoMessage(
+          'Could not read image bytes in browser. Try a different image file.',
+        );
+        notifyListeners();
+        return;
+      }
+
+      if (file.path != null && file.path!.isNotEmpty) {
+        addStagedPart(LlamaImageContent(path: file.path));
+        return;
+      }
+
+      if (file.bytes != null && file.bytes!.isNotEmpty) {
+        addStagedPart(LlamaImageContent(bytes: file.bytes!));
+        return;
+      }
+
+      _addInfoMessage('Could not read selected image file.');
+      notifyListeners();
     } catch (e) {
       debugPrint("Error picking image: $e");
     }
@@ -383,10 +804,38 @@ class ChatProvider extends ChangeNotifier {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.audio,
         allowMultiple: false,
+        withData: kIsWeb,
       );
-      if (result != null && result.files.single.path != null) {
-        addStagedPart(LlamaAudioContent(path: result.files.single.path));
+      if (result == null || result.files.isEmpty) {
+        return;
       }
+
+      final file = result.files.single;
+      if (kIsWeb) {
+        if (file.bytes != null && file.bytes!.isNotEmpty) {
+          addStagedPart(LlamaAudioContent(bytes: file.bytes!));
+          return;
+        }
+
+        _addInfoMessage(
+          'Could not read audio bytes in browser. Try a different audio file.',
+        );
+        notifyListeners();
+        return;
+      }
+
+      if (file.path != null && file.path!.isNotEmpty) {
+        addStagedPart(LlamaAudioContent(path: file.path));
+        return;
+      }
+
+      if (file.bytes != null && file.bytes!.isNotEmpty) {
+        addStagedPart(LlamaAudioContent(bytes: file.bytes!));
+        return;
+      }
+
+      _addInfoMessage('Could not read selected audio file.');
+      notifyListeners();
     } catch (e) {
       debugPrint("Error picking audio: $e");
     }
@@ -413,26 +862,182 @@ class ChatProvider extends ChangeNotifier {
   void updateTopP(double value) =>
       _updateSettings(_settings.copyWith(topP: value));
   void updateContextSize(int value) =>
-      _updateSettings(_settings.copyWith(contextSize: value));
+      _updateSettings(_settings.copyWith(contextSize: value.clamp(512, 32768)));
+  void updateMaxTokens(int value) =>
+      _updateSettings(_settings.copyWith(maxTokens: value.clamp(512, 32768)));
+  void updateGpuLayers(int value) =>
+      _updateSettings(_settings.copyWith(gpuLayers: value));
   void updateLogLevel(LlamaLogLevel value) {
     _updateSettings(_settings.copyWith(logLevel: value));
-    _chatService.engine.setLogLevel(value);
+    _chatService.engine.setDartLogLevel(value);
+  }
+
+  void updateNativeLogLevel(LlamaLogLevel value) {
+    _updateSettings(_settings.copyWith(nativeLogLevel: value));
+    _chatService.engine.setNativeLogLevel(value);
   }
 
   void updateToolsEnabled(bool value) {
     _updateSettings(_settings.copyWith(toolsEnabled: value));
-    _session?.toolsEnabled = value;
   }
 
   void updateForceToolCall(bool value) {
     _updateSettings(_settings.copyWith(forceToolCall: value));
-    _session?.forceToolCall = value;
   }
 
   void updateModelPath(String path) {
     _settings = _settings.copyWith(modelPath: path);
     _settingsService.saveSettings(_settings);
     notifyListeners();
+  }
+
+  /// Apply model-specific recommended generation and runtime parameters.
+  void applyModelPreset(DownloadableModel model) {
+    _updateSettings(
+      _settings.copyWith(
+        temperature: model.preset.temperature,
+        topK: model.preset.topK,
+        topP: model.preset.topP,
+        contextSize: model.preset.contextSize,
+        maxTokens: model.preset.maxTokens,
+        gpuLayers: model.preset.gpuLayers,
+        toolsEnabled: model.supportsToolCalling,
+        forceToolCall: model.preset.forceToolCall && model.supportsToolCalling,
+      ),
+    );
+  }
+
+  void _updateToolTemplateSupport(Map<String, String> metadata) {
+    final toolTemplate = metadata['tokenizer.chat_template.tool_use'];
+    final defaultTemplate = metadata['tokenizer.chat_template'];
+
+    final effectiveTemplate =
+        (toolTemplate != null && toolTemplate.trim().isNotEmpty)
+        ? toolTemplate
+        : defaultTemplate;
+
+    if (effectiveTemplate == null || effectiveTemplate.trim().isEmpty) {
+      _detectedChatFormat = null;
+      _templateSupportsTools = true;
+      return;
+    }
+
+    final format = ChatTemplateEngine.detectFormat(effectiveTemplate);
+    _detectedChatFormat = format;
+
+    final hasDedicatedToolTemplate =
+        toolTemplate != null && toolTemplate.trim().isNotEmpty;
+    final hasToolMarkers = _templateHasToolMarkers(effectiveTemplate);
+
+    _templateSupportsTools =
+        hasDedicatedToolTemplate ||
+        (_formatCanUseTools(format) && hasToolMarkers);
+
+    if (_settings.toolsEnabled && !_templateSupportsTools) {
+      _settings = _settings.copyWith(toolsEnabled: false, forceToolCall: false);
+      _settingsService.saveSettings(_settings);
+      _messages.add(
+        ChatMessage(
+          text:
+              'Tool calling disabled for this model: chat template does not '
+              'advertise tool support.',
+          isUser: false,
+          isInfo: true,
+        ),
+      );
+    }
+  }
+
+  bool _templateHasToolMarkers(String template) {
+    const markers = [
+      'tools',
+      'tool_call',
+      'tool_calls',
+      '[TOOL_CALLS]',
+      '<tool_call>',
+      '<tool_calls>',
+      '<available_tools>',
+      '<|python_tag|>',
+      '<|tool_list_start|>',
+      '<start_function_call>',
+      'functools[',
+      '>>>all',
+      '<function=',
+      '<|tool_calls_section_begin|>',
+    ];
+
+    for (final marker in markers) {
+      if (template.contains(marker)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _formatCanUseTools(ChatFormat format) {
+    switch (format) {
+      case ChatFormat.contentOnly:
+        return false;
+      default:
+        return true;
+    }
+  }
+
+  List<String> _parseBackendDevices(String backendInfo) {
+    final parts = backendInfo
+        .split(',')
+        .map((entry) => entry.trim())
+        .where((entry) => entry.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    if (parts.isEmpty) {
+      return [backendInfo];
+    }
+    return parts;
+  }
+
+  String _deriveActiveBackendLabel(String backendInfo) {
+    final lower = backendInfo.toLowerCase();
+    if (lower.contains('webgpu') || lower.contains('wgpu')) {
+      return 'WEBGPU';
+    }
+
+    if (_containsBackendMarker(backendInfo, GpuBackend.metal)) {
+      return 'METAL';
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.vulkan)) {
+      return 'VULKAN';
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.cuda)) {
+      return 'CUDA';
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.blas)) {
+      return 'BLAS';
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.cpu)) {
+      return 'CPU';
+    }
+
+    return backendInfo;
+  }
+
+  bool _containsBackendMarker(String value, GpuBackend backend) {
+    final lower = value.toLowerCase();
+    switch (backend) {
+      case GpuBackend.metal:
+        return lower.contains('metal') || lower.contains('mtl');
+      case GpuBackend.vulkan:
+        return lower.contains('vulkan');
+      case GpuBackend.cuda:
+        return lower.contains('cuda');
+      case GpuBackend.blas:
+        return lower.contains('blas');
+      case GpuBackend.cpu:
+        return lower.contains('cpu') || lower.contains('llvm');
+      case GpuBackend.auto:
+        return false;
+    }
   }
 
   void updateMmprojPath(String path) {
@@ -504,5 +1109,38 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> shutdown() async {
     await _chatService.dispose();
+  }
+
+  Future<void> estimateDynamicSettings() async {
+    try {
+      final vram = await _chatService.engine.getVramInfo();
+      if (vram.total == 0) return;
+
+      final freeVramGb = vram.free / (1024 * 1024 * 1024);
+
+      // Heuristic: 1GB per 24 layers for a typical 7B model
+      // Modern models have ~32 layers.
+      // Small models (0.5B-1B) have ~24 layers.
+      // Large models (7B-8B) have ~32 layers.
+      // Very large models (70B) have ~80 layers.
+
+      int recommendedLayers = (freeVramGb * 24).round();
+      if (recommendedLayers > 100) recommendedLayers = 100;
+      if (recommendedLayers < 0) recommendedLayers = 0;
+
+      // Also set a conservative context size if VRAM is low
+      int recommendedCtx = 4096;
+      if (freeVramGb < 2.0) {
+        recommendedCtx = 2048;
+      }
+
+      _settings = _settings.copyWith(
+        gpuLayers: recommendedLayers,
+        contextSize: recommendedCtx,
+      );
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error estimating dynamic settings: $e");
+    }
   }
 }

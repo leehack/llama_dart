@@ -107,12 +107,18 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
     final provider = context.read<ChatProvider>();
 
     provider.updateModelPath(pathOrUrl);
+    provider.applyModelPreset(model);
 
-    if (!kIsWeb && model.isMultimodal) {
-      if (model.mmprojFilename != null) {
+    if (model.isMultimodal) {
+      if (kIsWeb) {
+        if (model.mmprojUrl != null && model.mmprojUrl!.isNotEmpty) {
+          provider.updateMmprojPath(model.mmprojUrl!);
+        } else {
+          provider.updateMmprojPath(pathOrUrl);
+        }
+      } else if (model.mmprojFilename != null) {
         provider.updateMmprojPath('${_modelsDir!}/${model.mmprojFilename}');
-      } else if (model.supportsVision) {
-        // Integrated projector: use the model file itself if supportsVision is true but no separate file
+      } else if (model.supportsVision || model.supportsAudio) {
         provider.updateMmprojPath(pathOrUrl);
       } else {
         provider.updateMmprojPath('');
@@ -153,12 +159,22 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
         padding: const EdgeInsets.all(24),
         itemBuilder: (context, index) {
           final model = _models[index];
+          final provider = context.watch<ChatProvider>();
+          final selectedPath = kIsWeb
+              ? model.url
+              : (_modelsDir != null ? '${_modelsDir!}/${model.filename}' : '');
+
           return ModelCard(
             model: model,
             isDownloaded: _downloadedFiles.contains(model.filename),
             isDownloading: _isDownloading[model.filename] ?? false,
             progress: _downloadProgress[model.filename] ?? 0.0,
             isWeb: kIsWeb,
+            isSelected: provider.modelPath == selectedPath,
+            gpuLayers: provider.gpuLayers,
+            contextSize: provider.contextSize,
+            onGpuLayersChanged: provider.updateGpuLayers,
+            onContextSizeChanged: provider.updateContextSize,
             onSelect: () => _selectModel(model),
             onDownload: () => _downloadModel(model),
             onDelete: () => _deleteModel(model),

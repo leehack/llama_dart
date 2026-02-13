@@ -38,6 +38,25 @@ flutter pub get
 flutter run
 ```
 
+## Testing
+
+- `basic_app` (Dart console):
+
+```bash
+cd basic_app
+dart test
+```
+
+- `chat_app` (Flutter UI):
+
+```bash
+cd chat_app
+flutter test
+```
+
+Note: `chat_app` uses Flutter libraries (`dart:ui`), so `dart test` is not
+the correct runner for that example.
+
 ## Quick Start
 
 1. **Choose an example**: Basic (console) or Chat (Flutter)
@@ -101,7 +120,31 @@ example/
 | **Android** | arm64-v8a, x86_64 | Vulkan | ✅ Tested |
 | **Linux** | arm64, x86_64 | Vulkan | 🟡 Expected (Vulkan Untested) |
 | **Windows** | x64 | Vulkan | ✅ Tested |
-| **Web** | WASM | CPU | ✅ Tested |
+| **Web** | WASM / WebGPU Bridge | CPU / Experimental WebGPU | ✅ Tested |
+
+### Web Notes
+
+- Web examples run on the llama.cpp bridge backend (WebGPU or CPU mode).
+- `chat_app` loader is local-first and falls back to jsDelivr bridge assets.
+- You can prefetch a pinned bridge version into `web/webgpu_bridge/` with:
+  `WEBGPU_BRIDGE_ASSETS_TAG=<tag> ./scripts/fetch_webgpu_bridge_assets.sh`.
+- Fetch script defaults to universal Safari-compatible patching:
+  `WEBGPU_BRIDGE_PATCH_SAFARI_COMPAT=1` and
+  `WEBGPU_BRIDGE_MIN_SAFARI_VERSION=170400`.
+- `chat_app/web/index.html` also applies Safari compatibility patching at
+  runtime before bridge initialization (including CDN fallback).
+- Web model loading uses browser Cache Storage by default, so repeated loads of
+  the same model URL can skip full re-download.
+- Safari WebGPU uses a compatibility gate in `llamadart`: legacy bridge assets
+  default to CPU fallback, while adaptive bridge assets can probe/cap GPU
+  layers and auto-fallback to CPU when unstable.
+- You can still bypass the legacy safeguard with
+  `window.__llamadartAllowSafariWebGpu = true` before model load.
+- Multimodal projector loading works on web via URL-based model/mmproj pairs.
+- In `chat_app`, image/audio attachments on web are sent as browser file bytes;
+  local file paths are native-only.
+- Native LoRA runtime adapter flows are not available on web.
+- `chat_app` on web uses model URLs rather than native file download storage.
 
 ## Troubleshooting
 

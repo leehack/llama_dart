@@ -1,0 +1,152 @@
+@TestOn('vm')
+library;
+
+import 'dart:io';
+import 'package:llamadart/src/core/template/chat_format.dart';
+import 'package:test/test.dart';
+
+void main() {
+  group('ChatFormat Detection', () {
+    test('detects LFM 2.5 template from fixture', () {
+      final file = File('test/fixtures/templates/LFM2_5-1_2B-Thinking.jinja');
+      final source = file.readAsStringSync();
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.lfm2));
+    });
+
+    test('detects LFM 2.5 from keep_past_thinking marker', () {
+      const source =
+          '{%- set keep_past_thinking = true -%}<|im_start|>user\nhi<|im_end|>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.lfm2));
+    });
+
+    test('falls back to generic for standard ChatML', () {
+      const source = '<|im_start|>user\nhi<|im_end|>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.generic));
+    });
+
+    test('detects Phi-style chat template as generic', () {
+      const source = '<|user|>hi<|end|><|assistant|>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.generic));
+    });
+
+    test('detects GPT-OSS format', () {
+      const source = '<|start|>assistant<|channel|>final<|message|>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.gptOss));
+    });
+
+    test('detects Seed-OSS format', () {
+      const source = '<seed:think>thinking</seed:think><seed:tool_call>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.seedOss));
+    });
+
+    test('detects Nemotron V2 format', () {
+      const source = '<SPECIAL_10>\n<TOOLCALL>[{"name":"weather"}]</TOOLCALL>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.nemotronV2));
+    });
+
+    test('detects Apertus format', () {
+      const source =
+          '<|system_start|>sys<|system_end|><|tools_prefix|>[]<|tools_suffix|>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.apertus));
+    });
+
+    test('detects Xiaomi MiMo format', () {
+      const source =
+          '<tools># Tools</tools><tool_calls></tool_calls><tool_response>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.xiaomiMimo));
+    });
+
+    test('detects Apriel 1.5 format', () {
+      const source =
+          '<thinking></thinking><available_tools><|assistant|><|tool_result|><tool_calls>[]</tool_calls>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.apriel15));
+    });
+
+    test('detects Solar Open format', () {
+      const source =
+          '<|tool_response:begin|><|tool_response:name|><|tool_response:result|>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.solarOpen));
+    });
+
+    test('detects TranslateGemma format', () {
+      const source = '[source_lang_code]\n[target_lang_code]\n{{ message }}';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.translateGemma));
+    });
+
+    test('detects Kimi K2 format', () {
+      const source =
+          '<|im_system|>tool_declare<|im_middle|>...<|tool_calls_section_begin|>...## Return of functions.weather:0';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.kimiK2));
+    });
+
+    test('detects FireFunction v2 format', () {
+      const source = '... functools[...';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.firefunctionV2));
+    });
+
+    test('detects Functionary v3.2 format', () {
+      const source = '>>>all\nHello';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.functionaryV32));
+    });
+
+    test('detects Functionary v3.1 Llama 3.1 format', () {
+      const source =
+          '<|start_header_id|>assistant<|end_header_id|><function=special_function>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.functionaryV31Llama31));
+    });
+
+    test('detects EXAONE MoE format before Hermes', () {
+      const source =
+          '<tool_call>{}</tool_call><tool_result>x</tool_result><|tool_declare|>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.exaoneMoe));
+    });
+
+    test('detects Qwen3 Coder XML before Hermes', () {
+      const source =
+          '<tool_call><function><function=test><parameters><parameter=a>1</parameter></function></tool_call>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.qwen3CoderXml));
+    });
+
+    test('detects Granite only with thinking marker', () {
+      const source = 'elif thinking ... <|tool_call|>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.granite));
+    });
+
+    test('detects FunctionGemma format from start_function_call marker', () {
+      const source =
+          '<start_of_turn>user\nhi<end_of_turn><start_of_turn>model\n'
+          '<start_function_call>call:get_weather{"location":"Seoul"}'
+          '<end_function_call>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.functionGemma));
+    });
+
+    test('prefers FunctionGemma over Gemma when both markers are present', () {
+      const source =
+          '<start_of_turn>user\nhi<end_of_turn>'
+          '<start_function_call>call:get_weather{"location":"Paris"}'
+          '<end_function_call>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.functionGemma));
+    });
+  });
+}

@@ -23,11 +23,16 @@ class ChatService {
   }) async {
     if (settings.modelPath == null) throw Exception("Model path is null");
 
+    // Unload existing model if any
+    if (_engine.isReady) {
+      await _engine.unloadModel();
+    }
+
     if (settings.modelPath!.startsWith('http')) {
       await _engine.loadModelFromUrl(
         settings.modelPath!,
         modelParams: ModelParams(
-          gpuLayers: 99,
+          gpuLayers: settings.gpuLayers,
           preferredBackend: settings.preferredBackend,
           contextSize: settings.contextSize,
         ),
@@ -37,7 +42,7 @@ class ChatService {
       await _engine.loadModel(
         settings.modelPath!,
         modelParams: ModelParams(
-          gpuLayers: 99,
+          gpuLayers: settings.gpuLayers,
           preferredBackend: settings.preferredBackend,
           contextSize: settings.contextSize,
         ),
@@ -49,8 +54,11 @@ class ChatService {
         await _engine.loadMultimodalProjector(settings.mmprojPath!);
         debugPrint("Loaded multimodal projector from ${settings.mmprojPath}");
       } catch (e) {
-        debugPrint("Warning: Failed to load multimodal projector: $e");
-        // Do not rethrow; proceed without vision if projector fails
+        debugPrint("Failed to load multimodal projector: $e");
+        throw Exception(
+          'Failed to load multimodal projector (${settings.mmprojPath}). '
+          'Please verify this mmproj matches the selected model.',
+        );
       }
     }
   }

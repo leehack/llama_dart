@@ -228,7 +228,7 @@ jobs:
         with:
           name: updated_source
           path: |
-            lib/src/generated/llama_bindings.dart
+            lib/src/backends/llama_cpp/bindings.dart
             hook/build.dart
 
   # ---------------------------------------------------------------------------
@@ -301,13 +301,15 @@ jobs:
           fi
       - name: Run Smoke Test
         shell: bash
+        env:
+          GGML_METAL_DEVICES: "0"
         run: |
           flutter pub get
           mkdir -p models
           if [ ! -f "models/stories15M.gguf" ]; then
             curl -L https://huggingface.co/ggml-org/tiny-llamas/resolve/main/stories15M.gguf -o models/stories15M.gguf
           fi
-          dart test --timeout 5m test/inference_smoke_test.dart
+          dart test -p vm --exclude-tags local-only --timeout 5m test/integration/inference_smoke_test.dart
 
   # ---------------------------------------------------------------------------
   # Stage D: Release & PR
@@ -394,5 +396,5 @@ jobs:
           branch: automation/llama-cpp-${{ needs.codegen.outputs.tag }}
           labels: automation/llama-cpp
           add-paths: |
-            lib/src/generated/llama_bindings.dart
+            lib/src/backends/llama_cpp/bindings.dart
             hook/build.dart

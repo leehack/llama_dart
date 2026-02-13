@@ -1,9 +1,12 @@
 import 'dart:io';
-import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:llamadart/llamadart.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:llamadart/llamadart.dart';
+
 import '../models/chat_message.dart';
+import 'tool_execution_card.dart';
 
 class MessageBubble extends StatelessWidget {
   final ChatMessage message;
@@ -25,7 +28,15 @@ class MessageBubble extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    if (message.isInfo) {
+      return _buildInfoMessage(context);
+    }
+
     final isUser = message.isUser;
+    final isTypingPlaceholder =
+        !isUser &&
+        message.text.trim() == '...' &&
+        (message.parts == null || message.parts!.isEmpty);
     final align = isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
     final color = isUser
         ? Theme.of(context).colorScheme.primary
@@ -41,6 +52,8 @@ class MessageBubble extends StatelessWidget {
       bottomLeft: Radius.circular(isUser ? borderRadius : 4),
       bottomRight: Radius.circular(isUser ? 4 : borderRadius),
     );
+
+    final thinkingText = message.thinkingText;
 
     return Padding(
       padding: EdgeInsets.only(bottom: isNextSame ? 4 : 12),
@@ -67,60 +80,26 @@ class MessageBubble extends StatelessWidget {
                             (p) =>
                                 p is! LlamaTextContent &&
                                 p is! LlamaToolCallContent &&
-                                p is! LlamaToolResultContent,
+                                p is! LlamaToolResultContent &&
+                                p is! LlamaThinkingContent,
                           )
                           .map((p) => _buildMediaPart(context, p)),
+
+                    if (thinkingText != null && thinkingText.trim().isNotEmpty)
+                      _buildThinkingView(context, thinkingText),
+
                     if (message.isToolCall)
                       _buildToolCallView(context)
-                    else
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 14,
-                        ),
-                        decoration: BoxDecoration(
-                          color: color,
-                          borderRadius: border,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.05),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: MarkdownBody(
-                          data: message.text,
-                          selectable: true,
-                          styleSheet: MarkdownStyleSheet(
-                            p: TextStyle(
-                              color: textColor,
-                              fontSize: 15,
-                              height: 1.4,
-                            ),
-                            code: TextStyle(
-                              color: isUser
-                                  ? textColor.withValues(alpha: 0.9)
-                                  : Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                              backgroundColor: isUser
-                                  ? Colors.black.withValues(alpha: 0.1)
-                                  : Theme.of(
-                                      context,
-                                    ).colorScheme.surfaceContainerHighest,
-                              fontFamily: 'monospace',
-                            ),
-                            codeblockDecoration: BoxDecoration(
-                              color: isUser
-                                  ? Colors.black.withValues(alpha: 0.1)
-                                  : Theme.of(
-                                      context,
-                                    ).colorScheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                        ),
+                    else if (isTypingPlaceholder)
+                      _buildTypingBubble(context)
+                    else if (message.text.isNotEmpty)
+                      _buildMarkdownBubble(
+                        context,
+                        message.text,
+                        bubbleColor: color,
+                        textColor: textColor,
+                        border: border,
+                        isUser: isUser,
                       ),
                   ],
                 ),
@@ -131,8 +110,126 @@ class MessageBubble extends StatelessWidget {
               ],
             ],
           ),
+          if (!isUser)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 40),
+              child: Text(
+                _formatTimestamp(context),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(top: 4, right: 40),
+              child: Text(
+                _formatTimestamp(context),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
         ],
       ),
+    );
+  }
+
+  Widget _buildInfoMessage(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: colorScheme.outlineVariant),
+          ),
+          child: Text(
+            message.text,
+            style: TextStyle(
+              fontSize: 12,
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMarkdownBubble(
+    BuildContext context,
+    String text, {
+    required Color bubbleColor,
+    required Color textColor,
+    required BorderRadius border,
+    required bool isUser,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      decoration: BoxDecoration(
+        color: bubbleColor,
+        borderRadius: border,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: MarkdownBody(
+        data: text,
+        selectable: true,
+        styleSheet: MarkdownStyleSheet(
+          p: TextStyle(color: textColor, fontSize: 15, height: 1.4),
+          code: TextStyle(
+            color: isUser
+                ? textColor.withValues(alpha: 0.9)
+                : colorScheme.onSurfaceVariant,
+            backgroundColor: isUser
+                ? Colors.black.withValues(alpha: 0.1)
+                : colorScheme.surfaceContainerHighest,
+            fontFamily: 'monospace',
+          ),
+          codeblockDecoration: BoxDecoration(
+            color: isUser
+                ? Colors.black.withValues(alpha: 0.1)
+                : colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTypingBubble(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: const _TypingDots(),
+    );
+  }
+
+  String _formatTimestamp(BuildContext context) {
+    final localizations = MaterialLocalizations.of(context);
+    final mediaQuery = MediaQuery.maybeOf(context);
+    final time = TimeOfDay.fromDateTime(message.timestamp);
+
+    return localizations.formatTimeOfDay(
+      time,
+      alwaysUse24HourFormat: mediaQuery?.alwaysUse24HourFormat ?? false,
     );
   }
 
@@ -151,7 +248,7 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildPartContent(LlamaContentPart part) {
     if (part is LlamaImageContent) {
-      if (part.path != null) {
+      if (!kIsWeb && part.path != null) {
         return Image.file(File(part.path!), fit: BoxFit.cover);
       } else if (part.bytes != null) {
         return Image.memory(part.bytes!, fit: BoxFit.cover);
@@ -196,99 +293,145 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildToolCallView(BuildContext context) {
-    final toolCall = message.parts
-        ?.whereType<LlamaToolCallContent>()
-        .firstOrNull;
-    final title = toolCall != null
-        ? 'Tool: ${toolCall.name}'
-        : 'Executing Tool';
-    final content = toolCall != null
-        ? jsonEncode(toolCall.arguments)
-        : message.text;
-
-    final toolResult = message.parts
+    final colorScheme = Theme.of(context).colorScheme;
+    final toolCalls = message.parts?.whereType<LlamaToolCallContent>().toList();
+    final toolResults = message.parts
         ?.whereType<LlamaToolResultContent>()
-        .firstOrNull;
+        .toList();
 
+    if (toolCalls == null || toolCalls.isEmpty) {
+      return _buildMarkdownBubble(
+        context,
+        message.text,
+        bubbleColor: colorScheme.surfaceContainerHighest,
+        textColor: colorScheme.onSurface,
+        border: BorderRadius.circular(12),
+        isUser: false,
+      );
+    }
+
+    return ToolExecutionCard(
+      toolCalls: toolCalls,
+      toolResults: toolResults ?? const [],
+    );
+  }
+
+  Widget _buildThinkingView(BuildContext context, String thinkingText) {
     return Container(
+      margin: const EdgeInsets.only(bottom: 8),
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.all(8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        ),
+        collapsedShape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide.none,
+        ),
+        title: Row(
+          children: [
+            Icon(
+              Icons.psychology,
+              size: 16,
+              color: Theme.of(context).colorScheme.secondary,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              "Thought Process",
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.secondary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.terminal_rounded,
-                size: 14,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-              const Spacer(),
-              if (toolResult != null || isNextSame)
-                Icon(
-                  Icons.check_circle_outline_rounded,
-                  size: 14,
-                  color: Theme.of(context).colorScheme.primary,
-                )
-              else
-                const SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
           Container(
-            width: double.infinity,
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.05),
+              color: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  content,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 10,
-                    color: Colors.grey,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (toolResult != null) ...[
-                  const Divider(height: 12, thickness: 0.5),
-                  Text(
-                    'Result: ${toolResult.result is String ? toolResult.result : jsonEncode(toolResult.result)}',
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                ],
-              ],
+            child: Text(
+              thinkingText,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.secondary,
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TypingDots extends StatefulWidget {
+  const _TypingDots();
+
+  @override
+  State<_TypingDots> createState() => _TypingDotsState();
+}
+
+class _TypingDotsState extends State<_TypingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.onSecondaryContainer;
+
+    return SizedBox(
+      width: 38,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) {
+          final progress = _controller.value;
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(3, (index) {
+              final phase = (progress + (index * 0.2)) % 1.0;
+              final alpha =
+                  ((0.3 + (0.7 * (1.0 - (phase - 0.5).abs() * 2.0))).clamp(
+                            0.25,
+                            1.0,
+                          )
+                          as num)
+                      .toDouble();
+
+              return Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: alpha),
+                  shape: BoxShape.circle,
+                ),
+              );
+            }),
+          );
+        },
       ),
     );
   }
