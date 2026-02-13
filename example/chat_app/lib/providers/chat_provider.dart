@@ -751,6 +751,19 @@ class ChatProvider extends ChangeNotifier {
       }
 
       final file = result.files.single;
+      if (kIsWeb) {
+        if (file.bytes != null && file.bytes!.isNotEmpty) {
+          addStagedPart(LlamaImageContent(bytes: file.bytes!));
+          return;
+        }
+
+        _addInfoMessage(
+          'Could not read image bytes in browser. Try a different image file.',
+        );
+        notifyListeners();
+        return;
+      }
+
       if (file.path != null && file.path!.isNotEmpty) {
         addStagedPart(LlamaImageContent(path: file.path));
         return;
@@ -758,7 +771,11 @@ class ChatProvider extends ChangeNotifier {
 
       if (file.bytes != null && file.bytes!.isNotEmpty) {
         addStagedPart(LlamaImageContent(bytes: file.bytes!));
+        return;
       }
+
+      _addInfoMessage('Could not read selected image file.');
+      notifyListeners();
     } catch (e) {
       debugPrint("Error picking image: $e");
     }
@@ -776,6 +793,19 @@ class ChatProvider extends ChangeNotifier {
       }
 
       final file = result.files.single;
+      if (kIsWeb) {
+        if (file.bytes != null && file.bytes!.isNotEmpty) {
+          addStagedPart(LlamaAudioContent(bytes: file.bytes!));
+          return;
+        }
+
+        _addInfoMessage(
+          'Could not read audio bytes in browser. Try a different audio file.',
+        );
+        notifyListeners();
+        return;
+      }
+
       if (file.path != null && file.path!.isNotEmpty) {
         addStagedPart(LlamaAudioContent(path: file.path));
         return;
@@ -783,7 +813,11 @@ class ChatProvider extends ChangeNotifier {
 
       if (file.bytes != null && file.bytes!.isNotEmpty) {
         addStagedPart(LlamaAudioContent(bytes: file.bytes!));
+        return;
       }
+
+      _addInfoMessage('Could not read selected audio file.');
+      notifyListeners();
     } catch (e) {
       debugPrint("Error picking audio: $e");
     }

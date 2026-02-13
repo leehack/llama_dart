@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:llamadart/llamadart.dart';
@@ -247,7 +248,7 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildPartContent(LlamaContentPart part) {
     if (part is LlamaImageContent) {
-      if (part.path != null) {
+      if (!kIsWeb && part.path != null) {
         return Image.file(File(part.path!), fit: BoxFit.cover);
       } else if (part.bytes != null) {
         return Image.memory(part.bytes!, fit: BoxFit.cover);

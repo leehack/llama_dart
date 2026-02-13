@@ -302,7 +302,7 @@ class _ChatInputState extends State<ChatInput> {
 
   Widget _buildPartPreview(LlamaContentPart part) {
     if (part is LlamaImageContent) {
-      if (part.path != null) {
+      if (!kIsWeb && part.path != null) {
         return Image.file(File(part.path!), fit: BoxFit.cover);
       } else if (part.bytes != null) {
         return Image.memory(part.bytes!, fit: BoxFit.cover);

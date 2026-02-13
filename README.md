@@ -342,6 +342,12 @@ void main() async {
 }
 ```
 
+Web-specific note:
+
+- Load model/mmproj with URL-based assets (`loadModelFromUrl` + URL projector).
+- For user-picked browser files, send media as bytes (`LlamaImageContent(bytes: ...)`,
+  `LlamaAudioContent(bytes: ...)`) rather than local file paths.
+
 ### 💡 Model-Specific Notes
 
 #### Moondream 2 & Phi-2

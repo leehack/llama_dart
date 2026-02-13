@@ -129,6 +129,8 @@ example/
 - You can prefetch a pinned bridge version into `web/webgpu_bridge/` with:
   `WEBGPU_BRIDGE_ASSETS_TAG=<tag> ./scripts/fetch_webgpu_bridge_assets.sh`.
 - Multimodal projector loading works on web via URL-based model/mmproj pairs.
+- In `chat_app`, image/audio attachments on web are sent as browser file bytes;
+  local file paths are native-only.
 - Native LoRA runtime adapter flows are not available on web.
 - `chat_app` on web uses model URLs rather than native file download storage.
 
