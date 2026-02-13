@@ -1,0 +1,181 @@
+name: Publish WebGPU Bridge Assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      assets_tag:
+        description: Tag to publish in the assets repo (for example v0.1.0)
+        required: true
+      assets_repo:
+        description: Asset repository in owner/repo format
+        required: true
+        default: leehack/llama-web-bridge-assets
+      llama_cpp_tag:
+        description: Optional llama.cpp tag override (defaults to hook/build.dart pin)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build-bridge-assets:
+    name: Build bridge assets
+    runs-on: ubuntu-latest
+    outputs:
+      llama_cpp_tag: ${{ steps.resolve_llama.outputs.llama_cpp_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve llama.cpp tag
+        id: resolve_llama
+        run: |
+          if [ -n "${{ inputs.llama_cpp_tag }}" ]; then
+            TAG="${{ inputs.llama_cpp_tag }}"
+          else
+            TAG=$(grep -o "const _llamaCppTag = '[^']*';" hook/build.dart | cut -d"'" -f2)
+          fi
+
+          if [ -z "$TAG" ]; then
+            echo "error: failed to resolve llama.cpp tag"
+            exit 1
+          fi
+
+          echo "llama_cpp_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Using llama.cpp tag: $TAG"
+
+      - name: Clone llama.cpp source
+        run: |
+          git clone --depth 1 --branch "${{ steps.resolve_llama.outputs.llama_cpp_tag }}" https://github.com/ggml-org/llama.cpp.git third_party/llama_cpp
+
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.70
+
+      - name: Build WebGPU bridge
+        env:
+          OUT_DIR: ${{ runner.temp }}/webgpu_bridge_dist
+        run: |
+          ./scripts/build_webgpu_bridge.sh
+
+      - name: Generate manifest and checksums
+        env:
+          OUT_DIR: ${{ runner.temp }}/webgpu_bridge_dist
+          ASSETS_TAG: ${{ inputs.assets_tag }}
+          LLAMA_CPP_TAG: ${{ steps.resolve_llama.outputs.llama_cpp_tag }}
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          test -f "$OUT_DIR/llama_webgpu_bridge.js"
+          test -f "$OUT_DIR/llama_webgpu_core.js"
+          test -f "$OUT_DIR/llama_webgpu_core.wasm"
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from datetime import datetime, timezone
+
+          out_dir = os.environ['OUT_DIR']
+          files = [
+              'llama_webgpu_bridge.js',
+              'llama_webgpu_core.js',
+              'llama_webgpu_core.wasm',
+          ]
+
+          manifest = {
+              'bridge_assets_tag': os.environ['ASSETS_TAG'],
+              'source_repository': os.environ['SOURCE_REPO'],
+              'source_commit': os.environ['SOURCE_COMMIT'],
+              'llama_cpp_tag': os.environ['LLAMA_CPP_TAG'],
+              'generated_at_utc': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+              'files': {},
+          }
+
+          checksums = []
+          for name in files:
+              path = os.path.join(out_dir, name)
+              with open(path, 'rb') as f:
+                  data = f.read()
+              digest = hashlib.sha256(data).hexdigest()
+              manifest['files'][name] = {
+                  'size_bytes': len(data),
+                  'sha256': digest,
+              }
+              checksums.append(f'{digest}  {name}')
+
+          with open(os.path.join(out_dir, 'manifest.json'), 'w', encoding='utf-8') as f:
+              json.dump(manifest, f, indent=2)
+              f.write('\n')
+
+          with open(os.path.join(out_dir, 'sha256sums.txt'), 'w', encoding='utf-8') as f:
+              f.write('\n'.join(checksums))
+              f.write('\n')
+          PY
+
+      - name: Upload built assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: webgpu-bridge-dist
+          path: |
+            ${{ runner.temp }}/webgpu_bridge_dist/llama_webgpu_bridge.js
+            ${{ runner.temp }}/webgpu_bridge_dist/llama_webgpu_core.js
+            ${{ runner.temp }}/webgpu_bridge_dist/llama_webgpu_core.wasm
+            ${{ runner.temp }}/webgpu_bridge_dist/manifest.json
+            ${{ runner.temp }}/webgpu_bridge_dist/sha256sums.txt
+
+  publish-assets-repo:
+    name: Publish to assets repository
+    needs: build-bridge-assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate assets PAT secret
+        env:
+          ASSETS_PAT: ${{ secrets.WEBGPU_BRIDGE_ASSETS_PAT }}
+        run: |
+          if [ -z "$ASSETS_PAT" ]; then
+            echo "error: WEBGPU_BRIDGE_ASSETS_PAT secret is required"
+            exit 1
+          fi
+
+      - name: Checkout assets repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.assets_repo }}
+          token: ${{ secrets.WEBGPU_BRIDGE_ASSETS_PAT }}
+          path: assets-repo
+
+      - name: Download bridge assets artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: webgpu-bridge-dist
+          path: bridge-dist
+
+      - name: Publish assets and tag
+        env:
+          ASSETS_TAG: ${{ inputs.assets_tag }}
+        run: |
+          if git -C assets-repo ls-remote --exit-code --tags origin "refs/tags/$ASSETS_TAG" >/dev/null 2>&1; then
+            echo "error: tag already exists in assets repo: $ASSETS_TAG"
+            exit 1
+          fi
+
+          cp bridge-dist/* assets-repo/
+
+          cd assets-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add llama_webgpu_bridge.js llama_webgpu_core.js llama_webgpu_core.wasm manifest.json sha256sums.txt
+
+          if git diff --cached --quiet; then
+            echo "No asset changes detected; skipping commit and tag."
+            exit 0
+          fi
+
+          git commit -m "chore: publish webgpu bridge $ASSETS_TAG"
+          git push origin HEAD
+
+          git tag "$ASSETS_TAG"
+          git push origin "$ASSETS_TAG"

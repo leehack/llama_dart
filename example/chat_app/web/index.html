@@ -33,6 +33,50 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <script type="module">
+    const configuredRepo = window.__llamadartBridgeAssetsRepo;
+    const configuredTag = window.__llamadartBridgeAssetsTag;
+
+    const bridgeAssetsRepo =
+      typeof configuredRepo === 'string' && configuredRepo.length > 0
+        ? configuredRepo
+        : 'leehack/llama-web-bridge-assets';
+    const bridgeAssetsTag =
+      typeof configuredTag === 'string' && configuredTag.length > 0
+        ? configuredTag
+        : 'main';
+
+    const localBridgeUrl = './webgpu_bridge/llama_webgpu_bridge.js';
+    const cdnBridgeUrl = `https://cdn.jsdelivr.net/gh/${bridgeAssetsRepo}@${bridgeAssetsTag}/llama_webgpu_bridge.js`;
+
+    async function loadBridge(moduleUrl, source) {
+      const mod = await import(moduleUrl);
+      if (!mod?.LlamaWebGpuBridge) {
+        throw new Error('Bridge module loaded but LlamaWebGpuBridge export was missing.');
+      }
+
+      window.LlamaWebGpuBridge = mod.LlamaWebGpuBridge;
+      window.__llamadartBridgeAssetSource = source;
+      window.__llamadartBridgeModuleUrl = moduleUrl;
+      window.__llamadartBridgeLoadError = null;
+      console.info(`llamadart: Web bridge runtime loaded (${source})`);
+    }
+
+    let localError = null;
+    loadBridge(localBridgeUrl, 'local')
+      .catch((err) => {
+        localError = err;
+        console.warn('llamadart: local bridge load failed, falling back to CDN', err);
+        return loadBridge(cdnBridgeUrl, 'cdn');
+      })
+      .catch((cdnErr) => {
+        const detail =
+          `Local load failed: ${String(localError)} | ` +
+          `CDN load failed: ${String(cdnErr)}`;
+        window.__llamadartBridgeLoadError = detail;
+        console.error('llamadart: failed to load bridge runtime', detail);
+      });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
