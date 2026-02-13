@@ -44,7 +44,7 @@
     const bridgeAssetsTag =
       typeof configuredTag === 'string' && configuredTag.length > 0
         ? configuredTag
-        : 'main';
+        : 'v0.1.0';
 
     const localBridgeUrl = './webgpu_bridge/llama_webgpu_bridge.js';
     const cdnBridgeUrl = `https://cdn.jsdelivr.net/gh/${bridgeAssetsRepo}@${bridgeAssetsTag}/llama_webgpu_bridge.js`;

@@ -50,8 +50,8 @@ artifacts.
 2. Fallback to jsDelivr:
    `https://cdn.jsdelivr.net/gh/leehack/llama-web-bridge-assets@<tag>/llama_webgpu_bridge.js`
 
-Default tag in the example is `main`. For reproducible production builds,
-override it to a pinned release tag.
+Default tag in the example is pinned (`v0.1.0`). Update it when publishing a
+new bridge asset release.
 
 You can override at runtime by defining globals before the loader script:
 
