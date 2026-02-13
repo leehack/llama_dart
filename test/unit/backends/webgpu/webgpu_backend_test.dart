@@ -20,17 +20,41 @@ void main() {
     late bool sawMediaParts;
     late bool sawAudioParts;
     late bool sawAudioBytes;
+    int? lastRequestedGpuLayers;
+    WebGpuBridgeConfig? lastBridgeConfig;
+
+    void clearBridgeGlobals() {
+      globalContext.delete('LlamaWebGpuBridge'.toJS);
+      globalContext.delete('__llamadartBridgeLoadError'.toJS);
+      globalContext.delete('__llamadartBridgeAssetSource'.toJS);
+      globalContext.delete('__llamadartBridgeModuleUrl'.toJS);
+      globalContext.delete('__llamadartBridgeCoreModuleUrl'.toJS);
+      globalContext.delete('__llamadartBridgeUserAgent'.toJS);
+      globalContext.delete('__llamadartAllowSafariWebGpu'.toJS);
+      globalContext.delete('__llamadartBridgeAdaptiveSafariGpu'.toJS);
+    }
 
     setUp(() {
+      clearBridgeGlobals();
+
       bridge = JSObject();
       mmLoaded = false;
       sawMediaParts = false;
       sawAudioParts = false;
       sawAudioBytes = false;
+      lastRequestedGpuLayers = null;
+      lastBridgeConfig = null;
 
       bridge.setProperty(
         'loadModelFromUrl'.toJS,
         ((String url, JSObject? config) {
+          if (config != null) {
+            final nGpuLayers = config.getProperty('nGpuLayers'.toJS);
+            if (nGpuLayers.isA<JSNumber>()) {
+              lastRequestedGpuLayers = (nGpuLayers as JSNumber).toDartInt;
+            }
+          }
+
           return Future<void>.value().toJS;
         }).toJS,
       );
@@ -135,12 +159,16 @@ void main() {
       );
 
       backend = WebGpuLlamaBackend(
-        bridgeFactory: ([config]) => bridge as LlamaWebGpuBridge,
+        bridgeFactory: ([config]) {
+          lastBridgeConfig = config;
+          return bridge as LlamaWebGpuBridge;
+        },
       );
     });
 
     tearDown(() async {
       await backend.dispose();
+      clearBridgeGlobals();
     });
 
     test('uses bridge when available', () async {
@@ -168,6 +196,84 @@ void main() {
       expect(chunks, isNotEmpty);
       expect(chunks.first, <int>[72, 101, 108, 108, 111]);
     });
+
+    test(
+      'passes core module URL from bootstrap global to bridge config',
+      () async {
+        globalContext.setProperty(
+          '__llamadartBridgeCoreModuleUrl'.toJS,
+          'https://example.com/core.js'.toJS,
+        );
+
+        await backend.modelLoadFromUrl(
+          'https://example.com/model.gguf',
+          const ModelParams(),
+        );
+
+        final config = lastBridgeConfig as JSObject?;
+        expect(config, isNotNull);
+
+        final value = config!.getProperty('coreModuleUrl'.toJS);
+        expect(value.isA<JSString>(), isTrue);
+        expect((value as JSString).toDart, 'https://example.com/core.js');
+      },
+    );
+
+    test('forces CPU fallback on Safari unless override is enabled', () async {
+      globalContext.setProperty(
+        '__llamadartBridgeUserAgent'.toJS,
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 '
+                '(KHTML, like Gecko) Version/17.5 Safari/605.1.15'
+            .toJS,
+      );
+
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(gpuLayers: 42),
+      );
+
+      expect(lastRequestedGpuLayers, 0);
+    });
+
+    test('keeps Safari GPU layers when override flag is set', () async {
+      globalContext.setProperty(
+        '__llamadartBridgeUserAgent'.toJS,
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 '
+                '(KHTML, like Gecko) Version/17.5 Safari/605.1.15'
+            .toJS,
+      );
+      globalContext.setProperty('__llamadartAllowSafariWebGpu'.toJS, true.toJS);
+
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(gpuLayers: 42),
+      );
+
+      expect(lastRequestedGpuLayers, 42);
+    });
+
+    test(
+      'keeps Safari GPU layers when adaptive bridge flag is present',
+      () async {
+        globalContext.setProperty(
+          '__llamadartBridgeUserAgent'.toJS,
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 '
+                  '(KHTML, like Gecko) Version/17.5 Safari/605.1.15'
+              .toJS,
+        );
+        globalContext.setProperty(
+          '__llamadartBridgeAdaptiveSafariGpu'.toJS,
+          true.toJS,
+        );
+
+        await backend.modelLoadFromUrl(
+          'https://example.com/model.gguf',
+          const ModelParams(gpuLayers: 42),
+        );
+
+        expect(lastRequestedGpuLayers, 42);
+      },
+    );
 
     test('suppresses stop sequence text from streamed output', () async {
       bridge.setProperty(
@@ -223,6 +329,47 @@ void main() {
       );
       expect(await backend.getBackendName(), contains('not loaded'));
     });
+
+    test(
+      'surfaces Safari compatibility hint from bridge loader errors',
+      () async {
+        final failingBackend = WebGpuLlamaBackend();
+
+        globalContext.setProperty(
+          '__llamadartBridgeLoadError'.toJS,
+          'Local load failed: This page was compiled without support for Safari browser.'
+              .toJS,
+        );
+        globalContext.setProperty(
+          '__llamadartBridgeAssetSource'.toJS,
+          'cdn'.toJS,
+        );
+        globalContext.setProperty(
+          '__llamadartBridgeModuleUrl'.toJS,
+          'https://cdn.example/bridge.js'.toJS,
+        );
+
+        await expectLater(
+          () => failingBackend.modelLoadFromUrl(
+            'https://example.com/model.gguf',
+            const ModelParams(),
+          ),
+          throwsA(
+            isA<UnsupportedError>().having(
+              (e) => e.toString(),
+              'message',
+              allOf(
+                contains('Safari support'),
+                contains('source=cdn'),
+                contains('module=https://cdn.example/bridge.js'),
+              ),
+            ),
+          ),
+        );
+
+        await failingBackend.dispose();
+      },
+    );
 
     test('throws on multimodal prompt parts before projector load', () async {
       await backend.modelLoadFromUrl(

@@ -63,10 +63,27 @@ Current limitations:
   [`leehack/llama-web-bridge-assets`](https://github.com/leehack/llama-web-bridge-assets).
 - [`example/chat_app`](example/chat_app) uses local bridge files first and
   falls back to jsDelivr assets when local assets are missing.
+- Bridge model loading now uses browser Cache Storage when `useCache` is true
+  (enabled by default in `llamadart` web backend), so repeat loads of the same
+  model URL can avoid full re-download.
 - To self-host pinned assets at build time:
   `WEBGPU_BRIDGE_ASSETS_TAG=<tag> ./scripts/fetch_webgpu_bridge_assets.sh`.
+- The fetch script applies a Safari compatibility patch by default for universal
+  browser use (`WEBGPU_BRIDGE_PATCH_SAFARI_COMPAT=1`,
+  `WEBGPU_BRIDGE_MIN_SAFARI_VERSION=170400`).
+- The same patch flow also updates legacy bridge chunk assembly logic to avoid
+  Safari stream-reader buffer reuse issues during model downloads.
+- `example/chat_app/web/index.html` applies the same Safari compatibility patch
+  at runtime for bridge core loading (including CDN fallback paths).
 - Bridge wasm build/publish CI and runtime implementation are maintained in
   [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge).
+- Current bridge browser targets in this repo: Chrome >= 128, Firefox >= 129,
+  Safari >= 17.4.
+- Safari GPU execution uses a compatibility gate: legacy bridge assets are
+  forced to CPU by default, while adaptive bridge assets can probe/cap GPU
+  layers and auto-fallback to CPU when generation looks unstable.
+- You can bypass the legacy safeguard with
+  `window.__llamadartAllowSafariWebGpu = true` before model load.
 - `loadMultimodalProjector` is available on web when using URL-based model/mmproj assets.
 - `supportsVision` / `supportsAudio` reflect loaded projector capabilities on web.
 - **LoRA runtime adapter APIs are not supported** on web in the current implementation.

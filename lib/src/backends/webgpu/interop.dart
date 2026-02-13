@@ -73,6 +73,7 @@ extension type WebGpuBridgeConfig._(JSObject _) implements JSObject {
   external factory WebGpuBridgeConfig({
     JSString? wasmUrl,
     JSString? workerUrl,
+    @JS('coreModuleUrl') JSString? coreModuleUrl,
     JSObject? logger,
   });
 }

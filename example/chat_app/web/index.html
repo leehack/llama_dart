@@ -36,6 +36,67 @@
   <script type="module">
     const configuredRepo = window.__llamadartBridgeAssetsRepo;
     const configuredTag = window.__llamadartBridgeAssetsTag;
+    const safariMinPacked = 170400;
+    const safariUnsupportedNeedle =
+      'if(currentSafariVersion<TARGET_NOT_SUPPORTED){throw new Error(`This page was compiled without support for Safari browser. Pass -sMIN_SAFARI_VERSION=${currentSafariVersion} or lower to enable support for this browser.`)}';
+    const safariMinPattern =
+      /if\(currentSafariVersion<\d+\)\{throw new Error\(`This emscripten-generated code requires Safari v\$\{packedVersionToHumanReadable\(\d+\)\} \(detected v\$\{currentSafariVersion\}\)`\)\}/;
+    let patchedCoreBlobUrl = null;
+
+    function isSafariBrowser() {
+      const ua = navigator.userAgent || '';
+      return (
+        /Safari\//.test(ua) &&
+        !/(Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS)/.test(ua)
+      );
+    }
+
+    function patchCoreForSafari(source) {
+      let patched = source;
+      if (patched.includes(safariUnsupportedNeedle)) {
+        patched = patched.replace(safariUnsupportedNeedle, '');
+      }
+
+      const safariVersionCheck =
+        `if(currentSafariVersion<${safariMinPacked}){throw new Error(\`This emscripten-generated code requires Safari v\${packedVersionToHumanReadable(${safariMinPacked})} (detected v\${currentSafariVersion})\`)}`;
+      patched = patched.replace(safariMinPattern, safariVersionCheck);
+      return patched;
+    }
+
+    async function resolveCoreModuleUrl(moduleUrl) {
+      const bridgeUrl = new URL(moduleUrl, window.location.href);
+      const coreUrl = new URL('./llama_webgpu_core.js', bridgeUrl).toString();
+      if (!isSafariBrowser()) {
+        window.__llamadartBridgeCoreModuleUrl = coreUrl;
+        return coreUrl;
+      }
+
+      const response = await fetch(coreUrl);
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch bridge core for Safari patch: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      const originalSource = await response.text();
+      const patchedSource = patchCoreForSafari(originalSource);
+
+      if (patchedSource === originalSource) {
+        window.__llamadartBridgeCoreModuleUrl = coreUrl;
+        return coreUrl;
+      }
+
+      if (patchedCoreBlobUrl) {
+        URL.revokeObjectURL(patchedCoreBlobUrl);
+      }
+
+      patchedCoreBlobUrl = URL.createObjectURL(
+        new Blob([patchedSource], { type: 'text/javascript' }),
+      );
+      window.__llamadartBridgeCoreModuleUrl = patchedCoreBlobUrl;
+      console.info('llamadart: applied Safari core compatibility patch');
+      return patchedCoreBlobUrl;
+    }
 
     const bridgeAssetsRepo =
       typeof configuredRepo === 'string' && configuredRepo.length > 0
@@ -44,20 +105,24 @@
     const bridgeAssetsTag =
       typeof configuredTag === 'string' && configuredTag.length > 0
         ? configuredTag
-        : 'v0.1.1';
+        : 'v0.1.2';
 
     const localBridgeUrl = './webgpu_bridge/llama_webgpu_bridge.js';
     const cdnBridgeUrl = `https://cdn.jsdelivr.net/gh/${bridgeAssetsRepo}@${bridgeAssetsTag}/llama_webgpu_bridge.js`;
 
     async function loadBridge(moduleUrl, source) {
+      const coreModuleUrl = await resolveCoreModuleUrl(moduleUrl);
       const mod = await import(moduleUrl);
       if (!mod?.LlamaWebGpuBridge) {
         throw new Error('Bridge module loaded but LlamaWebGpuBridge export was missing.');
       }
 
       window.LlamaWebGpuBridge = mod.LlamaWebGpuBridge;
+      window.__llamadartBridgeAdaptiveSafariGpu =
+        mod.LlamaWebGpuBridge?.supportsSafariAdaptiveGpu === true;
       window.__llamadartBridgeAssetSource = source;
       window.__llamadartBridgeModuleUrl = moduleUrl;
+      window.__llamadartBridgeCoreModuleUrl = coreModuleUrl;
       window.__llamadartBridgeLoadError = null;
       console.info(`llamadart: Web bridge runtime loaded (${source})`);
     }

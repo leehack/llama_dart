@@ -128,6 +128,18 @@ example/
 - `chat_app` loader is local-first and falls back to jsDelivr bridge assets.
 - You can prefetch a pinned bridge version into `web/webgpu_bridge/` with:
   `WEBGPU_BRIDGE_ASSETS_TAG=<tag> ./scripts/fetch_webgpu_bridge_assets.sh`.
+- Fetch script defaults to universal Safari-compatible patching:
+  `WEBGPU_BRIDGE_PATCH_SAFARI_COMPAT=1` and
+  `WEBGPU_BRIDGE_MIN_SAFARI_VERSION=170400`.
+- `chat_app/web/index.html` also applies Safari compatibility patching at
+  runtime before bridge initialization (including CDN fallback).
+- Web model loading uses browser Cache Storage by default, so repeated loads of
+  the same model URL can skip full re-download.
+- Safari WebGPU uses a compatibility gate in `llamadart`: legacy bridge assets
+  default to CPU fallback, while adaptive bridge assets can probe/cap GPU
+  layers and auto-fallback to CPU when unstable.
+- You can still bypass the legacy safeguard with
+  `window.__llamadartAllowSafariWebGpu = true` before model load.
 - Multimodal projector loading works on web via URL-based model/mmproj pairs.
 - In `chat_app`, image/audio attachments on web are sent as browser file bytes;
   local file paths are native-only.

@@ -18,6 +18,9 @@ external JSArray _objectKeys(JSObject obj);
 
 /// Web backend backed by the llama.cpp bridge runtime.
 class WebGpuLlamaBackend implements LlamaBackend {
+  static const Duration _bridgeReadyTimeout = Duration(seconds: 12);
+  static const Duration _bridgePollInterval = Duration(milliseconds: 100);
+
   final String? _bridgeScriptUrl;
   final String? _bridgeWasmUrl;
   final String? _bridgeWorkerUrl;
@@ -150,11 +153,33 @@ class WebGpuLlamaBackend implements LlamaBackend {
       }.toJS,
     );
 
+    final coreModuleUrl = _getGlobalString('__llamadartBridgeCoreModuleUrl');
+
     return WebGpuBridgeConfig(
       wasmUrl: _bridgeWasmUrl?.toJS,
       workerUrl: _bridgeWorkerUrl?.toJS,
+      coreModuleUrl: coreModuleUrl?.toJS,
       logger: logger,
     );
+  }
+
+  Future<void> _waitForPreloadedBridge() async {
+    if (globalContext.has('LlamaWebGpuBridge')) {
+      return;
+    }
+
+    final deadline = DateTime.now().add(_bridgeReadyTimeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (globalContext.has('LlamaWebGpuBridge')) {
+        return;
+      }
+
+      if (_getBridgeLoadError() != null) {
+        return;
+      }
+
+      await Future<void>.delayed(_bridgePollInterval);
+    }
   }
 
   Future<bool> _ensureBridge() async {
@@ -168,7 +193,12 @@ class WebGpuLlamaBackend implements LlamaBackend {
     }
 
     if (!globalContext.has('LlamaWebGpuBridge')) {
-      await _loadBridgeScript();
+      final scriptUrl = _bridgeScriptUrl;
+      if (scriptUrl != null && scriptUrl.isNotEmpty) {
+        await _loadBridgeScript();
+      } else {
+        await _waitForPreloadedBridge();
+      }
     }
 
     if (!globalContext.has('LlamaWebGpuBridge')) {
@@ -203,18 +233,45 @@ class WebGpuLlamaBackend implements LlamaBackend {
     final ready = await _ensureBridge();
     if (!ready || _bridge == null) {
       final loadError = _getBridgeLoadError();
-      throw UnsupportedError(
-        loadError == null
-            ? 'Web bridge is unavailable. Ensure LlamaWebGpuBridge assets are loaded.'
-            : 'Web bridge is unavailable: $loadError',
-      );
+      final message = _buildBridgeUnavailableMessage(loadError);
+      throw UnsupportedError(message);
     }
 
     _usingBridge = true;
   }
 
-  String? _getBridgeLoadError() {
-    final raw = globalContext.getProperty('__llamadartBridgeLoadError'.toJS);
+  String _buildBridgeUnavailableMessage(String? loadError) {
+    final source = _getGlobalString('__llamadartBridgeAssetSource');
+    final moduleUrl = _getGlobalString('__llamadartBridgeModuleUrl');
+
+    final locationParts = <String>[];
+    if (source != null) {
+      locationParts.add('source=$source');
+    }
+    if (moduleUrl != null) {
+      locationParts.add('module=$moduleUrl');
+    }
+
+    final locationSuffix = locationParts.isEmpty
+        ? ''
+        : ' [${locationParts.join(', ')}]';
+
+    final safariHint =
+        loadError != null &&
+            loadError.contains('compiled without support for Safari browser')
+        ? ' Use bridge assets built with Safari support '
+              '(MIN_SAFARI_VERSION universal build).'
+        : '';
+
+    final base = loadError == null
+        ? 'Web bridge is unavailable. Ensure LlamaWebGpuBridge assets are loaded and reachable.'
+        : 'Web bridge is unavailable: $loadError';
+
+    return '$base$safariHint$locationSuffix';
+  }
+
+  String? _getGlobalString(String propertyName) {
+    final raw = globalContext.getProperty(propertyName.toJS);
     if (raw.isA<JSString>()) {
       final value = (raw as JSString).toDart.trim();
       return value.isEmpty ? null : value;
@@ -226,6 +283,134 @@ class WebGpuLlamaBackend implements LlamaBackend {
     }
 
     return asText;
+  }
+
+  String? _getBridgeLoadError() {
+    return _getGlobalString('__llamadartBridgeLoadError');
+  }
+
+  bool _getGlobalBool(String propertyName) {
+    final raw = globalContext.getProperty(propertyName.toJS);
+    if (raw.isA<JSBoolean>()) {
+      return (raw as JSBoolean).toDart;
+    }
+
+    final text = raw.toString().trim().toLowerCase();
+    return text == 'true' || text == '1' || text == 'yes' || text == 'on';
+  }
+
+  String? _getBridgeUserAgent() {
+    final override = _getGlobalString('__llamadartBridgeUserAgent');
+    if (override != null) {
+      return override;
+    }
+
+    final navigator = globalContext.getProperty('navigator'.toJS);
+    if (!navigator.isA<JSObject>()) {
+      return null;
+    }
+
+    final userAgent = (navigator as JSObject).getProperty('userAgent'.toJS);
+    if (userAgent.isA<JSString>()) {
+      final value = (userAgent as JSString).toDart.trim();
+      return value.isEmpty ? null : value;
+    }
+
+    final text = userAgent.toString();
+    if (text == 'undefined' || text == 'null' || text.isEmpty) {
+      return null;
+    }
+
+    return text;
+  }
+
+  bool _isSafariBrowser() {
+    final userAgent = _getBridgeUserAgent();
+    if (userAgent == null || userAgent.isEmpty) {
+      return false;
+    }
+
+    final hasSafariToken = userAgent.contains('Safari/');
+    final hasOtherBrowserToken =
+        userAgent.contains('Chrome/') ||
+        userAgent.contains('Chromium/') ||
+        userAgent.contains('CriOS/') ||
+        userAgent.contains('Edg/') ||
+        userAgent.contains('OPR/') ||
+        userAgent.contains('Firefox/') ||
+        userAgent.contains('FxiOS/');
+
+    return hasSafariToken && !hasOtherBrowserToken;
+  }
+
+  bool _allowSafariWebGpu() {
+    return _getGlobalBool('__llamadartAllowSafariWebGpu');
+  }
+
+  bool _bridgeSupportsAdaptiveSafariGpu() {
+    return _getGlobalBool('__llamadartBridgeAdaptiveSafariGpu');
+  }
+
+  String _errorText(Object error) {
+    final values = <String>{error.toString()};
+
+    JSObject? jsError;
+    try {
+      jsError = error as JSObject;
+    } catch (_) {
+      jsError = null;
+    }
+
+    if (jsError != null) {
+      final nestedError = jsError.getProperty('error'.toJS);
+      final nestedMessage = jsError.getProperty('message'.toJS);
+      final nestedStack = jsError.getProperty('stack'.toJS);
+
+      for (final candidate in <JSAny?>[
+        nestedError,
+        nestedMessage,
+        nestedStack,
+      ]) {
+        if (candidate == null) {
+          continue;
+        }
+
+        final text = candidate.toString();
+        if (text == 'undefined' || text == 'null' || text.isEmpty) {
+          continue;
+        }
+
+        values.add(text);
+      }
+    }
+
+    return values.join(' | ');
+  }
+
+  UnsupportedError? _normalizeBridgeRuntimeError(Object error) {
+    final text = _errorText(error);
+    if (text.contains('JSPI not supported by current environment')) {
+      final source = _getGlobalString('__llamadartBridgeAssetSource');
+      final moduleUrl = _getGlobalString('__llamadartBridgeModuleUrl');
+
+      final location = <String>[];
+      if (source != null) {
+        location.add('source=$source');
+      }
+      if (moduleUrl != null) {
+        location.add('module=$moduleUrl');
+      }
+
+      final suffix = location.isEmpty ? '' : ' [${location.join(', ')}]';
+
+      return UnsupportedError(
+        'Bridge runtime requires JSPI, which is unavailable in this browser. '
+        'Use browser-compatible bridge assets built without JSPI '
+        '(Asyncify/wasm32), or enable JSPI experimental browser flags.$suffix',
+      );
+    }
+
+    return null;
   }
 
   LlamaWebGpuBridge _requireBridge() {
@@ -254,9 +439,22 @@ class WebGpuLlamaBackend implements LlamaBackend {
     final requestedThreads = params.numberOfThreads > 0
         ? params.numberOfThreads
         : null;
-    final requestedGpuLayers = params.preferredBackend == GpuBackend.cpu
+    var requestedGpuLayers = params.preferredBackend == GpuBackend.cpu
         ? 0
         : params.gpuLayers;
+
+    if (requestedGpuLayers > 0 &&
+        _isSafariBrowser() &&
+        !_allowSafariWebGpu() &&
+        !_bridgeSupportsAdaptiveSafariGpu()) {
+      requestedGpuLayers = 0;
+      console.warn(
+        'WebGpuLlamaBackend: Safari WebGPU generation is unstable for legacy bridge assets; forcing CPU fallback. '
+                'Use bridge assets with adaptive Safari GPU probe support, or set '
+                'window.__llamadartAllowSafariWebGpu = true to bypass this safeguard.'
+            .toJS,
+      );
+    }
 
     await _activateBridge();
     final bridge = _requireBridge();
@@ -303,6 +501,10 @@ class WebGpuLlamaBackend implements LlamaBackend {
     } catch (e) {
       console.error('WebGpuLlamaBackend: Bridge model load failed: $e'.toJS);
       await _safeDisposeBridge();
+      final normalized = _normalizeBridgeRuntimeError(e);
+      if (normalized != null) {
+        throw normalized;
+      }
       rethrow;
     }
   }

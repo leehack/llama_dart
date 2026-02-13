@@ -215,6 +215,20 @@ _(Add screenshots here when complete)_
   `window.__llamadartBridgeAssetsTag` in `web/index.html`.
 - To pin self-hosted assets before build:
   `WEBGPU_BRIDGE_ASSETS_TAG=<tag> ./scripts/fetch_webgpu_bridge_assets.sh`.
+- Bridge fetch defaults include Safari compatibility patching for universal
+  browser support (`WEBGPU_BRIDGE_PATCH_SAFARI_COMPAT=1`,
+  `WEBGPU_BRIDGE_MIN_SAFARI_VERSION=170400`).
+- `web/index.html` also applies Safari compatibility patching at runtime before
+  bridge initialization (including CDN fallback).
+- Bridge model loading uses browser Cache Storage by default, so repeated loads
+  of the same model URL can avoid full re-download.
+- Current browser targets in this repo: Chrome >= 128, Firefox >= 129,
+  Safari >= 17.4.
+- Safari WebGPU uses a compatibility gate in `llamadart`: legacy bridge assets
+  default to CPU fallback, while adaptive bridge assets can probe/cap GPU
+  layers and auto-fallback to CPU when unstable.
+- For legacy assets, experimental override remains available via
+  `window.__llamadartAllowSafariWebGpu = true` before model load.
 - Multimodal projector loading on web is URL-based (model + matching mmproj URL).
 - Model selection auto-wires mmproj URLs for multimodal web models.
 - Image/audio attachments on web use browser file bytes (local path-based loading remains native-only).

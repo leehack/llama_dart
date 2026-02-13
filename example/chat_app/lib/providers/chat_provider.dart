@@ -47,6 +47,9 @@ class ChatProvider extends ChangeNotifier {
   int? _runtimeGpuLayers;
   int? _runtimeThreads;
   String? _runtimeModelArchitecture;
+  String? _runtimeModelSource;
+  String? _runtimeModelCacheState;
+  String? _runtimeBridgeNotes;
   int? _lastFirstTokenLatencyMs;
   int? _lastGenerationLatencyMs;
 
@@ -86,6 +89,9 @@ class ChatProvider extends ChangeNotifier {
   int? get runtimeGpuLayers => _runtimeGpuLayers;
   int? get runtimeThreads => _runtimeThreads;
   String? get runtimeModelArchitecture => _runtimeModelArchitecture;
+  String? get runtimeModelSource => _runtimeModelSource;
+  String? get runtimeModelCacheState => _runtimeModelCacheState;
+  String? get runtimeBridgeNotes => _runtimeBridgeNotes;
   int? get lastFirstTokenLatencyMs => _lastFirstTokenLatencyMs;
   int? get lastGenerationLatencyMs => _lastGenerationLatencyMs;
   bool get usingWebGpu =>
@@ -508,6 +514,18 @@ class ChatProvider extends ChangeNotifier {
       metadata['llamadart.webgpu.n_threads'] ?? '',
     );
     _runtimeModelArchitecture = metadata['general.architecture'];
+    final modelSource = metadata['llamadart.webgpu.model_source']?.trim();
+    _runtimeModelSource = modelSource == null || modelSource.isEmpty
+        ? null
+        : modelSource.toUpperCase();
+    final cacheState = metadata['llamadart.webgpu.model_cache_state']?.trim();
+    _runtimeModelCacheState = cacheState == null || cacheState.isEmpty
+        ? null
+        : cacheState;
+    final runtimeNotes = metadata['llamadart.webgpu.runtime_notes']?.trim();
+    _runtimeBridgeNotes = runtimeNotes == null || runtimeNotes.isEmpty
+        ? null
+        : runtimeNotes;
 
     final lower = backendInfo.toLowerCase();
     final likelyGpuBackend =

@@ -10,7 +10,20 @@ class RuntimeStatusPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Selector<
       ChatProvider,
-      (bool, String, String, bool, int?, int?, int?, int?, String?)
+      (
+        bool,
+        String,
+        String,
+        bool,
+        int?,
+        int?,
+        int?,
+        int?,
+        String?,
+        String?,
+        String?,
+        String?,
+      )
     >(
       selector: (_, provider) => (
         provider.isReady,
@@ -22,6 +35,9 @@ class RuntimeStatusPanel extends StatelessWidget {
         provider.lastFirstTokenLatencyMs,
         provider.lastGenerationLatencyMs,
         provider.runtimeModelArchitecture,
+        provider.runtimeModelSource,
+        provider.runtimeModelCacheState,
+        provider.runtimeBridgeNotes,
       ),
       builder: (context, data, _) {
         final (
@@ -34,6 +50,9 @@ class RuntimeStatusPanel extends StatelessWidget {
           firstTokenLatencyMs,
           generationLatencyMs,
           modelArchitecture,
+          modelSource,
+          modelCacheState,
+          runtimeBridgeNotes,
         ) = data;
 
         if (!isReady) {
@@ -98,6 +117,30 @@ class RuntimeStatusPanel extends StatelessWidget {
                     context,
                     icon: Icons.category_outlined,
                     text: modelArchitecture,
+                  ),
+                if (modelSource != null && modelSource.isNotEmpty)
+                  Tooltip(
+                    message: modelCacheState == null
+                        ? modelSource
+                        : '$modelSource ($modelCacheState)',
+                    child: _chip(
+                      context,
+                      icon: modelSource == 'CACHE'
+                          ? Icons.offline_bolt_rounded
+                          : Icons.cloud_download_outlined,
+                      text: modelSource == 'CACHE'
+                          ? 'model cache'
+                          : 'model net',
+                    ),
+                  ),
+                if (runtimeBridgeNotes != null && runtimeBridgeNotes.isNotEmpty)
+                  Tooltip(
+                    message: runtimeBridgeNotes,
+                    child: _chip(
+                      context,
+                      icon: Icons.shield_outlined,
+                      text: 'runtime notes',
+                    ),
                   ),
                 if (runtimeBackendRaw.isNotEmpty)
                   Tooltip(
