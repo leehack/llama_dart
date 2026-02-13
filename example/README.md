@@ -120,12 +120,16 @@ example/
 | **Android** | arm64-v8a, x86_64 | Vulkan | ✅ Tested |
 | **Linux** | arm64, x86_64 | Vulkan | 🟡 Expected (Vulkan Untested) |
 | **Windows** | x64 | Vulkan | ✅ Tested |
-| **Web** | WASM | CPU | ✅ Tested |
+| **Web** | WASM / WebGPU Bridge | CPU / Experimental WebGPU | ✅ Tested |
 
 ### Web Notes
 
-- Web examples run with the `wllama` backend on WASM/CPU.
-- Multimodal projector loading and native LoRA flows are not available on web.
+- Web examples run on the llama.cpp bridge backend (WebGPU or CPU mode).
+- `chat_app` loader is local-first and falls back to jsDelivr bridge assets.
+- You can prefetch a pinned bridge version into `web/webgpu_bridge/` with:
+  `WEBGPU_BRIDGE_ASSETS_TAG=<tag> ./scripts/fetch_webgpu_bridge_assets.sh`.
+- Multimodal projector loading works on web via URL-based model/mmproj pairs.
+- Native LoRA runtime adapter flows are not available on web.
 - `chat_app` on web uses model URLs rather than native file download storage.
 
 ## Troubleshooting

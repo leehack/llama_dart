@@ -42,6 +42,13 @@ class ChatProvider extends ChangeNotifier {
   int _contextLimit = 2048;
   int _currentTokens = 0;
   bool _isPruning = false;
+  String _runtimeBackendRaw = '';
+  bool _runtimeGpuActive = false;
+  int? _runtimeGpuLayers;
+  int? _runtimeThreads;
+  String? _runtimeModelArchitecture;
+  int? _lastFirstTokenLatencyMs;
+  int? _lastGenerationLatencyMs;
 
   List<String> _availableDevices = [];
 
@@ -74,6 +81,16 @@ class ChatProvider extends ChangeNotifier {
   int get currentTokens => _currentTokens;
   bool get isPruning => _isPruning;
   List<String> get availableDevices => _availableDevices;
+  String get runtimeBackendRaw => _runtimeBackendRaw;
+  bool get runtimeGpuActive => _runtimeGpuActive;
+  int? get runtimeGpuLayers => _runtimeGpuLayers;
+  int? get runtimeThreads => _runtimeThreads;
+  String? get runtimeModelArchitecture => _runtimeModelArchitecture;
+  int? get lastFirstTokenLatencyMs => _lastFirstTokenLatencyMs;
+  int? get lastGenerationLatencyMs => _lastGenerationLatencyMs;
+  bool get usingWebGpu =>
+      _runtimeBackendRaw.toLowerCase().contains('webgpu') ||
+      _activeBackend == 'WEBGPU';
   bool get toolsEnabled => _settings.toolsEnabled;
   bool get forceToolCall => _settings.forceToolCall;
 
@@ -221,6 +238,11 @@ class ChatProvider extends ChangeNotifier {
       _updateToolTemplateSupport(metadata);
 
       final libSupported = await _chatService.engine.isGpuSupported();
+      _updateRuntimeDiagnostics(
+        backendInfo: rawBackend,
+        metadata: metadata,
+        gpuActive: libSupported,
+      );
 
       _gpuSupported =
           libSupported ||
@@ -301,12 +323,16 @@ class ChatProvider extends ChangeNotifier {
     List<LlamaContentPart>? parts,
     int remainingToolIterations = _maxToolIterations,
   }) async {
+    final generationStopwatch = Stopwatch()..start();
+    var sawFirstToken = false;
+    String fullResponse = "";
+    String fullThinking = "";
+    _lastFirstTokenLatencyMs = null;
+
     try {
       _messages.add(ChatMessage(text: "...", isUser: false));
       notifyListeners();
 
-      String fullResponse = "";
-      String fullThinking = "";
       DateTime lastUpdate = DateTime.now();
 
       // Use ChatSession for generation
@@ -367,6 +393,14 @@ class ChatProvider extends ChangeNotifier {
         // Accumulate both content and thinking
         final content = delta.content ?? '';
         final thinking = delta.thinking ?? '';
+
+        if (!sawFirstToken &&
+            (content.isNotEmpty ||
+                thinking.isNotEmpty ||
+                (delta.toolCalls?.isNotEmpty ?? false))) {
+          _lastFirstTokenLatencyMs = generationStopwatch.elapsedMilliseconds;
+          sawFirstToken = true;
+        }
 
         fullResponse += content;
 
@@ -452,9 +486,39 @@ class ChatProvider extends ChangeNotifier {
         _messages.add(ChatMessage(text: 'Error: $e', isUser: false));
       }
     } finally {
+      generationStopwatch.stop();
+      if (sawFirstToken || fullResponse.isNotEmpty || fullThinking.isNotEmpty) {
+        _lastGenerationLatencyMs = generationStopwatch.elapsedMilliseconds;
+      }
       _isGenerating = false;
       notifyListeners();
     }
+  }
+
+  void _updateRuntimeDiagnostics({
+    required String backendInfo,
+    required Map<String, String> metadata,
+    required bool gpuActive,
+  }) {
+    _runtimeBackendRaw = backendInfo;
+    _runtimeGpuLayers = int.tryParse(
+      metadata['llamadart.webgpu.n_gpu_layers'] ?? '',
+    );
+    _runtimeThreads = int.tryParse(
+      metadata['llamadart.webgpu.n_threads'] ?? '',
+    );
+    _runtimeModelArchitecture = metadata['general.architecture'];
+
+    final lower = backendInfo.toLowerCase();
+    final likelyGpuBackend =
+        lower.contains('webgpu') ||
+        _containsBackendMarker(backendInfo, GpuBackend.metal) ||
+        _containsBackendMarker(backendInfo, GpuBackend.vulkan) ||
+        _containsBackendMarker(backendInfo, GpuBackend.cuda) ||
+        _containsBackendMarker(backendInfo, GpuBackend.blas);
+
+    final allowsGpuLayers = _runtimeGpuLayers == null || _runtimeGpuLayers != 0;
+    _runtimeGpuActive = allowsGpuLayers && (gpuActive || likelyGpuBackend);
   }
 
   /// Execute tool calls and continue the conversation with results.
@@ -680,9 +744,20 @@ class ChatProvider extends ChangeNotifier {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: false,
+        withData: kIsWeb,
       );
-      if (result != null && result.files.single.path != null) {
-        addStagedPart(LlamaImageContent(path: result.files.single.path));
+      if (result == null || result.files.isEmpty) {
+        return;
+      }
+
+      final file = result.files.single;
+      if (file.path != null && file.path!.isNotEmpty) {
+        addStagedPart(LlamaImageContent(path: file.path));
+        return;
+      }
+
+      if (file.bytes != null && file.bytes!.isNotEmpty) {
+        addStagedPart(LlamaImageContent(bytes: file.bytes!));
       }
     } catch (e) {
       debugPrint("Error picking image: $e");
@@ -694,9 +769,20 @@ class ChatProvider extends ChangeNotifier {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.audio,
         allowMultiple: false,
+        withData: kIsWeb,
       );
-      if (result != null && result.files.single.path != null) {
-        addStagedPart(LlamaAudioContent(path: result.files.single.path));
+      if (result == null || result.files.isEmpty) {
+        return;
+      }
+
+      final file = result.files.single;
+      if (file.path != null && file.path!.isNotEmpty) {
+        addStagedPart(LlamaAudioContent(path: file.path));
+        return;
+      }
+
+      if (file.bytes != null && file.bytes!.isNotEmpty) {
+        addStagedPart(LlamaAudioContent(bytes: file.bytes!));
       }
     } catch (e) {
       debugPrint("Error picking audio: $e");
@@ -860,6 +946,11 @@ class ChatProvider extends ChangeNotifier {
   }
 
   String _deriveActiveBackendLabel(String backendInfo) {
+    final lower = backendInfo.toLowerCase();
+    if (lower.contains('webgpu') || lower.contains('wgpu')) {
+      return 'WEBGPU';
+    }
+
     if (_containsBackendMarker(backendInfo, GpuBackend.metal)) {
       return 'METAL';
     }

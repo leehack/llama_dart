@@ -12,6 +12,7 @@ import '../widgets/chat_app_bar_title.dart';
 import '../widgets/pruning_indicator.dart';
 import '../widgets/clear_chat_button.dart';
 import '../widgets/settings_icon.dart';
+import '../widgets/runtime_status_panel.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -219,9 +220,14 @@ class _ChatScreenState extends State<ChatScreen> {
                         );
                       }
 
+                      final topPadding =
+                          MediaQuery.paddingOf(context).top +
+                          kToolbarHeight +
+                          (provider.isReady ? 82 : 28);
+
                       return ListView.builder(
                         controller: _scrollController,
-                        padding: const EdgeInsets.fromLTRB(16, 120, 16, 24),
+                        padding: EdgeInsets.fromLTRB(16, topPadding, 16, 24),
                         itemCount: provider.messages.length,
                         itemBuilder: (context, index) {
                           final message = provider.messages[index];
@@ -246,6 +252,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   focusNode: _focusNode,
                 ),
               ],
+            ),
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + kToolbarHeight + 4,
+              left: 0,
+              right: 0,
+              child: const RuntimeStatusPanel(),
             ),
             if (_showScrollToBottom)
               Positioned(
