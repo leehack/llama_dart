@@ -50,7 +50,7 @@ artifacts.
 2. Fallback to jsDelivr:
    `https://cdn.jsdelivr.net/gh/leehack/llama-web-bridge-assets@<tag>/llama_webgpu_bridge.js`
 
-Default tag in the example is pinned (`v0.1.0`). Update it when publishing a
+Default tag in the example is pinned (`v0.1.1`). Update it when publishing a
 new bridge asset release.
 
 You can override at runtime by defining globals before the loader script:
@@ -58,7 +58,7 @@ You can override at runtime by defining globals before the loader script:
 ```html
 <script>
   window.__llamadartBridgeAssetsRepo = 'leehack/llama-web-bridge-assets';
-  window.__llamadartBridgeAssetsTag = 'v0.1.0';
+  window.__llamadartBridgeAssetsTag = 'v0.1.1';
 </script>
 ```
 
@@ -67,7 +67,7 @@ You can override at runtime by defining globals before the loader script:
 To bundle prebuilt bridge artifacts into your own web app at build time:
 
 ```bash
-WEBGPU_BRIDGE_ASSETS_TAG=v0.1.0 ./scripts/fetch_webgpu_bridge_assets.sh
+WEBGPU_BRIDGE_ASSETS_TAG=v0.1.1 ./scripts/fetch_webgpu_bridge_assets.sh
 ```
 
 This script downloads files into `example/chat_app/web/webgpu_bridge/` and
@@ -75,7 +75,8 @@ verifies checksums when `sha256sums.txt` is available.
 
 ## CI Gate (WASM Build)
 
-`CI` now includes a dedicated `Build WebGPU Bridge (WASM)` job that:
+Bridge wasm build CI is owned by `leehack/llama-web-bridge` and includes a
+dedicated `Build WebGPU Bridge (WASM)` job that:
 
 - resolves the pinned llama.cpp tag from `hook/build.dart`
 - clones llama.cpp source
@@ -84,19 +85,20 @@ verifies checksums when `sha256sums.txt` is available.
 
 ## Publishing Bridge Assets
 
-Use the `Publish WebGPU Bridge Assets` GitHub Actions workflow
-(`.github/workflows/publish_webgpu_bridge_assets.yml`) to build and publish
-artifacts to the CDN asset repo.
+Use the `Publish Bridge Assets` workflow in `leehack/llama-web-bridge`
+(`.github/workflows/publish_assets.yml`) to build and publish artifacts to the
+CDN asset repo.
 
 Required workflow inputs:
 
-- `assets_tag` (recommended semver tag, for example `v0.1.0`)
+- `assets_tag` (recommended semver tag, for example `v0.1.1`)
 - `assets_repo` (`owner/repo`, defaults to `leehack/llama-web-bridge-assets`)
 - optional `llama_cpp_tag` override
 
 Required secret:
 
-- `WEBGPU_BRIDGE_ASSETS_PAT` with write access to the target assets repo
+- `WEBGPU_BRIDGE_ASSETS_PAT` in `leehack/llama-web-bridge` with write access
+  to the target assets repo
 
 ### Example app bootstrap
 
@@ -108,7 +110,7 @@ Equivalent loader snippet:
 ```html
 <script type="module">
   const localUrl = './webgpu_bridge/llama_webgpu_bridge.js';
-  const cdnUrl = 'https://cdn.jsdelivr.net/gh/leehack/llama-web-bridge-assets@v0.1.0/llama_webgpu_bridge.js';
+  const cdnUrl = 'https://cdn.jsdelivr.net/gh/leehack/llama-web-bridge-assets@v0.1.1/llama_webgpu_bridge.js';
 
   const load = async (url) => {
     const mod = await import(url);

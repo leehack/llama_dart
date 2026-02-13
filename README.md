@@ -18,7 +18,7 @@
 - 🖼️ **Multimodal Support**: Run vision and audio models (LLaVA, Gemma 3, Qwen2-VL) with integrated media processing.
 - ⏬ **Resumable Downloads**: Robust background-safe model downloads with parallel chunking and partial-file resume tracking.
 - **LoRA Support**: Apply fine-tuned adapters (GGUF) dynamically at runtime.
-- 🌐 **Web Support**: Run inference in the browser via WASM (powered by `wllama` v2).
+- 🌐 **Web Support**: Web backend router with WebGPU bridge support and WASM fallback.
 - 💎 **Dart-First API**: Streamlined architecture with decoupled backends.
 - 🔇 **Split Logging Control**: Configure Dart-side logger and native backend logs independently.
 - 🧪 **High Coverage**: CI enforces >=70% coverage on maintainable core code.
@@ -31,7 +31,7 @@ llamadart uses a modern, decoupled architecture designed for flexibility and pla
 
 - **LlamaEngine**: The primary high-level orchestrator. It handles model lifecycle, tokenization, chat templating, and manages the inference stream.
 - **ChatSession**: A stateful wrapper for `LlamaEngine` that automatically manages conversation history, system prompts, and enforces context window limits (sliding window).
-- **LlamaBackend**: A platform-agnostic interface with a default `LlamaBackend()` factory constructor that auto-selects native (`llama.cpp`) or web (`wllama`) implementations.
+- **LlamaBackend**: A platform-agnostic interface with a default `LlamaBackend()` factory constructor that auto-selects native (`llama.cpp`) or web (WebGPU bridge first, WASM fallback) implementations.
 
 ---
 
@@ -44,17 +44,31 @@ llamadart uses a modern, decoupled architecture designed for flexibility and pla
 | **Android** | arm64-v8a, x86_64 | Vulkan | ✅ Tested |
 | **Linux** | arm64, x86_64 | Vulkan | ✅ Tested |
 | **Windows** | x64 | Vulkan | ✅ Tested |
-| **Web** | WASM | CPU | ✅ Tested |
+| **Web** | WASM / WebGPU Bridge | CPU / Experimental WebGPU | ✅ Tested (WASM) |
 
 ---
 
-## 🌐 Web Backend Notes (wllama)
+## 🌐 Web Backend Notes (Router)
 
-When running on the web backend (`wllama`), keep these current limitations in mind:
+The default web backend uses the bridge runtime (`WebGpuLlamaBackend`) for
+both WebGPU and CPU execution paths.
 
-- Web is currently **WASM/CPU only** (no WebGPU acceleration in this binding yet).
-- **Multimodal projector loading is not supported on web** (`loadMultimodalProjector`).
-- `supportsVision` / `supportsAudio` report `false` on web.
+Current limitations:
+
+- Web mode is currently **experimental** and depends on an external JS bridge runtime.
+- Bridge API contract: `docs/webgpu_bridge.md`.
+- Prototype bridge build command: `./scripts/build_webgpu_bridge.sh`.
+- Prebuilt web bridge assets are intended to be published from
+  `leehack/llama-web-bridge` to `leehack/llama-web-bridge-assets`.
+- `example/chat_app` uses local bridge files first and falls back to jsDelivr
+  (`llama-web-bridge-assets`) when local assets are missing.
+- To self-host pinned assets at build time:
+  `WEBGPU_BRIDGE_ASSETS_TAG=<tag> ./scripts/fetch_webgpu_bridge_assets.sh`.
+- Bridge wasm build/publish CI lives in `leehack/llama-web-bridge`.
+- Prototype bridge runs llama.cpp load/generate directly, but still has rough edges (limited cancellation and no production hardening).
+- FunctionGemma metadata smoke test: `./scripts/smoke_web_function_gemma_template.sh`.
+- `loadMultimodalProjector` is available on web when using URL-based model/mmproj assets.
+- `supportsVision` / `supportsAudio` reflect loaded projector capabilities on web.
 - **LoRA runtime adapter APIs are not supported** on web in the current implementation.
 - Changing log level via `setLogLevel`/`setNativeLogLevel` applies on the next model load.
 

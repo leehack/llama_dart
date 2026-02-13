@@ -79,51 +79,6 @@ jobs:
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  build-webgpu-bridge:
-    name: Build WebGPU Bridge (WASM)
-    needs: analyze
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Resolve pinned llama.cpp tag
-        id: llama_tag
-        run: |
-          TAG=$(grep -o "const _llamaCppTag = '[^']*';" hook/build.dart | cut -d"'" -f2)
-          if [ -z "$TAG" ]; then
-            echo "error: failed to resolve _llamaCppTag from hook/build.dart"
-            exit 1
-          fi
-          echo "Using llama.cpp tag: $TAG"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Clone llama.cpp source
-        run: |
-          git clone --depth 1 --branch "${{ steps.llama_tag.outputs.tag }}" https://github.com/ggml-org/llama.cpp.git third_party/llama_cpp
-
-      - name: Setup Emscripten SDK
-        uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: 3.1.70
-
-      - name: Build bridge artifacts
-        run: ./scripts/build_webgpu_bridge.sh
-
-      - name: Verify build outputs
-        run: |
-          test -f example/chat_app/web/webgpu_bridge/llama_webgpu_core.js
-          test -f example/chat_app/web/webgpu_bridge/llama_webgpu_core.wasm
-          test -f example/chat_app/web/webgpu_bridge/llama_webgpu_bridge.js
-
-      - name: Upload bridge artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: webgpu-bridge-artifacts
-          path: |
-            example/chat_app/web/webgpu_bridge/llama_webgpu_core.js
-            example/chat_app/web/webgpu_bridge/llama_webgpu_core.wasm
-            example/chat_app/web/webgpu_bridge/llama_webgpu_bridge.js
-
   test-other-os:
     name: Test Native (${{ matrix.os }})
     needs: analyze
