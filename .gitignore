@@ -85,6 +85,9 @@ third_party/Vulkan-Headers/
 coverage/
 *.log
 
+# FVM Version Cache
+.fvm/
+.fvmrc
 # Test artifacts
 test_output.txt
 test_output_*.txt
