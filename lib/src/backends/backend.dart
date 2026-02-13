@@ -4,7 +4,7 @@ import '../core/models/chat/content_part.dart';
 import '../core/models/config/log_level.dart';
 
 import 'llama_cpp/llama_cpp_backend.dart'
-    if (dart.library.js_interop) 'wllama/wllama_backend.dart';
+    if (dart.library.js_interop) 'web/web_backend.dart';
 
 /// Platform-agnostic interface for Llama model inference.
 abstract class LlamaBackend {

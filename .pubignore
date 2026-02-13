@@ -1,30 +1,16 @@
-# Exclude development sources and external headers
-third_party/
-.git/
-.github/
+# Local build artifacts
+a.out.js
+a.out.wasm
+full_log.txt
 
-# Exclude local build directories
-build/
-build-*/
-.dart_tool/
+# Local bridge build/fetch outputs
+webgpu_bridge/
+example/chat_app/web/webgpu_bridge/
 
-# Exclude maintenance files not needed by end users
-CONTRIBUTING.md
-ffigen.yaml
-test_native_address.dart
-example/**/build_log*.txt
+# Removed legacy backend paths (avoid local empty-dir leakage)
+lib/src/backends/wllama/
+test/integration/backends/wllama/
+test/unit/backends/wllama/
 
-# Exclude local models
-*.gguf
-*.bin
-
-# Exclude debug symbols
-**/*.dSYM/
-**/*.pdb
-
-# No binaries should be bundled; hook/build.dart downloads them at runtime
-*.so
-*.dylib
-*.dll
-*.xcframework/
-docker/
+# Local scratch docs directory
+docs/

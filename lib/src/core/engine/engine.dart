@@ -111,29 +111,11 @@ class LlamaEngine {
     final modelName = path.split('/').last;
     LlamaLogger.instance.info('Loading model: $modelName');
 
-    // If backend supports URL loading (e.g. WASM), use it.
-    try {
-      try {
-        final name = await backend.getBackendName();
-        if (name.contains("WASM") || name.contains("Wllama")) {
-          LlamaLogger.instance.info(
-            'Backend $name supports URL loading, attempting loadModelFromUrl.',
-          );
-          return loadModelFromUrl(path, modelParams: modelParams);
-        }
-      } catch (e, stackTrace) {
-        LlamaLogger.instance.warning(
-          'Could not determine backend name or it does not support URL loading: $e',
-          e,
-          stackTrace,
-        );
-      }
-    } catch (e, stackTrace) {
-      LlamaLogger.instance.warning(
-        'Error during initial backend check for URL loading: $e',
-        e,
-        stackTrace,
+    if (backend.supportsUrlLoading) {
+      LlamaLogger.instance.info(
+        'Backend supports URL loading, attempting loadModelFromUrl.',
       );
+      return loadModelFromUrl(path, modelParams: modelParams);
     }
 
     try {

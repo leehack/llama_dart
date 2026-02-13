@@ -89,3 +89,14 @@ coverage/
 test_output.txt
 test_output_*.txt
 test_failure_details.txt
+full_log.txt
+
+# Emscripten sanity outputs
+a.out.js
+a.out.wasm
+
+# Local web bridge artifacts fetched/built for chat_app
+example/chat_app/web/webgpu_bridge/*.js
+example/chat_app/web/webgpu_bridge/*.wasm
+example/chat_app/web/webgpu_bridge/manifest.json
+example/chat_app/web/webgpu_bridge/sha256sums.txt

@@ -12,6 +12,8 @@ class MockLlamaBackend implements LlamaBackend {
   bool _isReady = false;
   String? lastLoraPath;
   double? lastLoraScale;
+  int modelLoadCalls = 0;
+  int modelLoadFromUrlCalls = 0;
   final String backendName;
   final bool urlLoadingSupported;
 
@@ -20,6 +22,7 @@ class MockLlamaBackend implements LlamaBackend {
 
   @override
   Future<int> modelLoad(String path, ModelParams params) async {
+    modelLoadCalls += 1;
     _isReady = true;
     return 1;
   }
@@ -30,6 +33,7 @@ class MockLlamaBackend implements LlamaBackend {
     ModelParams params, {
     Function(double progress)? onProgress,
   }) async {
+    modelLoadFromUrlCalls += 1;
     _isReady = true;
     return 1;
   }
@@ -162,10 +166,18 @@ void main() {
       expect(engine.isReady, true);
     });
 
+    test('loadModel routes through URL loader when supported', () async {
+      final webBackend = MockLlamaBackend(urlLoadingSupported: true);
+      final webEngine = LlamaEngine(webBackend);
+
+      await webEngine.loadModel('https://example.com/model.gguf');
+
+      expect(webBackend.modelLoadCalls, 0);
+      expect(webBackend.modelLoadFromUrlCalls, 1);
+      expect(webEngine.isReady, isTrue);
+    });
+
     test('loadModelFromUrl successful', () async {
-      // Mock backend doesn't start with WASM so it will throw UnimplementedError normally
-      // But we can force it by overriding getBackendName if we want to test that path
-      // Actually, let's just test that it throws when not WASM
       expect(
         () => engine.loadModelFromUrl('http://test.gguf'),
         throwsUnimplementedError,

@@ -81,13 +81,16 @@ class LlamaAudioContent extends LlamaContentPart {
   /// Raw PCM Float32 audio samples.
   final Float32List? samples; // PCM F32
 
+  /// Encoded audio bytes (for example WAV/MP3).
+  final Uint8List? bytes;
+
   /// Local filesystem path to the audio file (e.g., WAV, MP3).
   ///
   /// If provided, the native engine will decode the audio automatically.
   final String? path; // Alternative: file path
 
   /// Creates an audio content part.
-  const LlamaAudioContent({this.samples, this.path});
+  const LlamaAudioContent({this.samples, this.bytes, this.path});
 
   @override
   Map<String, dynamic> toJson() {
@@ -96,8 +99,8 @@ class LlamaAudioContent extends LlamaContentPart {
       'input_audio': {
         'data': samples != null
             ? base64Encode(samples!.buffer.asUint8List())
-            : '',
-        'format': 'pcm', // Changed to pcm since we are sending raw samples
+            : (bytes != null ? base64Encode(bytes!) : ''),
+        'format': samples != null ? 'pcm' : 'audio',
       },
     };
   }

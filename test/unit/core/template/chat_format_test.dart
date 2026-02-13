@@ -130,5 +130,23 @@ void main() {
       final format = detectChatFormat(source);
       expect(format, equals(ChatFormat.granite));
     });
+
+    test('detects FunctionGemma format from start_function_call marker', () {
+      const source =
+          '<start_of_turn>user\nhi<end_of_turn><start_of_turn>model\n'
+          '<start_function_call>call:get_weather{"location":"Seoul"}'
+          '<end_function_call>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.functionGemma));
+    });
+
+    test('prefers FunctionGemma over Gemma when both markers are present', () {
+      const source =
+          '<start_of_turn>user\nhi<end_of_turn>'
+          '<start_function_call>call:get_weather{"location":"Paris"}'
+          '<end_function_call>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.functionGemma));
+    });
   });
 }

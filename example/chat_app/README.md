@@ -5,7 +5,7 @@ A Flutter chat application demonstrating real-world usage of llamadart with UI.
 ## Features
 
 - 🦙 Real-time chat with local LLM
-- 🖼️ **Vision & Audio Support (Native)**: Attach images and audio clips to your messages on native platforms.
+- 🖼️ **Vision & Audio Support**: Works on native and web bridge when a matching mmproj is loaded.
 - 📱 Material Design 3 UI
 - ⚙️ Model configuration (path, backend selection, GPU layers, context size)
 - 🧩 Capability badges per model (Tools / Thinking / Vision / Audio / Video)
@@ -205,13 +205,33 @@ _(Add screenshots here when complete)_
 | Android  | ✅ Tested | Vulkan |
 | Linux    | 🟡 Expected | Vulkan |
 | Windows  | ✅ Tested | Vulkan |
-| Web      | ✅ Tested | CPU (Wasm) |
+| Web      | ✅ Tested | CPU / Experimental WebGPU |
 
 ### Web Limitations
 
-- Web uses the `wllama` backend and currently runs on **WASM/CPU**.
-- Multimodal projector loading is not supported on web.
-- Vision/audio model capabilities are currently native-only in this example.
+- Web uses the llama.cpp bridge backend with CPU mode and experimental WebGPU acceleration.
+- Bridge runtime loading is local-first (`web/webgpu_bridge`) with jsDelivr fallback.
+- Override CDN source/version with `window.__llamadartBridgeAssetsRepo` and
+  `window.__llamadartBridgeAssetsTag` in `web/index.html`.
+- To pin self-hosted assets before build:
+  `WEBGPU_BRIDGE_ASSETS_TAG=<tag> ./scripts/fetch_webgpu_bridge_assets.sh`.
+- Bridge fetch defaults include Safari compatibility patching for universal
+  browser support (`WEBGPU_BRIDGE_PATCH_SAFARI_COMPAT=1`,
+  `WEBGPU_BRIDGE_MIN_SAFARI_VERSION=170400`).
+- `web/index.html` also applies Safari compatibility patching at runtime before
+  bridge initialization (including CDN fallback).
+- Bridge model loading uses browser Cache Storage by default, so repeated loads
+  of the same model URL can avoid full re-download.
+- Current browser targets in this repo: Chrome >= 128, Firefox >= 129,
+  Safari >= 17.4.
+- Safari WebGPU uses a compatibility gate in `llamadart`: legacy bridge assets
+  default to CPU fallback, while adaptive bridge assets can probe/cap GPU
+  layers and auto-fallback to CPU when unstable.
+- For legacy assets, experimental override remains available via
+  `window.__llamadartAllowSafariWebGpu = true` before model load.
+- Multimodal projector loading on web is URL-based (model + matching mmproj URL).
+- Model selection auto-wires mmproj URLs for multimodal web models.
+- Image/audio attachments on web use browser file bytes (local path-based loading remains native-only).
 - On web, model files are loaded by URL (local file download/cache flow differs from native).
 
 

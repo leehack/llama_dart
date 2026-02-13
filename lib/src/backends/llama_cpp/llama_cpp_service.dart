@@ -334,6 +334,15 @@ class LlamaCppService {
               pathPtr.cast(),
             );
             malloc.free(pathPtr);
+          } else if (p.bytes != null) {
+            final dataPtr = malloc<Uint8>(p.bytes!.length);
+            dataPtr.asTypedList(p.bytes!.length).setAll(0, p.bytes!);
+            bitmaps[i] = mtmd_helper_bitmap_init_from_buf(
+              mmCtx,
+              dataPtr.cast(),
+              p.bytes!.length,
+            );
+            malloc.free(dataPtr);
           } else if (p.samples != null) {
             final dataPtr = malloc<Float>(p.samples!.length);
             dataPtr.asTypedList(p.samples!.length).setAll(0, p.samples!);

@@ -109,11 +109,16 @@ class _ModelSelectionScreenState extends State<ModelSelectionScreen> {
     provider.updateModelPath(pathOrUrl);
     provider.applyModelPreset(model);
 
-    if (!kIsWeb && model.isMultimodal) {
-      if (model.mmprojFilename != null) {
+    if (model.isMultimodal) {
+      if (kIsWeb) {
+        if (model.mmprojUrl != null && model.mmprojUrl!.isNotEmpty) {
+          provider.updateMmprojPath(model.mmprojUrl!);
+        } else {
+          provider.updateMmprojPath(pathOrUrl);
+        }
+      } else if (model.mmprojFilename != null) {
         provider.updateMmprojPath('${_modelsDir!}/${model.mmprojFilename}');
-      } else if (model.supportsVision) {
-        // Integrated projector: use the model file itself if supportsVision is true but no separate file
+      } else if (model.supportsVision || model.supportsAudio) {
         provider.updateMmprojPath(pathOrUrl);
       } else {
         provider.updateMmprojPath('');
