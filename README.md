@@ -56,7 +56,7 @@ both WebGPU and CPU execution paths.
 Current limitations:
 
 - Web mode is currently **experimental** and depends on an external JS bridge runtime.
-- Bridge API contract: `docs/webgpu_bridge.md`.
+- Bridge API contract: `doc/webgpu_bridge.md`.
 - Prototype bridge build command: `./scripts/build_webgpu_bridge.sh`.
 - Prebuilt web bridge assets are intended to be published from
   `leehack/llama-web-bridge` to `leehack/llama-web-bridge-assets`.
