@@ -7,5 +7,10 @@ full_log.txt
 webgpu_bridge/
 example/chat_app/web/webgpu_bridge/
 
+# Removed legacy backend paths (avoid local empty-dir leakage)
+lib/src/backends/wllama/
+test/integration/backends/wllama/
+test/unit/backends/wllama/
+
 # Local scratch docs directory
 docs/
