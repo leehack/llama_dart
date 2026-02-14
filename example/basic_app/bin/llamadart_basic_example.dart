@@ -131,9 +131,18 @@ void main(List<String> arguments) async {
     );
 
     if (singlePrompt != null) {
-      await _runSingleResponse(llamaService, singlePrompt, generationParams);
+      await _runSingleResponse(
+        llamaService,
+        singlePrompt,
+        generationParams,
+        toolChoice: enableToolTest ? ToolChoice.required : null,
+      );
     } else if (isInteractive) {
-      await _runInteractiveMode(llamaService, generationParams);
+      await _runInteractiveMode(
+        llamaService,
+        generationParams,
+        toolChoice: enableToolTest ? ToolChoice.required : null,
+      );
     }
   } catch (e) {
     print('\nError: $e');
@@ -147,10 +156,15 @@ void main(List<String> arguments) async {
 Future<void> _runSingleResponse(
   LlamaCliService service,
   String prompt,
-  GenerationParams params,
-) async {
+  GenerationParams params, {
+  ToolChoice? toolChoice,
+}) async {
   stdout.write('\nAssistant: ');
-  await for (final token in service.chatStream(prompt, params: params)) {
+  await for (final token in service.chatStream(
+    prompt,
+    params: params,
+    toolChoice: toolChoice,
+  )) {
     stdout.write(token);
   }
   print('\n');
@@ -158,8 +172,9 @@ Future<void> _runSingleResponse(
 
 Future<void> _runInteractiveMode(
   LlamaCliService service,
-  GenerationParams params,
-) async {
+  GenerationParams params, {
+  ToolChoice? toolChoice,
+}) async {
   print('Starting interactive mode. Type "exit" or "quit" to stop.\n');
 
   while (true) {
@@ -173,7 +188,11 @@ Future<void> _runInteractiveMode(
     }
 
     stdout.write('Assistant: ');
-    await for (final token in service.chatStream(input, params: params)) {
+    await for (final token in service.chatStream(
+      input,
+      params: params,
+      toolChoice: toolChoice,
+    )) {
       stdout.write(token);
     }
     print('\n');
