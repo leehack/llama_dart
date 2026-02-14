@@ -1,5 +1,13 @@
-## Unreleased
-> Upcoming release target: `0.5.0` (not published yet).
+## 0.5.1
+
+*   **Documentation fixes**:
+    *   Updated README internal links to absolute GitHub URLs so they resolve reliably on pub.dev.
+    *   Updated release/migration wording after 0.5.0 publication and refreshed installation/version snippets.
+    *   Corrected iOS simulator architecture notes and contributor prerequisites/build target docs.
+*   **Publishing hygiene**:
+    *   Expanded `.pubignore` to exclude local build outputs, large model/test artifacts, and checked-out `third_party` sources from package uploads.
+
+## 0.5.0
 
 *   **[BREAKING] Public API Changes**:
     *   Root exports were tightened; previously exposed internals such as `ToolRegistry`, `LlamaTokenizer`, and `ChatTemplateProcessor` are no longer part of the public package API.

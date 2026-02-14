@@ -1,7 +1,39 @@
-# Local build artifacts
+# Dart / Flutter local artifacts
+.dart_tool/
+build/
+coverage/
+.pub/
+.metadata
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Local logs / scratch outputs
+*.log
+full_log.txt
+firebase-debug.log
+test_output.txt
+test_output_*.txt
+test_failure_details.txt
 a.out.js
 a.out.wasm
-full_log.txt
+
+# Large local model/test assets
+*.gguf
+models/
+example/basic_app/models/
+test_assets/
+
+# Native local build outputs / vendored sources
+third_party/bin/
+third_party/build-*/
+third_party/llama_cpp/
+third_party/Vulkan-Headers/
 
 # Local bridge build/fetch outputs
 webgpu_bridge/
@@ -14,3 +46,6 @@ test/unit/backends/wllama/
 
 # Local scratch docs directory
 docs/
+
+# Agent-only maintainer notes
+AGENTS.md
