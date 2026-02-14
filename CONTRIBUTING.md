@@ -6,8 +6,8 @@ Thank you for your interest in contributing to `llamadart`! We welcome contribut
 
 Before you begin, ensure you have the following installed:
 
--   **Dart SDK**: >= 3.10.0
--   **Flutter SDK**: (Optional, for running UI examples)
+-   **Dart SDK**: >= 3.10.7
+-   **Flutter SDK**: >= 3.38.0 (optional, for running UI examples)
 -   **CMake**: >= 3.10
 -   **C++ Compiler**:
     -   **macOS**: Xcode Command Line Tools (`xcode-select --install`)
@@ -140,7 +140,8 @@ If you need to build binaries for a new release:
 
 2.  **Run platform scripts**:
     -   **Android**: `./build_android.sh`
-    -   **Apple (macOS/iOS)**: `./build_apple.sh macos` or `./build_apple.sh ios`
+    -   **Apple (macOS)**: `./build_apple.sh macos-arm64` or `./build_apple.sh macos-x86_64`
+    -   **Apple (iOS)**: `./build_apple.sh ios-device-arm64`, `./build_apple.sh ios-sim-arm64`, or `./build_apple.sh ios-sim-x86_64`
     -   **Linux**: `./build_linux.sh vulkan`
 
 ## Running Examples

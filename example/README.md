@@ -116,7 +116,7 @@ example/
 | Platform | Architecture(s) | GPU Backend | Status |
 |----------|-----------------|-------------|--------|
 | **macOS** | arm64, x86_64 | Metal | ✅ Tested |
-| **iOS** | arm64 (Device), x86_64 (Sim) | Metal (Device), CPU (Sim) | ✅ Tested |
+| **iOS** | arm64 (Device), arm64/x86_64 (Sim) | Metal (Device), CPU (Sim) | ✅ Tested |
 | **Android** | arm64-v8a, x86_64 | Vulkan | ✅ Tested |
 | **Linux** | arm64, x86_64 | Vulkan | 🟡 Expected (Vulkan Untested) |
 | **Windows** | x64 | Vulkan | ✅ Tested |

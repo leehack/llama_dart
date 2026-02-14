@@ -144,7 +144,7 @@ final messages = [
 final stream = engine.create(
   messages,
   params: GenerationParams(
-    maxTokens: 4096, // Current default in this branch
+    maxTokens: 4096, // Current default in 0.5.0
     temp: 0.7,
   ),
 );
@@ -185,7 +185,7 @@ _(Add screenshots here when complete)_
 **App crashes on startup:**
 - Check console output for error messages
 - Verify llamadart dependency is correctly configured
-- Ensure Flutter version >= 3.10.0
+- Ensure Flutter version >= 3.38.0
 
 ## Tech Stack
 

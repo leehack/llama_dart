@@ -40,7 +40,7 @@ llamadart uses a modern, decoupled architecture designed for flexibility and pla
 | Platform | Architecture(s) | GPU Backend | Status |
 |----------|-----------------|-------------|--------|
 | **macOS** | arm64, x86_64 | Metal | ✅ Tested |
-| **iOS** | arm64 (Device), x86_64 (Sim) | Metal (Device), CPU (Sim) | ✅ Tested |
+| **iOS** | arm64 (Device), arm64/x86_64 (Sim) | Metal (Device), CPU (Sim) | ✅ Tested |
 | **Android** | arm64-v8a, x86_64 | Vulkan | ✅ Tested |
 | **Linux** | arm64, x86_64 | Vulkan | ✅ Tested |
 | **Windows** | x64 | Vulkan | ✅ Tested |
@@ -56,12 +56,12 @@ both WebGPU and CPU execution paths.
 Current limitations:
 
 - Web mode is currently **experimental** and depends on an external JS bridge runtime.
-- Bridge API contract: [WebGPU bridge contract](doc/webgpu_bridge.md).
+- Bridge API contract: [WebGPU bridge contract](https://github.com/leehack/llamadart/blob/main/doc/webgpu_bridge.md).
 - Prebuilt web bridge assets are published from
   [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge)
   to
   [`leehack/llama-web-bridge-assets`](https://github.com/leehack/llama-web-bridge-assets).
-- [`example/chat_app`](example/chat_app) uses local bridge files first and
+- [`example/chat_app`](https://github.com/leehack/llamadart/blob/main/example/chat_app/README.md) uses local bridge files first and
   falls back to jsDelivr assets when local assets are missing.
 - Bridge model loading now uses browser Cache Storage when `useCache` is true
   (enabled by default in `llamadart` web backend), so repeat loads of the same
@@ -99,7 +99,7 @@ Add `llamadart` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  llamadart: ^0.4.0
+  llamadart: ^0.5.1
 ```
 
 ### Zero Setup (Native Assets)
@@ -113,14 +113,11 @@ No manual binary downloads, CMake configuration, or platform-specific project ch
 
 ---
 
-## ⚠️ Breaking Changes (Upcoming 0.5.0)
+## ⚠️ Breaking Changes in 0.5.0
 
-`0.5.0` has not been published yet. This branch includes intentional
-breaking changes while the API is still early.
+If you are upgrading from `0.4.x`, read:
 
-Before upgrading from `main` / `0.4.0`, read:
-
-- [MIGRATION.md](MIGRATION.md)
+- [MIGRATION.md](https://github.com/leehack/llamadart/blob/main/MIGRATION.md)
 
 High-impact changes:
 
@@ -402,7 +399,7 @@ void dispose() {
 - **Isolate-Safe**: Native adapters are managed in a background Isolate to prevent UI jank.
 - **Efficient**: Multiple LoRAs share the memory of a single base model.
 
-Check out our [LoRA Training Notebook](example/training_notebook/lora_training.ipynb) to learn how to train and convert your own adapters.
+Check out our [LoRA Training Notebook](https://github.com/leehack/llamadart/blob/main/example/training_notebook/lora_training.ipynb) to learn how to train and convert your own adapters.
 
 ---
 
@@ -435,8 +432,8 @@ dart run tool/testing/check_lcov_threshold.dart coverage/lcov.info 70
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for architecture details and maintainer instructions for building native binaries.
+Contributions are welcome! Please see [CONTRIBUTING.md](https://github.com/leehack/llamadart/blob/main/CONTRIBUTING.md) for architecture details and maintainer instructions for building native binaries.
 
 ## 📜 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/leehack/llamadart/blob/main/LICENSE) file for details.

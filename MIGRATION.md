@@ -1,7 +1,6 @@
-# Migration Guide (`main` / `0.4.0` -> upcoming `0.5.0`)
+# Migration Guide (`0.4.x` -> `0.5.0`)
 
-`0.5.0` is not published yet. This document covers intentional breaking
-changes already present on this branch.
+This document covers the breaking changes introduced in `0.5.0`.
 
 ## 1) ChatSession API
 
