@@ -147,8 +147,8 @@ void main() {
     });
 
     test('enforceContextLimit truncation', () async {
-      backend.contextSize = 1000;
-      session.maxContextTokens = 1000;
+      backend.contextSize = 400;
+      session.maxContextTokens = 400;
       for (int i = 0; i < 20; i++) {
         backend.queueResponse('R');
         await session.create([LlamaTextContent('M' * 50)]).drain();
