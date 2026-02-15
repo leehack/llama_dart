@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:llamadart/llamadart.dart';
 
 /// Service for interacting with the Llama engine in a CLI environment.
@@ -20,6 +22,9 @@ class LlamaCliService {
     LlamaLogLevel logLevel = LlamaLogLevel.none,
     List<ToolDefinition>? tools,
   }) async {
+    // Set log level
+    await _engine.setLogLevel(logLevel);
+
     await _engine.loadModel(
       modelPath,
       modelParams: ModelParams(
@@ -34,7 +39,14 @@ class LlamaCliService {
 
     // Store tools for later use
     _tools = tools;
-    _session = ChatSession(_engine);
+
+    // Create session with system prompt for tool calling if tools are provided
+    _session = ChatSession(
+      _engine,
+      systemPrompt: tools != null && tools.isNotEmpty
+          ? 'You are a helpful assistant. When you need to use a tool, output it in the correct format as specified by the model template.'
+          : null,
+    );
   }
 
   /// Sets or updates the tools for this session.
@@ -58,15 +70,87 @@ class LlamaCliService {
   }
 
   /// Sends a message and returns a stream of tokens.
+  ///
+  /// This method handles tool calls automatically:
+  /// 1. Generates response with potential tool calls
+  /// 2. Executes any tool calls
+  /// 3. Continues generation with tool results
   Stream<String> chatStream(
     String text, {
     GenerationParams? params,
-  }) {
-    return _session.create(
+    ToolChoice? toolChoice,
+  }) async* {
+    // Generate initial response
+    final chunks = await _session.create(
       [LlamaTextContent(text)],
       params: params,
       tools: _tools,
+      toolChoice: toolChoice,
+    ).toList();
+
+    // Extract content and tool calls from chunks
+    final content =
+        chunks.map((chunk) => chunk.choices.first.delta.content ?? '').join();
+
+    final toolCalls = chunks
+        .expand((chunk) => chunk.choices.first.delta.toolCalls ?? [])
+        .toList();
+
+    // Yield initial content
+    if (content.isNotEmpty) {
+      yield content;
+    }
+
+    // If no tool calls, we're done
+    if (toolCalls.isEmpty || _tools == null || _tools!.isEmpty) {
+      return;
+    }
+
+    // Execute tool calls
+    for (final call in toolCalls) {
+      final functionName = call.function?.name;
+      if (functionName == null) continue;
+
+      // Find the tool
+      final tool = _tools!.firstWhere(
+        (t) => t.name == functionName,
+        orElse: () => throw Exception('Tool not found: $functionName'),
+      );
+
+      // Parse arguments
+      final argsJson = call.function?.arguments ?? '{}';
+      final args = jsonDecode(argsJson) as Map<String, dynamic>;
+
+      // Execute tool
+      yield '\n🔧 Executing: $functionName(${args.entries.map((e) => '${e.key}: ${e.value}').join(', ')})\n';
+      final result = await tool.invoke(args);
+      yield '📋 Result: $result\n';
+
+      // Add tool result to session
+      _session.addMessage(
+        LlamaChatMessage.withContent(
+          role: LlamaChatRole.tool,
+          content: [
+            LlamaToolResultContent(
+              id: call.id,
+              name: functionName,
+              result: result,
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Continue generation with tool results
+    yield '\n💬 Final response:\n';
+    final finalChunks = _session.create(
+      [], // Empty parts - continue from current context
+      params: params,
     ).map((chunk) => chunk.choices.first.delta.content ?? '');
+
+    await for (final token in finalChunks) {
+      yield token;
+    }
   }
 
   /// Disposes the underlying engine resources.

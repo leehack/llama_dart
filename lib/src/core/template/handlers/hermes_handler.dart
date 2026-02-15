@@ -103,7 +103,15 @@ class HermesHandler extends ChatTemplateHandler {
     for (var i = 0; i < matches.length; i++) {
       final match = matches.elementAt(i);
       try {
-        final json = jsonDecode(match.group(1)!) as Map<String, dynamic>;
+        var jsonStr = match.group(1)!;
+
+        // Normalize double braces to single braces (Qwen template quirk)
+        // Some models output {{...}} instead of {...} due to template issues
+        if (jsonStr.trim().startsWith('{{') && jsonStr.trim().endsWith('}}')) {
+          jsonStr = jsonStr.trim().substring(1, jsonStr.trim().length - 1);
+        }
+
+        final json = jsonDecode(jsonStr) as Map<String, dynamic>;
         final name = json['name'] as String?;
         final args = json['arguments'];
         if (name != null) {

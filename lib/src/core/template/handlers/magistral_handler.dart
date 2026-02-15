@@ -108,51 +108,120 @@ class MagistralHandler extends ChatTemplateHandler {
       );
     }
 
-    // Check for [TOOL_CALLS] prefix
-    if (!trimmed.startsWith('[TOOL_CALLS]')) {
-      return ChatParseResult(
-        content: trimmed,
-        reasoningContent: thinking.reasoning,
-      );
-    }
-
-    // Strip the prefix and parse JSON array
-    final jsonStr = trimmed.substring('[TOOL_CALLS]'.length).trim();
     final toolCalls = <LlamaCompletionChunkToolCall>[];
+    var contentText = trimmed;
 
-    try {
-      final list = jsonDecode(jsonStr) as List<dynamic>;
-      for (var i = 0; i < list.length; i++) {
-        final call = list[i] as Map<String, dynamic>;
-        final name = call['name'] as String?;
-        final args = call['arguments'];
-        final id = call['id'] as String?;
-        if (name != null) {
-          toolCalls.add(
-            LlamaCompletionChunkToolCall(
-              index: i,
-              id: id ?? 'call_$i',
-              type: 'function',
-              function: LlamaCompletionChunkFunction(
-                name: name,
-                arguments: args is String ? args : jsonEncode(args ?? {}),
-              ),
+    // Ministral format: [TOOL_CALLS]function_name[ARGS]{...}
+    // or short format: function_name{...}
+    final ministralPattern = RegExp(
+      r'(?:\[TOOL_CALLS\])?(\w+)\[ARGS\](\{.*?\})',
+      dotAll: true,
+    );
+
+    // Short format: function_name{...} at the end of text
+    final shortPattern = RegExp(r'([a-z_]\w+)(\{.*\})\s*$', dotAll: true);
+
+    // Try Ministral full format first
+    var foundMinistral = false;
+    for (final match in ministralPattern.allMatches(trimmed)) {
+      final name = match.group(1)!;
+      final argsJson = match.group(2)!;
+
+      try {
+        jsonDecode(argsJson); // Validate JSON
+        toolCalls.add(
+          LlamaCompletionChunkToolCall(
+            index: toolCalls.length,
+            id: 'call_${toolCalls.length}',
+            type: 'function',
+            function: LlamaCompletionChunkFunction(
+              name: name,
+              arguments: argsJson,
             ),
-          );
-        }
+          ),
+        );
+        contentText = contentText.replaceFirst(match.group(0)!, '');
+        foundMinistral = true;
+      } catch (_) {
+        // Invalid JSON, skip
       }
-    } catch (_) {
-      // If JSON parsing fails, return as content
+    }
+
+    if (foundMinistral) {
       return ChatParseResult(
-        content: trimmed,
+        content: contentText.trim(),
         reasoningContent: thinking.reasoning,
+        toolCalls: toolCalls,
       );
     }
 
+    // Try short format: function_name{...}
+    final shortMatch = shortPattern.firstMatch(trimmed);
+    if (shortMatch != null) {
+      final name = shortMatch.group(1)!;
+      final argsJson = shortMatch.group(2)!;
+
+      try {
+        jsonDecode(argsJson); // Validate JSON
+        toolCalls.add(
+          LlamaCompletionChunkToolCall(
+            index: 0,
+            id: 'call_0',
+            type: 'function',
+            function: LlamaCompletionChunkFunction(
+              name: name,
+              arguments: argsJson,
+            ),
+          ),
+        );
+        return ChatParseResult(
+          content: '',
+          reasoningContent: thinking.reasoning,
+          toolCalls: toolCalls,
+        );
+      } catch (_) {
+        // Invalid JSON, fall through
+      }
+    }
+
+    // Fallback: Try Mistral Nemo format [TOOL_CALLS] [JSON_ARRAY]
+    if (trimmed.startsWith('[TOOL_CALLS]')) {
+      final jsonStr = trimmed.substring('[TOOL_CALLS]'.length).trim();
+      try {
+        final list = jsonDecode(jsonStr) as List<dynamic>;
+        for (var i = 0; i < list.length; i++) {
+          final call = list[i] as Map<String, dynamic>;
+          final name = call['name'] as String?;
+          final args = call['arguments'];
+          final id = call['id'] as String?;
+          if (name != null) {
+            toolCalls.add(
+              LlamaCompletionChunkToolCall(
+                index: i,
+                id: id ?? 'call_$i',
+                type: 'function',
+                function: LlamaCompletionChunkFunction(
+                  name: name,
+                  arguments: args is String ? args : jsonEncode(args ?? {}),
+                ),
+              ),
+            );
+          }
+        }
+        return ChatParseResult(
+          content: '',
+          reasoningContent: thinking.reasoning,
+          toolCalls: toolCalls,
+        );
+      } catch (_) {
+        // JSON parsing failed
+      }
+    }
+
+    // No tool calls found
     return ChatParseResult(
-      content: '',
+      content: trimmed,
       reasoningContent: thinking.reasoning,
-      toolCalls: toolCalls,
     );
   }
 
