@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 0.5.4
+
 *   **Chat app backend/status fixes**:
     *   Backend switching now preserves configured `gpuLayers` while still allowing load-time CPU enforcement.
     *   Runtime backend labeling and GPU activity diagnostics now follow effective user selection, preventing false "VULKAN active" status when CPU mode is selected.
