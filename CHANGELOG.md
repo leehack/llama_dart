@@ -1,3 +1,12 @@
+## 0.5.3
+
+*   **Sampling controls**:
+    *   Added `minP` to `GenerationParams` with a default value of `0.0` and `copyWith` support.
+*   **Native backend parity**:
+    *   Added optional llama.cpp `min_p` sampler initialization in `LlamaCppService` when `minP > 0`.
+*   **Test coverage**:
+    *   Added unit coverage for `GenerationParams.minP` default and `copyWith` behavior.
+
 ## 0.5.2
 
 *   **Chat template parity hardening**:
