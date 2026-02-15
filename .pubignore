@@ -25,7 +25,7 @@ a.out.wasm
 
 # Large local model/test assets
 *.gguf
-models/
+/models/
 example/basic_app/models/
 test_assets/
 
