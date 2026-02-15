@@ -1,3 +1,13 @@
+## Unreleased
+
+*   **Chat app backend/status fixes**:
+    *   Backend switching now preserves configured `gpuLayers` while still allowing load-time CPU enforcement.
+    *   Runtime backend labeling and GPU activity diagnostics now follow effective user selection, preventing false "VULKAN active" status when CPU mode is selected.
+*   **Context size auto mode**:
+    *   Restored support for `Context Size: Auto` by preserving `0` in persisted settings and passing auto behavior through to session context-limit resolution.
+*   **Test coverage**:
+    *   Added chat app regression tests for backend switching behavior and context-size auto persistence.
+
 ## 0.5.3
 
 *   **Sampling controls**:
