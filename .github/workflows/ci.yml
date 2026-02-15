@@ -24,6 +24,8 @@ jobs:
           flutter pub get
           (cd example/basic_app && flutter pub get)
           (cd example/chat_app && flutter pub get)
+          (cd example/llamadart_cli && dart pub get)
+          (cd example/llamadart_server && dart pub get)
 
       - name: Verify formatting
         run: dart format --output=none --set-exit-if-changed .
