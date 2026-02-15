@@ -49,6 +49,11 @@ class GenerationParams {
   /// cumulative probability exceeds P.
   final double topP;
 
+  /// Min-P sampling threshold.
+  ///
+  /// Set to 0.0 to disable Min-P filtering.
+  final double minP;
+
   /// Penalty applied to tokens that have already appeared in the sequence.
   /// 1.0 means no penalty.
   final double penalty;
@@ -82,6 +87,7 @@ class GenerationParams {
     this.temp = 0.8,
     this.topK = 40,
     this.topP = 0.9,
+    this.minP = 0.0,
     this.penalty = 1.1,
     this.seed,
     this.stopSequences = const [],
@@ -98,6 +104,7 @@ class GenerationParams {
     double? temp,
     int? topK,
     double? topP,
+    double? minP,
     double? penalty,
     int? seed,
     List<String>? stopSequences,
@@ -112,6 +119,7 @@ class GenerationParams {
       temp: temp ?? this.temp,
       topK: topK ?? this.topK,
       topP: topP ?? this.topP,
+      minP: minP ?? this.minP,
       penalty: penalty ?? this.penalty,
       seed: seed ?? this.seed,
       stopSequences: stopSequences ?? this.stopSequences,

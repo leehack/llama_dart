@@ -562,6 +562,12 @@ class LlamaCppService {
 
     llama_sampler_chain_add(sampler, llama_sampler_init_top_k(params.topK));
     llama_sampler_chain_add(sampler, llama_sampler_init_top_p(params.topP, 1));
+    if (params.minP > 0) {
+      llama_sampler_chain_add(
+        sampler,
+        llama_sampler_init_min_p(params.minP, 1),
+      );
+    }
     llama_sampler_chain_add(sampler, llama_sampler_init_temp(params.temp));
 
     if (params.temp <= 0) {
