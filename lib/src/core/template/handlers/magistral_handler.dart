@@ -108,20 +108,60 @@ class MagistralHandler extends ChatTemplateHandler {
       );
     }
 
-    // Check for [TOOL_CALLS] prefix
-    if (!trimmed.startsWith('[TOOL_CALLS]')) {
+    // Require the explicit [TOOL_CALLS] marker to parse tool calls.
+    // Note: when [TOOL_CALLS] is configured as a grammar trigger, the native
+    // sampler may consume the marker before it reaches the output buffer.
+    // This is a known limitation — the proper fix belongs in the engine layer
+    // (e.g. prepending the trigger text to the buffer after grammar activation).
+    if (!trimmed.contains('[TOOL_CALLS]')) {
       return ChatParseResult(
         content: trimmed,
         reasoningContent: thinking.reasoning,
       );
     }
 
-    // Strip the prefix and parse JSON array
-    final jsonStr = trimmed.substring('[TOOL_CALLS]'.length).trim();
     final toolCalls = <LlamaCompletionChunkToolCall>[];
+    final markerIdx = trimmed.indexOf('[TOOL_CALLS]');
+    final contentBefore = trimmed.substring(0, markerIdx).trim();
+    final afterMarker = trimmed
+        .substring(markerIdx + '[TOOL_CALLS]'.length)
+        .trim();
 
+    // Format 1: Ministral - function_name[ARGS]{...}
+    // [ARGS] is an explicit marker that doesn't appear in natural text.
+    final ministralPattern = RegExp(r'(\w+)\[ARGS\]');
+    if (ministralPattern.hasMatch(afterMarker)) {
+      for (final match in ministralPattern.allMatches(afterMarker)) {
+        final name = match.group(1)!;
+        final argsStart = match.end;
+        final jsonObj = _extractJsonObject(afterMarker, argsStart);
+        if (jsonObj != null) {
+          toolCalls.add(
+            LlamaCompletionChunkToolCall(
+              index: toolCalls.length,
+              id: 'call_${toolCalls.length}',
+              type: 'function',
+              function: LlamaCompletionChunkFunction(
+                name: name,
+                arguments: jsonObj,
+              ),
+            ),
+          );
+        }
+      }
+
+      if (toolCalls.isNotEmpty) {
+        return ChatParseResult(
+          content: contentBefore,
+          reasoningContent: thinking.reasoning,
+          toolCalls: toolCalls,
+        );
+      }
+    }
+
+    // Format 2: Mistral Nemo JSON array - [TOOL_CALLS][{...}, ...]
     try {
-      final list = jsonDecode(jsonStr) as List<dynamic>;
+      final list = jsonDecode(afterMarker) as List<dynamic>;
       for (var i = 0; i < list.length; i++) {
         final call = list[i] as Map<String, dynamic>;
         final name = call['name'] as String?;
@@ -141,19 +181,72 @@ class MagistralHandler extends ChatTemplateHandler {
           );
         }
       }
+      if (toolCalls.isNotEmpty) {
+        return ChatParseResult(
+          content: contentBefore,
+          reasoningContent: thinking.reasoning,
+          toolCalls: toolCalls,
+        );
+      }
     } catch (_) {
-      // If JSON parsing fails, return as content
-      return ChatParseResult(
-        content: trimmed,
-        reasoningContent: thinking.reasoning,
-      );
+      // Not a JSON array, fall through
     }
 
+    // Marker present but could not parse tool calls
     return ChatParseResult(
-      content: '',
+      content: trimmed,
       reasoningContent: thinking.reasoning,
-      toolCalls: toolCalls,
     );
+  }
+
+  /// Extracts a balanced JSON object starting at [offset] in [input].
+  ///
+  /// Counts brace depth while respecting quoted strings so that nested
+  /// objects like `{"a": {"b": 1}}` are extracted correctly.
+  /// Returns the JSON substring, or `null` if no valid object is found.
+  String? _extractJsonObject(String input, int offset) {
+    // Skip whitespace (including newlines/tabs) to find the opening brace
+    var start = offset;
+    while (start < input.length) {
+      final ch = input[start];
+      if (ch != ' ' && ch != '\n' && ch != '\r' && ch != '\t') break;
+      start++;
+    }
+    if (start >= input.length || input[start] != '{') return null;
+
+    var depth = 0;
+    var inString = false;
+    for (var i = start; i < input.length; i++) {
+      final c = input[i];
+
+      if (inString) {
+        if (c == r'\') {
+          i++; // skip escaped character
+        } else if (c == '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      switch (c) {
+        case '"':
+          inString = true;
+        case '{':
+          depth++;
+        case '}':
+          depth--;
+          if (depth == 0) {
+            final json = input.substring(start, i + 1);
+            try {
+              jsonDecode(json); // validate
+              return json;
+            } catch (_) {
+              return null;
+            }
+          }
+      }
+    }
+    return null; // unbalanced braces
   }
 
   @override

@@ -103,7 +103,27 @@ class HermesHandler extends ChatTemplateHandler {
     for (var i = 0; i < matches.length; i++) {
       final match = matches.elementAt(i);
       try {
-        final json = jsonDecode(match.group(1)!) as Map<String, dynamic>;
+        final jsonStr = match.group(1)!.trim();
+
+        // Try parsing as-is first. Only attempt double-brace recovery
+        // if the initial parse fails and the input looks like a Qwen quirk.
+        // This avoids corrupting valid nested JSON like {"a": {"b": 1}}.
+        Map<String, dynamic> json;
+        try {
+          json = jsonDecode(jsonStr) as Map<String, dynamic>;
+        } on FormatException {
+          if (!(jsonStr.startsWith('{{') && jsonStr.endsWith('}}'))) rethrow;
+
+          try {
+            json =
+                jsonDecode(jsonStr.substring(1, jsonStr.length - 1))
+                    as Map<String, dynamic>;
+          } on FormatException {
+            json =
+                jsonDecode(_normalizeDoubleBraces(jsonStr))
+                    as Map<String, dynamic>;
+          }
+        }
         final name = json['name'] as String?;
         final args = json['arguments'];
         if (name != null) {
@@ -157,6 +177,68 @@ class HermesHandler extends ChatTemplateHandler {
         'root ::= "<tool_call>" space tool-choice "</tool_call>" (space "<tool_call>" space tool-choice "</tool_call>")*';
 
     return [root, choiceRule, ...toolRules, _commonGbnfRules()].join('\n');
+  }
+
+  /// Collapses every `{{` → `{` and `}}` → `}` outside quoted strings.
+  ///
+  /// This is a last-resort normalizer for Qwen-style outputs where **all**
+  /// braces are consistently doubled (e.g. `{{"name":"f","arguments":{{"k":"v"}}}}`).
+  /// It is only safe when brace doubling is uniform — mixed payloads (outer
+  /// wrapper doubled, inner objects single) must be handled by the outer-unwrap
+  /// stage before reaching this path.
+  ///
+  /// As a safety gate, the function first verifies that every brace outside
+  /// quoted strings appears as a doubled pair. If any single brace is found,
+  /// the input is returned unchanged to avoid corrupting mixed-style payloads.
+  String _normalizeDoubleBraces(String input) {
+    if (!input.contains('{{') && !input.contains('}}')) return input;
+
+    // Verify all braces outside strings are consistently doubled.
+    var inString = false;
+    for (var i = 0; i < input.length; i++) {
+      final c = input[i];
+      if (c == '"' && (i == 0 || input[i - 1] != r'\')) {
+        inString = !inString;
+        continue;
+      }
+      if (!inString && (c == '{' || c == '}')) {
+        if (i + 1 >= input.length || input[i + 1] != c) {
+          // Single brace found — mixed style, bail out.
+          return input;
+        }
+        i++; // skip the paired brace
+      }
+    }
+
+    // All braces are doubled — collapse them.
+    final buf = StringBuffer();
+    inString = false;
+    for (var i = 0; i < input.length; i++) {
+      final c = input[i];
+
+      if (c == '"' && (i == 0 || input[i - 1] != r'\')) {
+        inString = !inString;
+        buf.write(c);
+        continue;
+      }
+
+      if (!inString && i + 1 < input.length) {
+        final next = input[i + 1];
+        if (c == '{' && next == '{') {
+          buf.write('{');
+          i++;
+          continue;
+        }
+        if (c == '}' && next == '}') {
+          buf.write('}');
+          i++;
+          continue;
+        }
+      }
+
+      buf.write(c);
+    }
+    return buf.toString();
   }
 
   String _sanitizeName(String name) =>
