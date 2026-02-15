@@ -18,6 +18,14 @@ class SettingsService {
 
   Future<ChatSettings> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    final savedContextSize = prefs.getInt(_keyContext);
+    final effectiveContextSize = switch (savedContextSize) {
+      null => 4096,
+      0 => 0,
+      < 512 => 4096,
+      _ => savedContextSize,
+    };
+
     return ChatSettings(
       modelPath: prefs.getString(_keyModelPath),
       mmprojPath: prefs.getString(_keyMmprojPath),
@@ -25,9 +33,7 @@ class SettingsService {
       temperature: prefs.getDouble(_keyTemp) ?? 0.7,
       topK: prefs.getInt(_keyTopK) ?? 40,
       topP: prefs.getDouble(_keyTopP) ?? 0.9,
-      contextSize: (prefs.getInt(_keyContext) ?? 0) < 512
-          ? 4096
-          : prefs.getInt(_keyContext)!,
+      contextSize: effectiveContextSize,
       gpuLayers: prefs.getInt(_keyGpuLayers) ?? 32,
       logLevel: LlamaLogLevel
           .values[prefs.getInt(_keyLogLevel) ?? LlamaLogLevel.none.index],

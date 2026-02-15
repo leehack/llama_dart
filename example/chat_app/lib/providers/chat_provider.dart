@@ -178,7 +178,11 @@ class ChatProvider extends ChangeNotifier {
     try {
       final backendInfo = await _chatService.engine.getBackendName();
       _availableDevices = _parseBackendDevices(backendInfo);
-      _activeBackend = _deriveActiveBackendLabel(backendInfo);
+      _activeBackend = _deriveActiveBackendLabel(
+        backendInfo,
+        preferredBackend: _settings.preferredBackend,
+        gpuLayers: _settings.gpuLayers,
+      );
     } catch (e) {
       debugPrint("Error fetching devices: $e");
     }
@@ -230,12 +234,18 @@ class ChatProvider extends ChangeNotifier {
       // Create chat session
       _session = ChatSession(
         _chatService.engine,
-        maxContextTokens: _settings.contextSize,
+        maxContextTokens: _settings.contextSize > 0
+            ? _settings.contextSize
+            : null,
       );
 
       final rawBackend = await _chatService.engine.getBackendName();
       _availableDevices = _parseBackendDevices(rawBackend);
-      _activeBackend = _deriveActiveBackendLabel(rawBackend);
+      _activeBackend = _deriveActiveBackendLabel(
+        rawBackend,
+        preferredBackend: _settings.preferredBackend,
+        gpuLayers: _settings.gpuLayers,
+      );
 
       _contextLimit = await _chatService.engine.getContextSize();
       _supportsVision = await _chatService.engine.supportsVision;
@@ -535,8 +545,29 @@ class ChatProvider extends ChangeNotifier {
         _containsBackendMarker(backendInfo, GpuBackend.cuda) ||
         _containsBackendMarker(backendInfo, GpuBackend.blas);
 
-    final allowsGpuLayers = _runtimeGpuLayers == null || _runtimeGpuLayers != 0;
-    _runtimeGpuActive = allowsGpuLayers && (gpuActive || likelyGpuBackend);
+    final forcedCpu =
+        _settings.preferredBackend == GpuBackend.cpu ||
+        _settings.gpuLayers == 0;
+    if (forcedCpu) {
+      _runtimeGpuActive = false;
+      return;
+    }
+
+    if (_runtimeGpuLayers != null) {
+      _runtimeGpuActive =
+          _runtimeGpuLayers! > 0 && (gpuActive || likelyGpuBackend);
+      return;
+    }
+
+    if (_settings.preferredBackend != GpuBackend.auto) {
+      _runtimeGpuActive = _containsBackendMarker(
+        backendInfo,
+        _settings.preferredBackend,
+      );
+      return;
+    }
+
+    _runtimeGpuActive = gpuActive || likelyGpuBackend;
   }
 
   /// Execute tool calls and continue the conversation with results.
@@ -861,8 +892,11 @@ class ChatProvider extends ChangeNotifier {
       _updateSettings(_settings.copyWith(topK: value));
   void updateTopP(double value) =>
       _updateSettings(_settings.copyWith(topP: value));
-  void updateContextSize(int value) =>
-      _updateSettings(_settings.copyWith(contextSize: value.clamp(512, 32768)));
+  void updateContextSize(int value) {
+    final effectiveContextSize = value == 0 ? 0 : value.clamp(512, 32768);
+    _updateSettings(_settings.copyWith(contextSize: effectiveContextSize));
+  }
+
   void updateMaxTokens(int value) =>
       _updateSettings(_settings.copyWith(maxTokens: value.clamp(512, 32768)));
   void updateGpuLayers(int value) =>
@@ -997,7 +1031,20 @@ class ChatProvider extends ChangeNotifier {
     return parts;
   }
 
-  String _deriveActiveBackendLabel(String backendInfo) {
+  String _deriveActiveBackendLabel(
+    String backendInfo, {
+    required GpuBackend preferredBackend,
+    required int gpuLayers,
+  }) {
+    if (preferredBackend == GpuBackend.cpu || gpuLayers == 0) {
+      return 'CPU';
+    }
+
+    if (preferredBackend != GpuBackend.auto &&
+        _containsBackendMarker(backendInfo, preferredBackend)) {
+      return preferredBackend.name.toUpperCase();
+    }
+
     final lower = backendInfo.toLowerCase();
     if (lower.contains('webgpu') || lower.contains('wgpu')) {
       return 'WEBGPU';
@@ -1047,13 +1094,7 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> updatePreferredBackend(GpuBackend backend) async {
-    final effectiveGpuLayers = backend == GpuBackend.cpu
-        ? 0
-        : _settings.gpuLayers;
-    _settings = _settings.copyWith(
-      preferredBackend: backend,
-      gpuLayers: effectiveGpuLayers,
-    );
+    _settings = _settings.copyWith(preferredBackend: backend);
     await _settingsService.saveSettings(_settings);
     _messages.add(
       ChatMessage(

@@ -103,14 +103,30 @@ void main() {
       expect(provider.settings.nativeLogLevel, LlamaLogLevel.warn);
     });
 
-    test('switching to CPU backend forces gpu layers to zero', () async {
+    test('updateContextSize supports auto mode', () {
+      provider.updateContextSize(0);
+      expect(provider.settings.contextSize, 0);
+
+      provider.updateContextSize(256);
+      expect(provider.settings.contextSize, 512);
+    });
+
+    test('switching backend preserves configured gpu layers', () async {
       provider.updateGpuLayers(48);
       expect(provider.settings.gpuLayers, 48);
 
       await provider.updatePreferredBackend(GpuBackend.cpu);
 
       expect(provider.settings.preferredBackend, GpuBackend.cpu);
-      expect(provider.settings.gpuLayers, 0);
+      expect(provider.settings.gpuLayers, 48);
+      expect(provider.activeBackend, 'CPU');
+      expect(provider.runtimeGpuActive, isFalse);
+
+      await provider.updatePreferredBackend(GpuBackend.auto);
+
+      expect(provider.settings.preferredBackend, GpuBackend.auto);
+      expect(provider.settings.gpuLayers, 48);
+      expect(provider.activeBackend, 'Mock');
     });
 
     test('applyModelPreset updates generation and tool settings', () {
