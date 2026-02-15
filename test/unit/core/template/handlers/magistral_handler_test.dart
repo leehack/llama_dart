@@ -80,6 +80,44 @@ void main() {
     expect(age['gte'], equals(18));
     expect(filter['active'], isTrue);
   });
+
+  test('parses Ministral [ARGS] tool names containing hyphen', () {
+    final handler = MagistralHandler();
+    final parsed = handler.parse(
+      '[TOOL_CALLS]get-weather[ARGS]{"location":"Seoul"}',
+    );
+
+    expect(parsed.toolCalls, hasLength(1));
+    expect(parsed.toolCalls.first.function?.name, equals('get-weather'));
+    expect(
+      jsonDecode(parsed.toolCalls.first.function!.arguments!),
+      containsPair('location', 'Seoul'),
+    );
+  });
+
+  test('parses Ministral [ARGS] tool names starting with digits', () {
+    final handler = MagistralHandler();
+    final parsed = handler.parse(
+      '[TOOL_CALLS]2fa_lookup[ARGS]{"user":"alice"}',
+    );
+
+    expect(parsed.toolCalls, hasLength(1));
+    expect(parsed.toolCalls.first.function?.name, equals('2fa_lookup'));
+    expect(
+      jsonDecode(parsed.toolCalls.first.function!.arguments!),
+      containsPair('user', 'alice'),
+    );
+  });
+
+  test('keeps content when Ministral [ARGS] JSON is malformed', () {
+    final handler = MagistralHandler();
+    final input = '[TOOL_CALLS]get_weather[ARGS]{"location":"Seoul"';
+
+    final parsed = handler.parse(input);
+
+    expect(parsed.toolCalls, isEmpty);
+    expect(parsed.content, equals(input));
+  });
 }
 
 Future<Object?> _noop(_) async {

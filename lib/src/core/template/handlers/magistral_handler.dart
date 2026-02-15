@@ -129,7 +129,7 @@ class MagistralHandler extends ChatTemplateHandler {
 
     // Format 1: Ministral - function_name[ARGS]{...}
     // [ARGS] is an explicit marker that doesn't appear in natural text.
-    final ministralPattern = RegExp(r'(\w+)\[ARGS\]');
+    final ministralPattern = RegExp(r'([\w-]+)\[ARGS\]');
     if (ministralPattern.hasMatch(afterMarker)) {
       for (final match in ministralPattern.allMatches(afterMarker)) {
         final name = match.group(1)!;
@@ -228,22 +228,27 @@ class MagistralHandler extends ChatTemplateHandler {
         continue;
       }
 
-      switch (c) {
-        case '"':
-          inString = true;
-        case '{':
-          depth++;
-        case '}':
-          depth--;
-          if (depth == 0) {
-            final json = input.substring(start, i + 1);
-            try {
-              jsonDecode(json); // validate
-              return json;
-            } catch (_) {
-              return null;
-            }
+      if (c == '"') {
+        inString = true;
+        continue;
+      }
+
+      if (c == '{') {
+        depth++;
+        continue;
+      }
+
+      if (c == '}') {
+        depth--;
+        if (depth == 0) {
+          final json = input.substring(start, i + 1);
+          try {
+            jsonDecode(json); // validate
+            return json;
+          } catch (_) {
+            return null;
           }
+        }
       }
     }
     return null; // unbalanced braces

@@ -25,12 +25,7 @@ class LlamaCliService {
     // Set log level
     await _engine.setLogLevel(logLevel);
 
-    await _engine.loadModel(
-      modelPath,
-      modelParams: ModelParams(
-        gpuLayers: 99,
-      ),
-    );
+    await _engine.loadModel(modelPath, modelParams: ModelParams(gpuLayers: 99));
 
     // Load LoRAs if any
     for (final lora in loras) {
@@ -55,16 +50,9 @@ class LlamaCliService {
   }
 
   /// Sends a message and returns the full response.
-  Future<String> chat(
-    String text, {
-    GenerationParams? params,
-  }) async {
+  Future<String> chat(String text, {GenerationParams? params}) async {
     return _session
-        .create(
-          [LlamaTextContent(text)],
-          params: params,
-          tools: _tools,
-        )
+        .create([LlamaTextContent(text)], params: params, tools: _tools)
         .map((chunk) => chunk.choices.first.delta.content ?? '')
         .join();
   }
@@ -84,64 +72,177 @@ class LlamaCliService {
     ToolChoice? toolChoice,
   }) async* {
     // First turn: send the user message
-    var parts = <LlamaContentPart>[LlamaTextContent(text)];
+    final userParts = <LlamaContentPart>[LlamaTextContent(text)];
     var isFirstTurn = true;
 
     for (var round = 0; round < _maxToolRounds; round++) {
-      // Stream tokens and collect tool calls in parallel
-      final toolCalls = <LlamaCompletionChunkToolCall>[];
+      // Stream tokens and collect tool call deltas in parallel
+      final toolCallAccumulators = <int, _ToolCallAccumulator>{};
       await for (final chunk in _session.create(
-        isFirstTurn ? parts : [],
+        isFirstTurn ? userParts : const <LlamaContentPart>[],
         params: params,
         tools: _tools,
         toolChoice: isFirstTurn ? toolChoice : null,
       )) {
-        final content = chunk.choices.first.delta.content ?? '';
-        if (content.isNotEmpty) yield content;
-        toolCalls.addAll(chunk.choices.first.delta.toolCalls ?? []);
+        final delta = chunk.choices.first.delta;
+        final content = delta.content ?? '';
+        if (content.isNotEmpty) {
+          yield content;
+        }
+
+        final toolCalls = delta.toolCalls;
+        if (toolCalls == null) {
+          continue;
+        }
+
+        for (final call in toolCalls) {
+          final accumulator = toolCallAccumulators.putIfAbsent(
+            call.index,
+            _ToolCallAccumulator.new,
+          );
+          if (call.id != null) {
+            accumulator.id = call.id;
+          }
+          final function = call.function;
+          if (function?.name != null) {
+            accumulator.name = function!.name;
+          }
+          if (function?.arguments != null) {
+            accumulator.arguments.write(function!.arguments);
+          }
+        }
       }
       isFirstTurn = false;
 
       // No tool calls means generation is complete
-      if (toolCalls.isEmpty || _tools == null || _tools!.isEmpty) {
+      if (toolCallAccumulators.isEmpty || _tools == null || _tools!.isEmpty) {
         return;
       }
 
       // Execute each tool call and add results to the session
-      for (final call in toolCalls) {
-        final functionName = call.function?.name;
-        if (functionName == null) continue;
+      final sortedIndices = toolCallAccumulators.keys.toList()..sort();
+      for (final index in sortedIndices) {
+        final call = toolCallAccumulators[index]!;
+        final functionName = call.name;
+        if (functionName == null || functionName.isEmpty) {
+          const errorResult = 'Error: Tool call missing function name.';
+          yield '\n[tool] unknown_tool(invalid payload)\n';
+          yield '[result] $errorResult\n';
+          _addToolResultMessage(
+            id: call.id,
+            name: 'unknown_tool',
+            result: errorResult,
+          );
+          continue;
+        }
 
-        final tool = _tools!.firstWhere(
-          (t) => t.name == functionName,
-          orElse: () => throw Exception('Tool not found: $functionName'),
-        );
+        final tool = _findToolByName(functionName);
+        if (tool == null) {
+          final errorResult = 'Error: Unknown tool: $functionName';
+          yield '\n[tool] $functionName(unknown tool)\n';
+          yield '[result] $errorResult\n';
+          _addToolResultMessage(
+            id: call.id,
+            name: functionName,
+            result: errorResult,
+          );
+          continue;
+        }
 
-        final argsJson = call.function?.arguments ?? '{}';
-        final args = jsonDecode(argsJson) as Map<String, dynamic>;
+        final argsJson = call.arguments.toString();
+        Map<String, dynamic> args;
+        try {
+          args = _decodeToolArgs(argsJson);
+        } on FormatException catch (e) {
+          final errorResult =
+              'Error: Invalid arguments for $functionName: ${e.message}';
+          yield '\n[tool] $functionName(invalid arguments)\n';
+          yield '[result] $errorResult\n';
+          _addToolResultMessage(
+            id: call.id,
+            name: functionName,
+            result: errorResult,
+          );
+          continue;
+        }
 
-        yield '\n[tool] $functionName(${args.entries.map((e) => '${e.key}: ${e.value}').join(', ')})\n';
-        final result = await tool.invoke(args);
+        yield '\n[tool] $functionName(${_formatToolArgs(args)})\n';
+
+        Object? result;
+        try {
+          result = await tool.invoke(args);
+        } catch (e) {
+          result = 'Error: Tool execution failed for $functionName: $e';
+        }
+
         yield '[result] $result\n';
-
-        _session.addMessage(
-          LlamaChatMessage.withContent(
-            role: LlamaChatRole.tool,
-            content: [
-              LlamaToolResultContent(
-                id: call.id,
-                name: functionName,
-                result: result,
-              ),
-            ],
-          ),
-        );
+        _addToolResultMessage(id: call.id, name: functionName, result: result);
       }
     }
+  }
+
+  ToolDefinition? _findToolByName(String name) {
+    final tools = _tools;
+    if (tools == null) {
+      return null;
+    }
+
+    for (final tool in tools) {
+      if (tool.name == name) {
+        return tool;
+      }
+    }
+    return null;
+  }
+
+  Map<String, dynamic> _decodeToolArgs(String argsJson) {
+    final trimmed = argsJson.trim();
+    if (trimmed.isEmpty) {
+      return <String, dynamic>{};
+    }
+
+    final decoded = jsonDecode(trimmed);
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+    if (decoded is Map) {
+      return decoded.map((key, value) => MapEntry(key.toString(), value));
+    }
+
+    throw const FormatException('arguments must be a JSON object');
+  }
+
+  String _formatToolArgs(Map<String, dynamic> args) {
+    if (args.isEmpty) {
+      return '';
+    }
+
+    return args.entries
+        .map((entry) => '${entry.key}: ${entry.value}')
+        .join(', ');
+  }
+
+  void _addToolResultMessage({
+    required String? id,
+    required String name,
+    required Object? result,
+  }) {
+    _session.addMessage(
+      LlamaChatMessage.withContent(
+        role: LlamaChatRole.tool,
+        content: [LlamaToolResultContent(id: id, name: name, result: result)],
+      ),
+    );
   }
 
   /// Disposes the underlying engine resources.
   Future<void> dispose() async {
     await _engine.dispose();
   }
+}
+
+class _ToolCallAccumulator {
+  String? id;
+  String? name;
+  final StringBuffer arguments = StringBuffer();
 }
