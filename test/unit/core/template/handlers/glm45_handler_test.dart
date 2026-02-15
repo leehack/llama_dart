@@ -8,7 +8,7 @@ import 'package:llamadart/src/core/template/handlers/glm45_handler.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('Glm45Handler renders and parses line+xml tool calls', () {
+  test('Glm45Handler renders and parses glm xml tool calls', () {
     final handler = Glm45Handler();
     final tools = [
       ToolDefinition(
@@ -31,12 +31,17 @@ void main() {
 
     expect(rendered.prompt, endsWith('</think>\n'));
     expect(rendered.additionalStops, contains('<|observation|>'));
+    expect(rendered.additionalStops, contains('<|user|>'));
+    expect(rendered.grammar, isNotNull);
+    expect(rendered.grammarTriggers, isNotEmpty);
 
     final parsed = handler.parse(
       '<think>reasoning</think>\n'
+      '<tool_call>\n'
       'get_weather\n'
-      '<city>"Seoul"</city>\n'
-      '<days>2</days>\n',
+      '<arg_key>city</arg_key><arg_value>"Seoul"</arg_value>\n'
+      '<arg_key>days</arg_key><arg_value>2</arg_value>\n'
+      '</tool_call>',
     );
 
     expect(parsed.reasoningContent, contains('reasoning'));
@@ -45,6 +50,10 @@ void main() {
     expect(
       jsonDecode(parsed.toolCalls.first.function!.arguments!),
       containsPair('city', 'Seoul'),
+    );
+    expect(
+      jsonDecode(parsed.toolCalls.first.function!.arguments!),
+      containsPair('days', 2),
     );
 
     final noToolParse = handler.parse('plain response', parseToolCalls: false);

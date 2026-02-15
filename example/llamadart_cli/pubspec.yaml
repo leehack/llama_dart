@@ -1,0 +1,21 @@
+name: llamadart_cli_example
+description: llama.cpp-style CLI clone powered by llamadart
+publish_to: 'none'
+version: 1.0.0
+
+executables:
+  llamadart-cli: llamadart_cli
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  args: ^2.7.0
+  http: ^1.6.0
+  llamadart:
+    path: ../..
+  path: ^1.9.0
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.26.3

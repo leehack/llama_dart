@@ -2,6 +2,7 @@ import '../grammar/tool_grammar_generator.dart' as grammar;
 import '../llama_logger.dart';
 import '../models/chat/chat_message.dart';
 import '../models/chat/chat_template_result.dart';
+import '../models/chat/content_part.dart';
 import '../models/inference/tool_choice.dart';
 import '../models/tools/tool_definition.dart';
 import 'chat_format.dart';
@@ -345,7 +346,12 @@ class ChatTemplateEngine {
     try {
       // Proactively detect templates that access content as a list
       // (e.g. SmolVLM's `message['content'][0]['type']`)
-      final needsTypedContent = caps.supportsTypedContent;
+      final hasMediaParts = effectiveMessages.any(
+        (message) => message.parts.any(
+          (part) => part is LlamaImageContent || part is LlamaAudioContent,
+        ),
+      );
+      final needsTypedContent = caps.supportsTypedContent && hasMediaParts;
 
       if (needsTypedContent) {
         LlamaLogger.instance.debug(

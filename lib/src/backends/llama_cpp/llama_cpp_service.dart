@@ -269,7 +269,7 @@ class LlamaCppService {
     final vocab = llama_model_get_vocab(model.pointer);
 
     // 1. Reset Context
-    ctx = _resetContext(contextHandle, ctx, model, modelParams);
+    ctx = _resetContext(contextHandle, ctx);
 
     // 2. Prepare Resources
     final nCtx = llama_n_ctx(ctx.pointer);
@@ -341,17 +341,17 @@ class LlamaCppService {
   _LlamaContextWrapper _resetContext(
     int contextHandle,
     _LlamaContextWrapper ctx,
-    _LlamaModelWrapper model,
-    llama_context_params modelParams,
   ) {
     llama_synchronize(ctx.pointer);
-    final newPtr = llama_init_from_model(model.pointer, modelParams);
-    if (newPtr == nullptr) throw Exception("Failed to reset context");
 
-    ctx.dispose();
-    final newCtx = _LlamaContextWrapper(newPtr, model);
-    _contexts[contextHandle] = newCtx;
-    return newCtx;
+    final memory = llama_get_memory(ctx.pointer);
+    if (memory == nullptr) {
+      throw Exception("Failed to reset context memory");
+    }
+
+    llama_memory_clear(memory, true);
+    _contexts[contextHandle] = ctx;
+    return ctx;
   }
 
   /// Helper: Ingests the prompt (text or multimodal) and returns initial token count.

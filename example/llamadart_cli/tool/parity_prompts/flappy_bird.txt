@@ -1,0 +1,7 @@
+Hi
+What is 2+2
+Create a Python Flappy Bird game
+Create a totally different game in Rust
+Find bugs in both
+Make the 1st game I mentioned but in a standalone HTML file
+Find bugs and show the fixed game

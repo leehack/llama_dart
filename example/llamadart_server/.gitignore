@@ -1,0 +1,8 @@
+# Dart/Flutter
+.dart_tool/
+.packages
+.pub/
+pubspec.lock
+
+# Local
+tmp/

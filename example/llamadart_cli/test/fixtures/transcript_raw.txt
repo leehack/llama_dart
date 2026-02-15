@@ -1,0 +1,8 @@
+== llamadart-cli ==
+mode    : interactive
+model   : /tmp/model.gguf
+Loaded model: /tmp/model.gguf
+Downloading... 24.1 MB
+user> Hi
+assistant> Hello there
+assistant> 2 + 2 = 4

@@ -1,0 +1,3 @@
+tags:
+  local-only:
+    skip: "Requires local llama.cpp binaries and model files"

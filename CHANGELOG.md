@@ -16,6 +16,17 @@
 *   **Test coverage**:
     *   Added chat app regression tests for backend switching behavior and context-size auto persistence.
     *   Added regression tests for Hermes wrapped+nested double-brace payloads and Magistral `[ARGS]` with newline/nested arguments.
+*   **Example rename (server)**:
+    *   Renamed `example/api_server` to `example/llamadart_server`.
+    *   Renamed the example package/bin entrypoint to `llamadart_server`.
+    *   Updated llama.cpp tool-call parity defaults/docs to target `example/llamadart_server`.
+*   **GLM 4.5 template parity**:
+    *   Added XML tool-call grammar generation for `<tool_call>` payloads with `<arg_key>/<arg_value>` pairs.
+    *   Added GLM-specific preserved tokens and `<|user|>` stop handling for tool-call flows.
+    *   Updated parser extraction to handle GLM XML tool calls from assistant content and reasoning blocks.
+*   **Template/native runtime fixes**:
+    *   Typed-content template rendering now activates only when messages actually include media parts.
+    *   Native context reset now clears llama memory in-place instead of reinitializing the context.
 
 ## 0.5.3
 

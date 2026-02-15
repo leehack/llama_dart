@@ -10,19 +10,74 @@ import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
 import '../thinking_utils.dart';
+import '../xml_tool_call_format.dart';
 
 /// Handler for GLM 4.5 format.
 ///
 /// Uses `<|observation|>` as a stop token for tool call observation.
-/// Tool call format: `func_name\n<arg_name>arg_value</arg_name>...`
+/// Tool call format:
+/// `<tool_call>func_name<arg_key>key</arg_key><arg_value>value</arg_value></tool_call>`
 ///
 /// Supports `<think>`/`</think>` for reasoning.
 class Glm45Handler extends ChatTemplateHandler {
+  static final RegExp _toolCallBlockPattern = RegExp(
+    r'<tool_call>\s*([a-zA-Z0-9_]+)\s*([\s\S]*?)</tool_call>',
+    caseSensitive: false,
+  );
+  static final RegExp _argPairPattern = RegExp(
+    r'<arg_key>\s*([\s\S]*?)\s*</arg_key>\s*<arg_value>\s*([\s\S]*?)\s*</arg_value>',
+    caseSensitive: false,
+  );
+  static const XmlToolCallFormat _glm45ToolCallFormat = XmlToolCallFormat(
+    scopeStart: '',
+    toolStart: '<tool_call>',
+    toolSep: '\n',
+    keyStart: '<arg_key>',
+    keyValSep: '</arg_key><arg_value>',
+    valEnd: '</arg_value>',
+    toolEnd: '</tool_call>',
+    scopeEnd: '',
+  );
+
   @override
   ChatFormat get format => ChatFormat.glm45;
 
   @override
-  List<String> get additionalStops => ['<|observation|>'];
+  List<String> get additionalStops => ['<|user|>', '<|observation|>'];
+
+  @override
+  List<String> get preservedTokens => const [
+    '<|endoftext|>',
+    '[MASK]',
+    '[gMASK]',
+    '[sMASK]',
+    '<sop>',
+    '<eop>',
+    '<|system|>',
+    '<|user|>',
+    '<|assistant|>',
+    '<|observation|>',
+    '<|begin_of_image|>',
+    '<|end_of_image|>',
+    '<|begin_of_video|>',
+    '<|end_of_video|>',
+    '<|begin_of_audio|>',
+    '<|end_of_audio|>',
+    '<|begin_of_transcription|>',
+    '<|end_of_transcription|>',
+    '<|code_prefix|>',
+    '<|code_middle|>',
+    '<|code_suffix|>',
+    '/nothink',
+    '<think>',
+    '</think>',
+    '<tool_call>',
+    '</tool_call>',
+    '<arg_key>',
+    '</arg_key>',
+    '<arg_value>',
+    '</arg_value>',
+  ];
 
   @override
   LlamaChatTemplateResult render({
@@ -38,9 +93,11 @@ class Glm45Handler extends ChatTemplateHandler {
       'messages': messages.map((m) => m.toJson()).toList(),
       'add_generation_prompt': addAssistant,
       'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '[gMASK]<|sop|>',
+      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '[gMASK]<sop>',
       'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|user|>',
     });
+
+    prompt = _normalizePromptWhitespace(prompt);
 
     // Handle enableThinking post-render logic
     var thinkingForcedOpen = false;
@@ -53,8 +110,7 @@ class Glm45Handler extends ChatTemplateHandler {
     }
 
     final hasTools = tools != null && tools.isNotEmpty;
-    // GLM 4.5 doesn't use a specific trigger token for tools in all cases,
-    // but <|tool_call|> is commonly observed.
+    // GLM 4.5 tool calls are wrapped in <tool_call> XML blocks.
     return LlamaChatTemplateResult(
       prompt: prompt,
       format: format.index,
@@ -65,7 +121,10 @@ class Glm45Handler extends ChatTemplateHandler {
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
-      grammarTriggers: [],
+      preservedTokens: hasTools ? preservedTokens : const [],
+      grammarTriggers: hasTools
+          ? [const GrammarTrigger(type: 0, value: '<tool_call>')]
+          : const [],
     );
   }
 
@@ -89,67 +148,19 @@ class Glm45Handler extends ChatTemplateHandler {
       );
     }
 
-    final toolCalls = <LlamaCompletionChunkToolCall>[];
-    var contentText = text;
+    final extractedFromContent = _extractToolCalls(text);
+    final toolCalls = <LlamaCompletionChunkToolCall>[
+      ...extractedFromContent.toolCalls,
+    ];
+    var contentText = extractedFromContent.remainingContent;
 
-    // Pattern: `func_name\n<arg>val</arg>...`
-    // We look for function names followed by XML parameters
-    // This is tricky because the function name is just a word at the start of line
-
-    // Simple heuristic: if line starts with word chars and next line has XML tag
-    final lines = text.split('\n');
-    for (var i = 0; i < lines.length; i++) {
-      final line = lines[i].trim();
-      if (line.isEmpty) continue;
-
-      // Potential function name?
-      if (RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(line)) {
-        // Check subsequent lines for args
-        var j = i + 1;
-        var argsContent = '';
-        while (j < lines.length) {
-          final nextLine = lines[j].trim();
-          if (nextLine.startsWith('<') && nextLine.endsWith('>')) {
-            argsContent += nextLine;
-            j++;
-          } else {
-            break;
-          }
-        }
-
-        if (argsContent.isNotEmpty) {
-          final args = <String, dynamic>{};
-          final argRegex = RegExp(r'<([^>]+)>([^<]+)</\1>');
-          for (final match in argRegex.allMatches(argsContent)) {
-            final key = match.group(1)!;
-            final val = match.group(2)!;
-            // Try parse JSON, else string
-            try {
-              args[key] = jsonDecode(val);
-            } catch (_) {
-              args[key] = val;
-            }
-          }
-
-          toolCalls.add(
-            LlamaCompletionChunkToolCall(
-              index: toolCalls.length,
-              id: 'call_${toolCalls.length}',
-              type: 'function',
-              function: LlamaCompletionChunkFunction(
-                name: line,
-                arguments: jsonEncode(args),
-              ),
-            ),
-          );
-
-          // Remove parsed text from content
-          // (Simplified removal strategy - might need refinement based on exact layout)
-          contentText = contentText
-              .replaceFirst(line, '')
-              .replaceFirst(argsContent, '');
-          i = j - 1;
-        }
+    final reasoning = thinking.reasoning;
+    if (toolCalls.isEmpty && reasoning != null && reasoning.trim().isNotEmpty) {
+      final extractedFromReasoning = _extractToolCalls(reasoning);
+      toolCalls.addAll(extractedFromReasoning.toolCalls);
+      if (contentText.trim().isEmpty &&
+          extractedFromReasoning.remainingContent.trim().isNotEmpty) {
+        contentText = extractedFromReasoning.remainingContent;
       }
     }
 
@@ -162,6 +173,96 @@ class Glm45Handler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    return buildXmlToolCallGrammar(tools, _glm45ToolCallFormat);
   }
+
+  Object? _decodeArgValue(String value) {
+    if (value.isEmpty) {
+      return '';
+    }
+
+    try {
+      return jsonDecode(value);
+    } catch (_) {
+      return value;
+    }
+  }
+
+  _ExtractedToolCalls _extractToolCalls(String input) {
+    final toolCalls = <LlamaCompletionChunkToolCall>[];
+    var remaining = input;
+
+    final matches = _toolCallBlockPattern.allMatches(input);
+    for (final match in matches) {
+      final toolName = (match.group(1) ?? '').trim();
+      if (toolName.isEmpty) {
+        continue;
+      }
+
+      final args = <String, dynamic>{};
+      final argsBlock = match.group(2) ?? '';
+      for (final argMatch in _argPairPattern.allMatches(argsBlock)) {
+        final key = (argMatch.group(1) ?? '').trim();
+        final rawValue = (argMatch.group(2) ?? '').trim();
+        if (key.isEmpty) {
+          continue;
+        }
+        args[key] = _decodeArgValue(rawValue);
+      }
+
+      final index = toolCalls.length;
+      toolCalls.add(
+        LlamaCompletionChunkToolCall(
+          index: index,
+          id: 'call_$index',
+          type: 'function',
+          function: LlamaCompletionChunkFunction(
+            name: toolName,
+            arguments: jsonEncode(args),
+          ),
+        ),
+      );
+
+      final fullBlock = match.group(0);
+      if (fullBlock != null && fullBlock.isNotEmpty) {
+        remaining = remaining.replaceFirst(fullBlock, '');
+      }
+    }
+
+    return _ExtractedToolCalls(
+      toolCalls: toolCalls,
+      remainingContent: remaining,
+    );
+  }
+
+  String _normalizePromptWhitespace(String input) {
+    var output = input.replaceAll(RegExp(r'^\s+'), '');
+
+    const token =
+        r'(\[gMASK\]|\[MASK\]|\[sMASK\]|<sop>|<eop>|<\|system\|>|<\|user\|>|<\|assistant\|>|<\|observation\|>|<think>|</think>)';
+    final adjacentTokenSpacing = RegExp('$token[ \t\r\n]+$token');
+
+    while (true) {
+      final normalized = output.replaceAllMapped(
+        adjacentTokenSpacing,
+        (match) => '${match.group(1)}${match.group(2)}',
+      );
+      if (normalized == output) {
+        break;
+      }
+      output = normalized;
+    }
+
+    return output;
+  }
+}
+
+class _ExtractedToolCalls {
+  final List<LlamaCompletionChunkToolCall> toolCalls;
+  final String remainingContent;
+
+  const _ExtractedToolCalls({
+    required this.toolCalls,
+    required this.remainingContent,
+  });
 }

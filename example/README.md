@@ -38,6 +38,39 @@ flutter pub get
 flutter run
 ```
 
+### 3. API Server (`llamadart_server/`)
+A Relic-based HTTP server example showing:
+- OpenAI-compatible endpoint surface (`/v1/models`, `/v1/chat/completions`)
+- OpenAPI spec + Swagger UI (`/openapi.json`, `/docs`)
+- SSE streaming responses for chat completions
+- Optional Bearer auth and CORS middleware
+- Model loading via local path or URL download
+
+**Best for:** Local API integration with OpenAI-style clients
+
+**Run:**
+```bash
+cd llamadart_server
+dart pub get
+dart run llamadart_server --model /path/to/model.gguf
+```
+
+### 4. llama.cpp-style CLI (`llamadart_cli/`)
+A compatibility-focused CLI clone showing:
+- llama.cpp-like options (`--model`, `-hf`, `--ctx-size`, `--fit`, `--jinja`)
+- Interactive terminal chat with streaming output
+- Hugging Face shorthand resolution for GGUF files
+- GLM-oriented sampling controls for Unsloth command parity
+
+**Best for:** Running llama.cpp-like local chat flows in pure Dart
+
+**Run:**
+```bash
+cd llamadart_cli
+dart pub get
+dart run bin/llamadart_cli.dart --help
+```
+
 ## Testing
 
 - `basic_app` (Dart console):
@@ -54,12 +87,26 @@ cd chat_app
 flutter test
 ```
 
+- `llamadart_server` (Relic HTTP API):
+
+```bash
+cd llamadart_server
+dart test
+```
+
+- `llamadart_cli` (llama.cpp-style Dart CLI):
+
+```bash
+cd llamadart_cli
+dart test
+```
+
 Note: `chat_app` uses Flutter libraries (`dart:ui`), so `dart test` is not
 the correct runner for that example.
 
 ## Quick Start
 
-1. **Choose an example**: Basic (console) or Chat (Flutter)
+1. **Choose an example**: Basic (console), Chat (Flutter), API Server (Relic), or llama.cpp-style CLI clone (Dart)
 2. **Download a model** (see each example's README)
 3. **Run the example**: Follow instructions in each subdirectory
 
@@ -88,6 +135,16 @@ llamadart supports GGUF format models (converted for llama.cpp).
 example/
 ├── basic_app/          # Console application
 │   ├── lib/            # Dart code
+│   ├── pubspec.yaml    # Dependencies
+│   └── README.md       # Instructions
+├── llamadart_server/   # OpenAI-compatible API server
+│   ├── bin/            # Server entrypoint
+│   ├── lib/            # Request/response mapping + middleware
+│   ├── pubspec.yaml    # Dependencies
+│   └── README.md       # Instructions
+├── llamadart_cli/      # llama.cpp-style Dart CLI clone
+│   ├── bin/            # CLI entrypoint
+│   ├── lib/            # Parser + model resolver + chat runner
 │   ├── pubspec.yaml    # Dependencies
 │   └── README.md       # Instructions
 └── chat_app/           # Flutter application
