@@ -1047,7 +1047,13 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> updatePreferredBackend(GpuBackend backend) async {
-    _settings = _settings.copyWith(preferredBackend: backend);
+    final effectiveGpuLayers = backend == GpuBackend.cpu
+        ? 0
+        : _settings.gpuLayers;
+    _settings = _settings.copyWith(
+      preferredBackend: backend,
+      gpuLayers: effectiveGpuLayers,
+    );
     await _settingsService.saveSettings(_settings);
     _messages.add(
       ChatMessage(
