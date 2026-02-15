@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 
 import '../../core/models/chat/content_part.dart';
+import '../../core/models/config/gpu_backend.dart';
 import '../../core/models/config/log_level.dart';
 import '../../core/models/inference/generation_params.dart';
 import '../../core/models/inference/model_params.dart';
@@ -34,6 +35,15 @@ class LlamaCppService {
 
   int _getHandle() => _nextHandle++;
 
+  /// Resolves the effective GPU layer count for model loading.
+  ///
+  /// CPU backend preference always forces zero offloaded layers.
+  static int resolveGpuLayersForLoad(ModelParams modelParams) {
+    return modelParams.preferredBackend == GpuBackend.cpu
+        ? 0
+        : modelParams.gpuLayers;
+  }
+
   // --- Core Methods ---
 
   /// Sets the log level for the Llama.cpp library.
@@ -59,11 +69,24 @@ class LlamaCppService {
     }
     final modelPathPtr = modelPath.toNativeUtf8();
     final mparams = llama_model_default_params();
-    mparams.n_gpu_layers = modelParams.gpuLayers;
+    final preferredDevices = _createPreferredDeviceList(
+      modelParams.preferredBackend,
+    );
+    mparams.n_gpu_layers = resolveGpuLayersForLoad(modelParams);
     mparams.use_mmap = true;
+    if (preferredDevices != null) {
+      mparams.devices = preferredDevices;
+    }
 
-    final modelPtr = llama_model_load_from_file(modelPathPtr.cast(), mparams);
-    malloc.free(modelPathPtr);
+    Pointer<llama_model> modelPtr = nullptr;
+    try {
+      modelPtr = llama_model_load_from_file(modelPathPtr.cast(), mparams);
+    } finally {
+      malloc.free(modelPathPtr);
+      if (preferredDevices != null) {
+        malloc.free(preferredDevices);
+      }
+    }
 
     if (modelPtr == nullptr) {
       throw Exception("Failed to load model");
@@ -74,6 +97,74 @@ class LlamaCppService {
     _loraAdapters[handle] = {};
 
     return handle;
+  }
+
+  Pointer<ggml_backend_dev_t>? _createPreferredDeviceList(GpuBackend backend) {
+    final devices = _resolvePreferredDevices(backend);
+    if (devices == null || devices.isEmpty) {
+      return null;
+    }
+
+    final ptr = malloc<ggml_backend_dev_t>(devices.length + 1);
+    for (var i = 0; i < devices.length; i++) {
+      ptr[i] = devices[i];
+    }
+    ptr[devices.length] = nullptr;
+    return ptr;
+  }
+
+  List<ggml_backend_dev_t>? _resolvePreferredDevices(GpuBackend backend) {
+    switch (backend) {
+      case GpuBackend.auto:
+        return null;
+      case GpuBackend.cpu:
+        final cpuDev = ggml_backend_dev_by_type(
+          ggml_backend_dev_type.GGML_BACKEND_DEVICE_TYPE_CPU,
+        );
+        if (cpuDev == nullptr) {
+          return null;
+        }
+        return [cpuDev];
+      case GpuBackend.vulkan:
+        return _devicesForBackendRegName('Vulkan');
+      case GpuBackend.metal:
+        return _devicesForBackendRegName('Metal');
+      case GpuBackend.cuda:
+        return _devicesForBackendRegName('CUDA');
+      case GpuBackend.blas:
+        return _devicesForBackendRegName('BLAS');
+    }
+  }
+
+  List<ggml_backend_dev_t>? _devicesForBackendRegName(String regName) {
+    final regNamePtr = regName.toNativeUtf8();
+    try {
+      final reg = ggml_backend_reg_by_name(regNamePtr.cast());
+      if (reg == nullptr) {
+        return null;
+      }
+
+      final count = ggml_backend_reg_dev_count(reg);
+      if (count <= 0) {
+        return null;
+      }
+
+      final devices = <ggml_backend_dev_t>[];
+      for (var i = 0; i < count; i++) {
+        final dev = ggml_backend_reg_dev_get(reg, i);
+        if (dev != nullptr) {
+          devices.add(dev);
+        }
+      }
+
+      if (devices.isEmpty) {
+        return null;
+      }
+
+      return devices;
+    } finally {
+      malloc.free(regNamePtr);
+    }
   }
 
   /// Frees the model associated with [modelHandle].

@@ -103,6 +103,16 @@ void main() {
       expect(provider.settings.nativeLogLevel, LlamaLogLevel.warn);
     });
 
+    test('switching to CPU backend forces gpu layers to zero', () async {
+      provider.updateGpuLayers(48);
+      expect(provider.settings.gpuLayers, 48);
+
+      await provider.updatePreferredBackend(GpuBackend.cpu);
+
+      expect(provider.settings.preferredBackend, GpuBackend.cpu);
+      expect(provider.settings.gpuLayers, 0);
+    });
+
     test('applyModelPreset updates generation and tool settings', () {
       const model = DownloadableModel(
         name: 'Preset model',
