@@ -51,6 +51,38 @@ void main() {
     );
     expect(parsed.content, equals('tail'));
   });
+
+  test('parses wrapped double-brace with nested args via outer unwrap', () {
+    // Qwen-style outer-doubled braces wrapping normal nested JSON.
+    // Stage 2 (outer unwrap) should handle this without corrupting inner objects.
+    final handler = HermesHandler();
+    final input =
+        '<tool_call>{{"name":"f","arguments":{"user":{"id":1}}}}</tool_call>';
+    final parsed = handler.parse(input);
+
+    expect(parsed.toolCalls, hasLength(1));
+    expect(parsed.toolCalls.first.function?.name, equals('f'));
+    final args =
+        jsonDecode(parsed.toolCalls.first.function!.arguments!)
+            as Map<String, dynamic>;
+    final user = args['user'] as Map<String, dynamic>;
+    expect(user['id'], equals(1));
+  });
+
+  test('parses fully doubled braces via _normalizeDoubleBraces fallback', () {
+    // All braces consistently doubled — stage 3 (full normalization) kicks in.
+    final handler = HermesHandler();
+    final input =
+        '<tool_call>{{"name":"g","arguments":{{"location":"Seoul"}}}}</tool_call>';
+    final parsed = handler.parse(input);
+
+    expect(parsed.toolCalls, hasLength(1));
+    expect(parsed.toolCalls.first.function?.name, equals('g'));
+    expect(
+      jsonDecode(parsed.toolCalls.first.function!.arguments!),
+      containsPair('location', 'Seoul'),
+    );
+  });
 }
 
 Future<Object?> _noop(_) async {

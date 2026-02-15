@@ -47,6 +47,39 @@ void main() {
       containsPair('query', 'llama'),
     );
   });
+
+  test('parses Ministral [ARGS] with newline before JSON object', () {
+    // Some models output a newline/tab between [ARGS] and the opening brace.
+    final handler = MagistralHandler();
+    final parsed = handler.parse(
+      '[TOOL_CALLS]get_weather[ARGS]\n{"location":"Seoul"}',
+    );
+
+    expect(parsed.toolCalls, hasLength(1));
+    expect(parsed.toolCalls.first.function?.name, equals('get_weather'));
+    expect(
+      jsonDecode(parsed.toolCalls.first.function!.arguments!),
+      containsPair('location', 'Seoul'),
+    );
+  });
+
+  test('parses Ministral [ARGS] with nested arguments', () {
+    // Balanced brace parser must handle nested objects correctly.
+    final handler = MagistralHandler();
+    final parsed = handler.parse(
+      '[TOOL_CALLS]query_user[ARGS]{"filter":{"age":{"gte":18},"active":true}}',
+    );
+
+    expect(parsed.toolCalls, hasLength(1));
+    expect(parsed.toolCalls.first.function?.name, equals('query_user'));
+    final args =
+        jsonDecode(parsed.toolCalls.first.function!.arguments!)
+            as Map<String, dynamic>;
+    final filter = args['filter'] as Map<String, dynamic>;
+    final age = filter['age'] as Map<String, dynamic>;
+    expect(age['gte'], equals(18));
+    expect(filter['active'], isTrue);
+  });
 }
 
 Future<Object?> _noop(_) async {

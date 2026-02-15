@@ -5,8 +5,17 @@
     *   Runtime backend labeling and GPU activity diagnostics now follow effective user selection, preventing false "VULKAN active" status when CPU mode is selected.
 *   **Context size auto mode**:
     *   Restored support for `Context Size: Auto` by preserving `0` in persisted settings and passing auto behavior through to session context-limit resolution.
+*   **Tool-call parsing fixes (Hermes)**:
+    *   Introduced staged double-brace recovery: parse as-is first, unwrap one outer `{{...}}` layer second, and only fall back to full `_normalizeDoubleBraces` when all braces are consistently doubled.
+    *   Added a consistency gate to `_normalizeDoubleBraces` that bails out on mixed single/double brace payloads to prevent corruption of valid nested JSON.
+*   **Tool-call parsing fixes (Magistral)**:
+    *   Broadened whitespace skipping in `_extractJsonObject` to handle `\n`, `\r`, and `\t` between `[ARGS]` and the JSON body.
+*   **Example app (basic\_app)**:
+    *   Replaced `toList()` buffering with `await for` streaming for real-time token yield.
+    *   Added `tools` parameter to every follow-up `create()` call and bounded tool-execution loop with `_maxToolRounds = 10`.
 *   **Test coverage**:
     *   Added chat app regression tests for backend switching behavior and context-size auto persistence.
+    *   Added regression tests for Hermes wrapped+nested double-brace payloads and Magistral `[ARGS]` with newline/nested arguments.
 
 ## 0.5.3
 
