@@ -33,7 +33,12 @@ void main() {
 
     expect(rendered.prompt, contains('<BOS>sys|hello'));
     expect(rendered.prompt, endsWith('</think>\n'));
+    expect(rendered.grammar, contains(r'<｜tool\\_calls\\_begin｜>'));
     expect(rendered.grammarTriggers, isNotEmpty);
+    expect(
+      rendered.grammarTriggers.first.value,
+      contains(r'<｜tool\\_calls\\_begin｜>'),
+    );
 
     final parsed = handler.parse(
       '<think>reasoning</think>'

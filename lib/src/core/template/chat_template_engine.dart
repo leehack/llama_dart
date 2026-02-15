@@ -88,6 +88,20 @@ class ChatTemplateEngine {
   /// Singleton handler instances, lazily initialized.
   static final Map<ChatFormat, ChatTemplateHandler> _handlers = {};
 
+  static const Set<ChatFormat> _schemaDisabledFormats = {
+    ChatFormat.deepseekV3,
+    ChatFormat.deepseekR1,
+    ChatFormat.commandR7B,
+    ChatFormat.glm45,
+    ChatFormat.hermes,
+  };
+
+  static const Set<ChatFormat> _requiredKeepsLazyFormats = {
+    ChatFormat.apertus,
+    ChatFormat.nemotronV2,
+    ChatFormat.lfm2,
+  };
+
   /// Custom handlers registered by user code.
   static final Map<String, _RegisteredHandler> _customHandlers = {};
 
@@ -255,6 +269,7 @@ class ChatTemplateEngine {
 
     final selectedHandlerId = customHandler?.id;
     final selectedHandler = customHandler?.handler;
+    final hasSchemaResponseFormat = _hasSchemaResponseFormat(responseFormat);
 
     ChatFormat effectiveFormat;
     if (selectedHandler != null) {
@@ -269,12 +284,24 @@ class ChatTemplateEngine {
         'ChatTemplateEngine: Detected format=$format from template',
       );
 
-      // Use the generic handler with ChatML fallback for contentOnly
-      // or when no template is available.
-      effectiveFormat =
-          (format == ChatFormat.contentOnly && effectiveTemplate == null)
-          ? ChatFormat.generic
-          : format;
+      // Match llama.cpp schema-aware routing: tools + schema falls back to
+      // generic routing, and some format handlers are disabled with schema.
+      if (hasTools && hasSchemaResponseFormat) {
+        effectiveFormat = ChatFormat.generic;
+      } else if (hasSchemaResponseFormat &&
+          _schemaDisabledFormats.contains(format)) {
+        effectiveFormat = hasTools
+            ? ChatFormat.generic
+            : ChatFormat.contentOnly;
+      } else {
+        effectiveFormat = format;
+      }
+
+      // Use generic handler fallback only when there is no template at all.
+      if (effectiveFormat == ChatFormat.contentOnly &&
+          effectiveTemplate == null) {
+        effectiveFormat = ChatFormat.generic;
+      }
     }
 
     final handler = selectedHandler ?? handlerFor(effectiveFormat);
@@ -325,26 +352,31 @@ class ChatTemplateEngine {
           'ChatTemplateEngine: Using multimodal content format '
           'for template that accesses content as list',
         );
-        return _applyGrammar(
-          _withHandlerId(
-            handler.renderWithMultimodalContent(
-              templateSource:
-                  effectiveTemplate ?? GenericHandler.chatMlTemplate,
-              messages: effectiveMessages,
-              metadata: metadata,
-              addAssistant: addAssistant,
-              tools: tools,
-              enableThinking: enableThinking,
-            ),
-            selectedHandlerId,
+        var rendered = _withHandlerId(
+          handler.renderWithMultimodalContent(
+            templateSource: effectiveTemplate ?? GenericHandler.chatMlTemplate,
+            messages: effectiveMessages,
+            metadata: metadata,
+            addAssistant: addAssistant,
+            tools: tools,
+            enableThinking: enableThinking,
           ),
+          selectedHandlerId,
+        );
+        if (effectiveFormat == ChatFormat.contentOnly) {
+          rendered = _withFormat(rendered, ChatFormat.contentOnly.index);
+        }
+
+        final withGrammar = _applyGrammar(
+          rendered,
           tools,
           toolChoice,
           responseFormat,
         );
+        return _normalizeGrammarLazyForToolChoice(withGrammar, toolChoice);
       }
 
-      final baseResult = _withHandlerId(
+      var baseResult = _withHandlerId(
         handler.render(
           templateSource: effectiveTemplate ?? GenericHandler.chatMlTemplate,
           messages: effectiveMessages,
@@ -356,8 +388,18 @@ class ChatTemplateEngine {
         selectedHandlerId,
       );
 
+      if (effectiveFormat == ChatFormat.contentOnly) {
+        baseResult = _withFormat(baseResult, ChatFormat.contentOnly.index);
+      }
+
       // Apply grammar constraints for tool calls or response format
-      return _applyGrammar(baseResult, tools, toolChoice, responseFormat);
+      final withGrammar = _applyGrammar(
+        baseResult,
+        tools,
+        toolChoice,
+        responseFormat,
+      );
+      return _normalizeGrammarLazyForToolChoice(withGrammar, toolChoice);
     } catch (e) {
       LlamaLogger.instance.warning(
         'ChatTemplateEngine: Handler $effectiveFormat failed: $e, '
@@ -367,7 +409,7 @@ class ChatTemplateEngine {
       // Fall back to generic handler with ChatML template
       final fallback = handlerFor(ChatFormat.generic);
       try {
-        return _applyGrammar(
+        final fallbackResult = _applyGrammar(
           _withHandlerId(
             fallback.render(
               templateSource: GenericHandler.chatMlTemplate,
@@ -383,6 +425,7 @@ class ChatTemplateEngine {
           toolChoice,
           responseFormat,
         );
+        return _normalizeGrammarLazyForToolChoice(fallbackResult, toolChoice);
       } catch (e2) {
         LlamaLogger.instance.warning(
           'ChatTemplateEngine: Generic fallback also failed: $e2, '
@@ -495,6 +538,39 @@ class ChatTemplateEngine {
     return result;
   }
 
+  static LlamaChatTemplateResult _normalizeGrammarLazyForToolChoice(
+    LlamaChatTemplateResult result,
+    ToolChoice toolChoice,
+  ) {
+    if (toolChoice != ToolChoice.required || !result.grammarLazy) {
+      return result;
+    }
+    if (result.grammar == null || result.grammar!.isEmpty) {
+      return result;
+    }
+
+    final resultFormat = result.format < ChatFormat.values.length
+        ? ChatFormat.values[result.format]
+        : ChatFormat.generic;
+    if (_requiredKeepsLazyFormats.contains(resultFormat)) {
+      return result;
+    }
+
+    return LlamaChatTemplateResult(
+      prompt: result.prompt,
+      format: result.format,
+      grammar: result.grammar,
+      grammarLazy: false,
+      additionalStops: result.additionalStops,
+      preservedTokens: result.preservedTokens,
+      grammarTriggers: result.grammarTriggers,
+      thinkingForcedOpen: result.thinkingForcedOpen,
+      parser: result.parser,
+      tokenCount: result.tokenCount,
+      handlerId: result.handlerId,
+    );
+  }
+
   /// Parses raw LLM output using the format's handler.
   ///
   /// The [formatIndex] should come from [LlamaChatTemplateResult.format].
@@ -554,6 +630,7 @@ class ChatTemplateEngine {
       case ChatFormat.hermes:
         return HermesHandler();
       case ChatFormat.llama3:
+      case ChatFormat.llama3BuiltinTools:
         return Llama3Handler();
       case ChatFormat.firefunctionV2:
         return FirefunctionV2Handler();
@@ -605,10 +682,23 @@ class ChatTemplateEngine {
         return ExaoneMoeHandler();
       case ChatFormat.translateGemma:
         return TranslateGemmaHandler();
+      case ChatFormat.pegSimple:
+      case ChatFormat.pegNative:
+      case ChatFormat.pegConstructed:
+        return GenericHandler();
       case ChatFormat.generic:
       case ChatFormat.contentOnly:
         return GenericHandler();
     }
+  }
+
+  static bool _hasSchemaResponseFormat(Map<String, dynamic>? responseFormat) {
+    if (responseFormat == null) {
+      return false;
+    }
+
+    final type = responseFormat['type'] as String?;
+    return type == 'json_schema' || type == 'json_object';
   }
 
   static LlamaChatTemplateResult _withHandlerId(
@@ -631,6 +721,29 @@ class ChatTemplateEngine {
       parser: result.parser,
       tokenCount: result.tokenCount,
       handlerId: handlerId,
+    );
+  }
+
+  static LlamaChatTemplateResult _withFormat(
+    LlamaChatTemplateResult result,
+    int format,
+  ) {
+    if (result.format == format) {
+      return result;
+    }
+
+    return LlamaChatTemplateResult(
+      prompt: result.prompt,
+      format: format,
+      grammar: result.grammar,
+      grammarLazy: result.grammarLazy,
+      thinkingForcedOpen: result.thinkingForcedOpen,
+      additionalStops: result.additionalStops,
+      preservedTokens: result.preservedTokens,
+      grammarTriggers: result.grammarTriggers,
+      parser: result.parser,
+      tokenCount: result.tokenCount,
+      handlerId: result.handlerId,
     );
   }
 

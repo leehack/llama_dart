@@ -30,10 +30,10 @@ void main() {
     expect(rendered.grammarTriggers, isNotEmpty);
 
     final parsed = handler.parse(
-      '<minimax:tool_call>'
-      '<invoke name="get_weather">'
-      '<parameter name="city">"Seoul"</parameter>'
-      '</invoke>'
+      '<minimax:tool_call>\n'
+      '<invoke name="get_weather">\n'
+      '<parameter name="city">"Seoul"</parameter>\n'
+      '</invoke>\n'
       '</minimax:tool_call>'
       'tail',
     );

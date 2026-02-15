@@ -4,7 +4,7 @@ class LlamaChatTemplateResult {
   final String prompt;
 
   /// The detected chat format code (corresponds to common_chat_format enum).
-  /// Defaults to 0 (generic format) if not specified.
+  /// Defaults to 0 (content-only format) if not specified.
   final int format;
 
   /// GBNF grammar string for constraining model output (e.g., for tool calls).

@@ -27,6 +27,18 @@ class SeedOssHandler extends ChatTemplateHandler {
   List<String> get additionalStops => [];
 
   @override
+  List<String> get preservedTokens => const [
+    '<seed:think>',
+    '</seed:think>',
+    '<seed:tool_call>',
+    '</seed:tool_call>',
+    '<function=',
+    '</function>',
+    '<parameter=',
+    '</parameter>',
+  ];
+
+  @override
   LlamaChatTemplateResult render({
     required String templateSource,
     required List<LlamaChatMessage> messages,
@@ -64,8 +76,9 @@ class SeedOssHandler extends ChatTemplateHandler {
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
+      preservedTokens: hasTools ? preservedTokens : const [],
       grammarTriggers: hasTools
-          ? [const GrammarTrigger(type: 0, value: '<seed:tool_call>')]
+          ? [const GrammarTrigger(type: 0, value: '<seed:tool_call><function=')]
           : [],
     );
   }
@@ -106,6 +119,6 @@ class SeedOssHandler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    return buildXmlToolCallGrammar(tools, XmlToolCallFormat.seedOss);
   }
 }

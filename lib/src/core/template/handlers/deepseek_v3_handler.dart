@@ -21,7 +21,18 @@ class DeepseekV3Handler extends ChatTemplateHandler {
   ChatFormat get format => ChatFormat.deepseekV3;
 
   @override
-  List<String> get additionalStops => ['<|end_of_sentence|>'];
+  List<String> get additionalStops => ['<｜end▁of▁sentence｜>'];
+
+  @override
+  List<String> get preservedTokens => const [
+    '<think>',
+    '</think>',
+    '<｜tool▁calls▁begin｜>',
+    '<｜tool▁call▁begin｜>',
+    '<｜tool▁sep｜>',
+    '<｜tool▁call▁end｜>',
+    '<｜tool▁calls▁end｜>',
+  ];
 
   @override
   LlamaChatTemplateResult render({
@@ -65,6 +76,9 @@ class DeepseekV3Handler extends ChatTemplateHandler {
     }
 
     final hasTools = tools != null && tools.isNotEmpty;
+    final triggerPattern = thinkingForcedOpen
+        ? r'[\s\S]*?(</think>\s*)(<｜tool▁calls▁begin｜>|<｜tool_calls_begin｜>|<｜tool calls begin｜>|<｜tool\\_calls\\_begin｜>|<｜tool▁calls｜>)[\s\S]*'
+        : r'(?:<think>[\s\S]*?</think>\s*)?(<｜tool▁calls▁begin｜>|<｜tool_calls_begin｜>|<｜tool calls begin｜>|<｜tool\\_calls\\_begin｜>|<｜tool▁calls｜>)[\s\S]*';
     return LlamaChatTemplateResult(
       prompt: prompt,
       format: format.index,
@@ -75,8 +89,9 @@ class DeepseekV3Handler extends ChatTemplateHandler {
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
+      preservedTokens: hasTools ? preservedTokens : const [],
       grammarTriggers: hasTools
-          ? [const GrammarTrigger(type: 0, value: '<tool_call>')]
+          ? [GrammarTrigger(type: 3, value: triggerPattern)]
           : [],
     );
   }
@@ -102,21 +117,35 @@ class DeepseekV3Handler extends ChatTemplateHandler {
     }
 
     final toolCalls = <LlamaCompletionChunkToolCall>[];
-    final toolCallRegex = RegExp(
-      r'<tool_call>\s*(.*?)\s*</tool_call>',
+    var contentText = text;
+
+    final toolsBlockRegex = RegExp(
+      r'(<｜tool▁calls▁begin｜>|<｜tool_calls_begin｜>|<｜tool calls begin｜>|<｜tool\\_calls\\_begin｜>|<｜tool▁calls｜>)([\s\S]*?)<｜tool▁calls▁end｜>',
       dotAll: true,
     );
+    final blockMatch = toolsBlockRegex.firstMatch(text);
+    if (blockMatch != null) {
+      contentText = text.substring(0, blockMatch.start).trim();
 
-    var contentText = text;
-    final matches = toolCallRegex.allMatches(text);
+      final singleCallRegex = RegExp(
+        r'<｜tool▁call▁begin｜>(.*?)<｜tool▁call▁end｜>',
+        dotAll: true,
+      );
+      final callMatches = singleCallRegex.allMatches(blockMatch.group(2)!);
+      for (var i = 0; i < callMatches.length; i++) {
+        final callContent = callMatches.elementAt(i).group(1)!.trim();
+        final sepIdx = callContent.indexOf('<｜tool▁sep｜>');
+        if (sepIdx == -1) {
+          continue;
+        }
 
-    for (var i = 0; i < matches.length; i++) {
-      final match = matches.elementAt(i);
-      try {
-        final json = jsonDecode(match.group(1)!) as Map<String, dynamic>;
-        final name = json['name'] as String?;
-        final args = json['arguments'];
-        if (name != null) {
+        final name = callContent.substring(0, sepIdx).trim();
+        final argsStr = callContent
+            .substring(sepIdx + '<｜tool▁sep｜>'.length)
+            .trim();
+
+        try {
+          final args = jsonDecode(argsStr);
           toolCalls.add(
             LlamaCompletionChunkToolCall(
               index: i,
@@ -124,13 +153,57 @@ class DeepseekV3Handler extends ChatTemplateHandler {
               type: 'function',
               function: LlamaCompletionChunkFunction(
                 name: name,
-                arguments: args is String ? args : jsonEncode(args ?? {}),
+                arguments: args is String ? args : jsonEncode(args),
               ),
             ),
           );
+        } catch (_) {
+          // Ignore malformed tool calls.
         }
-      } catch (_) {}
-      contentText = contentText.replaceAll(match.group(0)!, '');
+      }
+    } else {
+      final legacyToolCallRegex = RegExp(
+        r'<tool_call>(.*?)</tool_call>',
+        dotAll: true,
+      );
+      final legacyMatches = legacyToolCallRegex
+          .allMatches(text)
+          .toList(growable: false);
+      if (legacyMatches.isNotEmpty) {
+        contentText = text.substring(0, legacyMatches.first.start).trim();
+      }
+      for (var i = 0; i < legacyMatches.length; i++) {
+        final rawJson = legacyMatches[i].group(1)?.trim();
+        if (rawJson == null || rawJson.isEmpty) {
+          continue;
+        }
+        try {
+          final decoded = jsonDecode(rawJson);
+          if (decoded is! Map<String, dynamic>) {
+            continue;
+          }
+          final name = decoded['name'];
+          final arguments = decoded['arguments'];
+          if (name is! String || name.isEmpty) {
+            continue;
+          }
+          toolCalls.add(
+            LlamaCompletionChunkToolCall(
+              index: i,
+              id: 'call_$i',
+              type: 'function',
+              function: LlamaCompletionChunkFunction(
+                name: name,
+                arguments: arguments is String
+                    ? arguments
+                    : jsonEncode(arguments),
+              ),
+            ),
+          );
+        } catch (_) {
+          // Ignore malformed tool calls.
+        }
+      }
     }
 
     return ChatParseResult(
@@ -142,6 +215,43 @@ class DeepseekV3Handler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    if (tools == null || tools.isEmpty) {
+      return null;
+    }
+
+    final toolNames = tools
+        .map((tool) => _literal(tool.name))
+        .toSet()
+        .toList(growable: false);
+    final toolNameRule = toolNames.join(' | ');
+
+    return '''
+root ::= ( "</think>" space )? tool-calls
+tool-calls ::= ( "<｜tool▁calls▁begin｜>" | "<｜tool_calls_begin｜>" | "<｜tool calls begin｜>" | "<｜tool\\\\_calls\\\\_begin｜>" | "<｜tool▁calls｜>" ) space tool-call+ "<｜tool▁calls▁end｜>" space
+tool-call ::= ( "<｜tool▁call▁begin｜>" )? tool-name "<｜tool▁sep｜>" obj "<｜tool▁call▁end｜>" space
+tool-name ::= $toolNameRule
+${_commonGbnfRules()}
+''';
+  }
+
+  String _literal(String value) {
+    final escaped = value
+        .replaceAll('\\', r'\\')
+        .replaceAll('"', r'\"')
+        .replaceAll('\n', r'\n')
+        .replaceAll('\r', r'\r');
+    return '"$escaped"';
+  }
+
+  String _commonGbnfRules() {
+    return r'''
+space ::= " "?
+string ::= "\"" ([^"\\] | "\\\\" .)* "\""
+number ::= "-"? ([0-9] | [1-9] [0-9]*) ("." [0-9]+)? ([eE] [-+]? [0-9]+)?
+boolean ::= "true" | "false"
+null ::= "null"
+value ::= string | number | boolean | null | arr | obj
+arr ::= "[" space (value ("," space value)*)? space "]"
+obj ::= "{" space (string ":" space value ("," space string ":" space value)*)? space "}"''';
   }
 }

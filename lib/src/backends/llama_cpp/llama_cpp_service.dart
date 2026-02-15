@@ -187,10 +187,14 @@ class LlamaCppService {
     final pieceBuf = malloc<Uint8>(256);
     Pointer<Utf8> grammarPtr = nullptr;
     Pointer<Utf8> rootPtr = nullptr;
+    _LazyGrammarConfig? lazyGrammarConfig;
 
     if (params.grammar != null) {
       grammarPtr = params.grammar!.toNativeUtf8();
       rootPtr = params.grammarRoot.toNativeUtf8();
+      if (params.grammarLazy && params.grammarTriggers.isNotEmpty) {
+        lazyGrammarConfig = _buildLazyGrammarConfig(params);
+      }
     }
 
     try {
@@ -214,6 +218,7 @@ class LlamaCppService {
         vocab,
         grammarPtr,
         rootPtr,
+        lazyGrammarConfig,
         initialTokens,
         tokensPtr,
       );
@@ -237,6 +242,7 @@ class LlamaCppService {
       malloc.free(pieceBuf);
       if (grammarPtr != nullptr) malloc.free(grammarPtr);
       if (rootPtr != nullptr) malloc.free(rootPtr);
+      lazyGrammarConfig?.dispose();
     }
   }
 
@@ -519,6 +525,7 @@ class LlamaCppService {
     Pointer<llama_vocab> vocab,
     Pointer<Utf8> grammarPtr,
     Pointer<Utf8> rootPtr,
+    _LazyGrammarConfig? lazyGrammarConfig,
     int initialTokens,
     Pointer<Int32> tokensPtr,
   ) {
@@ -532,10 +539,25 @@ class LlamaCppService {
     );
 
     if (grammarPtr != nullptr) {
-      llama_sampler_chain_add(
-        sampler,
-        llama_sampler_init_grammar(vocab, grammarPtr.cast(), rootPtr.cast()),
-      );
+      if (params.grammarLazy && lazyGrammarConfig != null) {
+        llama_sampler_chain_add(
+          sampler,
+          llama_sampler_init_grammar_lazy_patterns(
+            vocab,
+            grammarPtr.cast(),
+            rootPtr.cast(),
+            lazyGrammarConfig.triggerPatterns,
+            lazyGrammarConfig.numTriggerPatterns,
+            lazyGrammarConfig.triggerTokens,
+            lazyGrammarConfig.numTriggerTokens,
+          ),
+        );
+      } else {
+        llama_sampler_chain_add(
+          sampler,
+          llama_sampler_init_grammar(vocab, grammarPtr.cast(), rootPtr.cast()),
+        );
+      }
     }
 
     llama_sampler_chain_add(sampler, llama_sampler_init_top_k(params.topK));
@@ -619,6 +641,84 @@ class LlamaCppService {
 
       if (llama_decode(ctx.pointer, batch) != 0) break;
     }
+  }
+
+  _LazyGrammarConfig? _buildLazyGrammarConfig(GenerationParams params) {
+    final triggerPatterns = <String>[];
+    final triggerTokens = <int>[];
+
+    for (final trigger in params.grammarTriggers) {
+      switch (trigger.type) {
+        case 0:
+          triggerPatterns.add(_regexEscape(trigger.value));
+          break;
+        case 1:
+          final token = trigger.token ?? int.tryParse(trigger.value);
+          if (token != null) {
+            triggerTokens.add(token);
+          }
+          break;
+        case 2:
+          triggerPatterns.add(trigger.value);
+          break;
+        case 3:
+          final pattern = trigger.value;
+          final anchored = pattern.isEmpty
+              ? r'^$'
+              : "${pattern.startsWith('^') ? '' : '^'}$pattern${pattern.endsWith(r'$') ? '' : r'$'}";
+          triggerPatterns.add(anchored);
+          break;
+      }
+    }
+
+    if (triggerPatterns.isEmpty && triggerTokens.isEmpty) {
+      return null;
+    }
+
+    final allocatedPatternPtrs = triggerPatterns
+        .map((pattern) => pattern.toNativeUtf8())
+        .toList(growable: false);
+
+    final triggerPatternsPtr = allocatedPatternPtrs.isEmpty
+        ? nullptr
+        : malloc<Pointer<Char>>(allocatedPatternPtrs.length);
+
+    if (triggerPatternsPtr != nullptr) {
+      for (var i = 0; i < allocatedPatternPtrs.length; i++) {
+        triggerPatternsPtr[i] = allocatedPatternPtrs[i].cast();
+      }
+    }
+
+    final triggerTokensPtr = triggerTokens.isEmpty
+        ? nullptr
+        : malloc<llama_token>(triggerTokens.length);
+
+    if (triggerTokensPtr != nullptr) {
+      for (var i = 0; i < triggerTokens.length; i++) {
+        triggerTokensPtr[i] = triggerTokens[i];
+      }
+    }
+
+    return _LazyGrammarConfig(
+      triggerPatterns: triggerPatternsPtr,
+      numTriggerPatterns: allocatedPatternPtrs.length,
+      triggerTokens: triggerTokensPtr,
+      numTriggerTokens: triggerTokens.length,
+      allocatedPatternPointers: allocatedPatternPtrs,
+    );
+  }
+
+  String _regexEscape(String input) {
+    final escaped = StringBuffer();
+    const regexMeta = r'\^$.*+?()[]{}|';
+    for (var i = 0; i < input.length; i++) {
+      final char = input[i];
+      if (regexMeta.contains(char)) {
+        escaped.write('\\');
+      }
+      escaped.write(char);
+    }
+    return escaped.toString();
   }
 
   /// Tokenizes the given [text].
@@ -832,6 +932,35 @@ class LlamaCppService {
   /// Checks if a multimodal context exists.
   bool hasMultimodalContext(int mmContextHandle) {
     return _mtmdContexts.containsKey(mmContextHandle);
+  }
+}
+
+class _LazyGrammarConfig {
+  final Pointer<Pointer<Char>> triggerPatterns;
+  final int numTriggerPatterns;
+  final Pointer<llama_token> triggerTokens;
+  final int numTriggerTokens;
+  final List<Pointer<Utf8>> allocatedPatternPointers;
+
+  const _LazyGrammarConfig({
+    required this.triggerPatterns,
+    required this.numTriggerPatterns,
+    required this.triggerTokens,
+    required this.numTriggerTokens,
+    required this.allocatedPatternPointers,
+  });
+
+  void dispose() {
+    for (final pointer in allocatedPatternPointers) {
+      malloc.free(pointer);
+    }
+
+    if (triggerPatterns != nullptr) {
+      malloc.free(triggerPatterns);
+    }
+    if (triggerTokens != nullptr) {
+      malloc.free(triggerTokens);
+    }
   }
 }
 

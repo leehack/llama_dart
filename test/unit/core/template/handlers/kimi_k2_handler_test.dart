@@ -1,7 +1,12 @@
 import 'dart:convert';
 
+import 'package:llamadart/src/core/models/chat/chat_message.dart';
+import 'package:llamadart/src/core/models/chat/chat_role.dart';
+import 'package:llamadart/src/core/models/tools/tool_definition.dart';
+import 'package:llamadart/src/core/models/tools/tool_param.dart';
 import 'package:llamadart/src/core/template/chat_format.dart';
 import 'package:llamadart/src/core/template/chat_template_engine.dart';
+import 'package:llamadart/src/core/template/handlers/kimi_k2_handler.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -134,5 +139,38 @@ void main() {
         equals('{"city":"Seo'),
       );
     });
+
+    test('renders tool grammar for Kimi-K2 tool calls', () {
+      final handler = KimiK2Handler();
+      final tools = [
+        ToolDefinition(
+          name: 'weather',
+          description: 'Weather lookup',
+          parameters: [ToolParam.string('city', required: true)],
+          handler: _noop,
+        ),
+      ];
+
+      final rendered = handler.render(
+        templateSource: '{{ messages[0]["content"] }}',
+        messages: const [
+          LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hello'),
+        ],
+        metadata: const {},
+        tools: tools,
+      );
+
+      expect(rendered.grammar, isNotNull);
+      expect(rendered.grammar, contains('"<|tool_calls_section_begin|>"'));
+      expect(rendered.grammarTriggers, isNotEmpty);
+      expect(
+        rendered.grammarTriggers.first.value,
+        equals('<|tool_calls_section_begin|><|tool_call_begin|>'),
+      );
+    });
   });
+}
+
+Future<Object?> _noop(_) async {
+  return 'ok';
 }

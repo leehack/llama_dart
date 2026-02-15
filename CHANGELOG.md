@@ -1,3 +1,13 @@
+## 0.5.2
+
+*   **Chat template parity hardening**:
+    *   Expanded llama.cpp parity across additional format handlers, including grammar construction, lazy-grammar triggers, preserved tokens, and parser behavior for tool-call payload extraction.
+    *   Added shared `ToolCallGrammarUtils` helpers for wrapped object/array tool-call grammar generation and root-rule wrapping.
+*   **Crash fix (grammar parsing)**:
+    *   Fixed malformed GBNF escaping in Hermes/Command-R string rules that could cause runtime `llama_grammar_init_impl` parse failures during tool-calling generations.
+*   **Test coverage expansion**:
+    *   Added and expanded handler-level parity tests (Apertus, LFM2, Nemotron V2, Magistral, Seed-OSS, Xiaomi MiMo, DeepSeek R1/V3, Hermes) and mirrored unit tests for new grammar utilities.
+
 ## 0.5.1
 
 *   **Documentation fixes**:

@@ -304,6 +304,10 @@ class LlamaEngine {
     LlamaLogger.instance.debug('  Prompt: ${result.prompt}');
     LlamaLogger.instance.debug('  Stop sequences: $stops');
     LlamaLogger.instance.debug('  Grammar present: ${result.grammar != null}');
+    LlamaLogger.instance.debug('  Grammar lazy: ${result.grammarLazy}');
+    LlamaLogger.instance.debug(
+      '  Grammar triggers: ${result.grammarTriggers.length}',
+    );
     LlamaLogger.instance.debug(
       '  Thinking forced open: ${result.thinkingForcedOpen}',
     );
@@ -314,12 +318,27 @@ class LlamaEngine {
     // Collect media parts from all messages
     final allParts = messages.expand((m) => m.parts).toList();
 
-    // Use grammar from template only when tool use is REQUIRED.
-    // For 'auto' mode, we let the model decide without grammar forcing tool output.
-    // This prevents models without native tool support from always generating tool calls.
-    final effectiveGrammar = toolChoice == ToolChoice.required
-        ? (result.grammar ?? params?.grammar)
+    final hasTemplateGrammar = result.grammar != null;
+    final effectiveGrammar = hasTemplateGrammar
+        ? result.grammar
         : params?.grammar;
+    final effectiveGrammarLazy = hasTemplateGrammar
+        ? result.grammarLazy
+        : (params?.grammarLazy ?? false);
+    final effectiveGrammarTriggers = hasTemplateGrammar
+        ? result.grammarTriggers
+              .map(
+                (trigger) => GenerationGrammarTrigger(
+                  type: trigger.type,
+                  value: trigger.value,
+                  token: trigger.token,
+                ),
+              )
+              .toList(growable: false)
+        : (params?.grammarTriggers ?? const <GenerationGrammarTrigger>[]);
+    final effectivePreservedTokens = hasTemplateGrammar
+        ? result.preservedTokens
+        : (params?.preservedTokens ?? const <String>[]);
 
     // Generate raw tokens with grammar constraint
     final tokenStream = generate(
@@ -327,6 +346,9 @@ class LlamaEngine {
       params: (params ?? const GenerationParams()).copyWith(
         stopSequences: stops,
         grammar: effectiveGrammar,
+        grammarLazy: effectiveGrammarLazy,
+        grammarTriggers: effectiveGrammarTriggers,
+        preservedTokens: effectivePreservedTokens,
       ),
       parts: allParts,
     );
@@ -658,6 +680,7 @@ class LlamaEngine {
         grammarTriggers: result.grammarTriggers,
         thinkingForcedOpen: result.thinkingForcedOpen,
         preservedTokens: result.preservedTokens,
+        parser: result.parser,
         tokenCount: tokens.length,
         handlerId: result.handlerId,
       );

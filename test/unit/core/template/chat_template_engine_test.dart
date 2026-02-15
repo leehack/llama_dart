@@ -1,6 +1,7 @@
 import 'package:llamadart/src/core/models/chat/chat_message.dart';
 import 'package:llamadart/src/core/models/chat/chat_role.dart';
 import 'package:llamadart/src/core/models/chat/chat_template_result.dart';
+import 'package:llamadart/src/core/models/inference/tool_choice.dart';
 import 'package:llamadart/src/core/models/tools/tool_definition.dart';
 import 'package:llamadart/src/core/models/tools/tool_param.dart';
 import 'package:llamadart/src/core/template/chat_format.dart';
@@ -176,6 +177,79 @@ void main() {
         expect(result.grammar, isNull);
       },
     );
+
+    test('uses generic routing for tools + schema requests', () {
+      const template =
+          '<|END_THINKING|><|START_ACTION|>{{ messages[0]["content"] }}';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: grammarMessages,
+        metadata: const {},
+        tools: tools,
+        responseFormat: const {
+          'type': 'json_schema',
+          'json_schema': {
+            'schema': {
+              'type': 'object',
+              'properties': {
+                'ok': {'type': 'boolean'},
+              },
+              'required': ['ok'],
+            },
+          },
+        },
+      );
+
+      expect(result.format, equals(ChatFormat.generic.index));
+    });
+
+    test('uses content-only routing for schema-disabled formats', () {
+      const template = '<tool_call>{{ messages[0]["content"] }}</tool_call>';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: grammarMessages,
+        metadata: const {},
+        responseFormat: const {'type': 'json_object'},
+      );
+
+      expect(result.format, equals(ChatFormat.contentOnly.index));
+    });
+
+    test('disables lazy grammar for required tool choice when needed', () {
+      const template =
+          '<tool_call>\n<function=\n<function>\n<parameters>\n<parameter=\n{{ messages[0]["content"] }}';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: grammarMessages,
+        metadata: const {},
+        tools: tools,
+        toolChoice: ToolChoice.required,
+      );
+
+      expect(result.format, equals(ChatFormat.qwen3CoderXml.index));
+      expect(result.grammar, isNotNull);
+      expect(result.grammarLazy, isFalse);
+    });
+
+    test('keeps lazy grammar for formats that always use lazy mode', () {
+      const template =
+          '<|system_start|>{{ messages[0]["content"] }}<|system_end|><|tools_prefix|>';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: grammarMessages,
+        metadata: const {},
+        tools: tools,
+        toolChoice: ToolChoice.required,
+      );
+
+      expect(result.format, equals(ChatFormat.apertus.index));
+      expect(result.grammar, isNotNull);
+      expect(result.grammarLazy, isTrue);
+    });
   });
 }
 

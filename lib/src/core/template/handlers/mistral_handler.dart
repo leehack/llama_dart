@@ -10,6 +10,7 @@ import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
 import '../thinking_utils.dart';
+import '../tool_call_grammar_utils.dart';
 
 /// Handler for Mistral Nemo format.
 ///
@@ -21,6 +22,9 @@ class MistralHandler extends ChatTemplateHandler {
 
   @override
   List<String> get additionalStops => ['</s>'];
+
+  @override
+  List<String> get preservedTokens => const ['[TOOL_CALLS]'];
 
   @override
   List<String> getStops({bool hasTools = false, bool enableThinking = true}) {
@@ -55,6 +59,7 @@ class MistralHandler extends ChatTemplateHandler {
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
+      preservedTokens: hasTools ? preservedTokens : const [],
       grammarTriggers: hasTools
           ? [const GrammarTrigger(type: 0, value: '[TOOL_CALLS]')]
           : [],
@@ -132,7 +137,12 @@ class MistralHandler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    // Mistral uses native template-based tool calling
-    return null;
+    return ToolCallGrammarUtils.buildWrappedArrayGrammar(
+      tools: tools,
+      prefix: '[TOOL_CALLS]',
+      suffix: '',
+      idKey: 'id',
+      idPattern: r'^[a-zA-Z0-9]{9}$',
+    );
   }
 }

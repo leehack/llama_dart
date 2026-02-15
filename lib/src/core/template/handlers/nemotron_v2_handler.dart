@@ -10,6 +10,7 @@ import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
 import '../thinking_utils.dart';
+import '../tool_call_grammar_utils.dart';
 
 /// Handler for Nemotron V2 format.
 ///
@@ -49,6 +50,9 @@ class NemotronV2Handler extends ChatTemplateHandler {
     }
 
     final hasTools = tools != null && tools.isNotEmpty;
+    final triggerPattern = thinkingForcedOpen
+        ? r'[\s\S]*?(</think>\s*)(<TOOLCALL>)[\s\S]*'
+        : r'(?:<think>[\s\S]*?</think>\s*)?(<TOOLCALL>)[\s\S]*';
     return LlamaChatTemplateResult(
       prompt: prompt,
       format: format.index,
@@ -60,7 +64,7 @@ class NemotronV2Handler extends ChatTemplateHandler {
         enableThinking: enableThinking,
       ),
       grammarTriggers: hasTools
-          ? [const GrammarTrigger(type: 0, value: '<TOOLCALL>')]
+          ? [GrammarTrigger(type: 3, value: triggerPattern)]
           : [],
     );
   }
@@ -162,6 +166,10 @@ class NemotronV2Handler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    return ToolCallGrammarUtils.buildWrappedArrayGrammar(
+      tools: tools,
+      prefix: '<TOOLCALL>',
+      suffix: '</TOOLCALL>',
+    );
   }
 }

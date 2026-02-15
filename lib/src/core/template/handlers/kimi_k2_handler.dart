@@ -82,7 +82,7 @@ class KimiK2Handler extends ChatTemplateHandler {
       ),
       preservedTokens: hasTools ? preservedTokens : [],
       grammarTriggers: hasTools
-          ? [const GrammarTrigger(type: 0, value: _scopeStart)]
+          ? [const GrammarTrigger(type: 0, value: '$_scopeStart$_callStart')]
           : [],
     );
   }
@@ -315,7 +315,43 @@ class KimiK2Handler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    if (tools == null || tools.isEmpty) {
+      return null;
+    }
+
+    final toolNames = tools
+        .map((tool) => _literal(tool.name))
+        .toSet()
+        .toList(growable: false);
+    final toolNameRule = toolNames.join(' | ');
+
+    return '''
+root ::= "<|tool_calls_section_begin|>" tool-call+ "<|tool_calls_section_end|>"
+tool-call ::= "<|tool_call_begin|>" ( "functions." )? tool-name ( ":" [0-9]+ )? "<|tool_call_argument_begin|>" obj "<|tool_call_end|>"
+tool-name ::= $toolNameRule
+${_commonGbnfRules()}
+''';
+  }
+
+  String _literal(String value) {
+    final escaped = value
+        .replaceAll('\\', r'\\')
+        .replaceAll('"', r'\"')
+        .replaceAll('\n', r'\n')
+        .replaceAll('\r', r'\r');
+    return '"$escaped"';
+  }
+
+  String _commonGbnfRules() {
+    return r'''
+space ::= " "?
+string ::= "\"" ([^"\\] | "\\\\" .)* "\""
+number ::= "-"? ([0-9] | [1-9] [0-9]*) ("." [0-9]+)? ([eE] [-+]? [0-9]+)?
+boolean ::= "true" | "false"
+null ::= "null"
+value ::= string | number | boolean | null | arr | obj
+arr ::= "[" space (value ("," space value)*)? space "]"
+obj ::= "{" space (string ":" space value ("," space string ":" space value)*)? space "}"''';
   }
 }
 
