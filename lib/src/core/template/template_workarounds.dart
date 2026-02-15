@@ -302,6 +302,7 @@ class TemplateWorkarounds {
     ChatFormat.minimaxM2,
     ChatFormat.seedOss,
     ChatFormat.llama3,
+    ChatFormat.llama3BuiltinTools,
     ChatFormat.mistralNemo,
     ChatFormat.generic,
   };

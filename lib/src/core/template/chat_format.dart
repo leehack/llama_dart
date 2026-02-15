@@ -13,11 +13,20 @@ enum ChatFormat {
   /// a more specific tool call format.
   generic,
 
-  /// Hermes 2 Pro / Qwen 2.5 / Qwen 3 — `<tool_call>` XML tags.
-  hermes,
+  /// Mistral Nemo — `[TOOL_CALLS]` prefix with JSON array.
+  mistralNemo,
 
-  /// Llama 3.x — ipython role with `<|python_tag|>`.
+  /// Magistral — `[THINK]`/`[/THINK]` thinking + `[TOOL_CALLS]` prefix.
+  magistral,
+
+  /// Llama 3.x — ipython role with `<|python_tag|>` optional builtin tools.
   llama3,
+
+  /// Llama 3.x builtin-tools variant.
+  llama3BuiltinTools,
+
+  /// DeepSeek R1 — fullwidth unicode delimiters.
+  deepseekR1,
 
   /// FireFunction v2 — `functools[...]` JSON tool-call arrays.
   firefunctionV2,
@@ -28,45 +37,17 @@ enum ChatFormat {
   /// Functionary v3.1 Llama 3.1 — `<function=name>{...}</function>`.
   functionaryV31Llama31,
 
-  /// Mistral Nemo — `[TOOL_CALLS]` prefix with JSON array.
-  mistralNemo,
-
-  /// Magistral — `[THINK]`/`[/THINK]` thinking + `[TOOL_CALLS]` prefix.
-  magistral,
-
-  /// LFM2 — `<|tool_call_start|>/<|tool_call_end|>` special tokens.
-  lfm2,
-
-  /// DeepSeek R1 — fullwidth unicode delimiters.
-  deepseekR1,
-
   /// DeepSeek V3.1 — prefix-based thinking with `<tool_call>` tags.
   deepseekV3,
 
-  /// FunctionGemma — `<start_function_call>call:name{args}<end_function_call>`.
-  functionGemma,
-
-  /// Gemma 3 / Gemma 3n — `<start_of_turn>/<end_of_turn>` with
-  /// prompt-engineered tool calling and multimodal support.
-  gemma,
+  /// Hermes 2 Pro / Qwen 2.5 / Qwen 3 — `<tool_call>` XML tags.
+  hermes,
 
   /// Command R7B — `<|START_ACTION|>/<|END_ACTION|>` with thinking.
   commandR7B,
 
   /// Granite — `<|tool_call|>` + JSON array with `<think>` support.
   granite,
-
-  /// GLM 4.5 — `<|observation|>` with XML-style arg_key/arg_value.
-  glm45,
-
-  /// Kimi K2 — `<|tool_call_begin|>` with special tokens.
-  kimiK2,
-
-  /// Qwen3 Coder XML — `<function=name><parameter=key>` format.
-  qwen3CoderXml,
-
-  /// MiniMax M2 — `<minimax:tool_call>` with `<invoke>` tags.
-  minimaxM2,
 
   /// GPT-OSS assistant channel/message format.
   gptOss,
@@ -80,17 +61,48 @@ enum ChatFormat {
   /// Apertus format with `<|tools_prefix|>` and `<|tools_suffix|>`.
   apertus,
 
-  /// Xiaomi MiMo format with `<tool_call>` JSON blocks.
-  xiaomiMimo,
+  /// LFM2 — `<|tool_call_start|>/<|tool_call_end|>` special tokens.
+  lfm2,
+
+  /// GLM 4.5 — `<|observation|>` with XML-style arg_key/arg_value.
+  glm45,
+
+  /// MiniMax M2 — `<minimax:tool_call>` with `<invoke>` tags.
+  minimaxM2,
+
+  /// Kimi K2 — `<|tool_call_begin|>` with special tokens.
+  kimiK2,
+
+  /// Qwen3 Coder XML — `<function=name><parameter=key>` format.
+  qwen3CoderXml,
 
   /// Apriel 1.5 format with `<thinking>` and `<tool_calls>`.
   apriel15,
+
+  /// Xiaomi MiMo format with `<tool_call>` JSON blocks.
+  xiaomiMimo,
 
   /// Solar Open format with `<|think|>` and tool response markers.
   solarOpen,
 
   /// EXAONE MoE format with `<tool_call>` blocks and thinking tags.
   exaoneMoe,
+
+  /// PEG simple parser-backed format.
+  pegSimple,
+
+  /// PEG native parser-backed format.
+  pegNative,
+
+  /// PEG constructed parser-backed format.
+  pegConstructed,
+
+  /// FunctionGemma — `<start_function_call>call:name{args}<end_function_call>`.
+  functionGemma,
+
+  /// Gemma 3 / Gemma 3n — `<start_of_turn>/<end_of_turn>` with
+  /// prompt-engineered tool calling and multimodal support.
+  gemma,
 
   /// TranslateGemma format with language-code message content fields.
   translateGemma,

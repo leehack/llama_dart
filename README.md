@@ -99,7 +99,7 @@ Add `llamadart` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  llamadart: ^0.5.1
+  llamadart: ^0.5.2
 ```
 
 ### Zero Setup (Native Assets)
@@ -223,6 +223,12 @@ await for (final chunk in session.create(
   if (delta.content != null) stdout.write(delta.content);
 }
 ```
+
+Notes:
+
+- Built-in template handlers automatically select model-specific tool-call grammar and parser behavior; you usually do not need to set `GenerationParams.grammar` manually for normal tool use.
+- Some handlers use lazy grammar activation (triggered when a tool-call prefix appears) to match llama.cpp behavior.
+- If you implement a custom handler grammar, prefer Dart raw strings (`r'''...'''`) for GBNF blocks to avoid escaping bugs.
 
 ### 3.5 Custom Template Handlers and Overrides (Advanced)
 

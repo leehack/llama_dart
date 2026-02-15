@@ -10,6 +10,7 @@ import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
 import '../thinking_utils.dart';
+import '../tool_call_grammar_utils.dart';
 
 /// Handler for LFM2 (Liquid Foundation Model 2) format.
 ///
@@ -23,6 +24,12 @@ class Lfm2Handler extends ChatTemplateHandler {
 
   @override
   List<String> get additionalStops => ['<|im_end|>'];
+
+  @override
+  List<String> get preservedTokens => const [
+    '<|tool_call_start|>',
+    '<|tool_call_end|>',
+  ];
 
   @override
   LlamaChatTemplateResult render({
@@ -52,8 +59,14 @@ class Lfm2Handler extends ChatTemplateHandler {
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
+      preservedTokens: hasTools ? preservedTokens : const [],
       grammarTriggers: hasTools
-          ? [const GrammarTrigger(type: 0, value: '<|tool_call_start|>')]
+          ? [
+              const GrammarTrigger(
+                type: 3,
+                value: r'\s*<\|tool_call_start\|>\s*\[',
+              ),
+            ]
           : [],
     );
   }
@@ -171,6 +184,10 @@ class Lfm2Handler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    return ToolCallGrammarUtils.buildWrappedArrayGrammar(
+      tools: tools,
+      prefix: '<|tool_call_start|>',
+      suffix: '<|tool_call_end|>',
+    );
   }
 }

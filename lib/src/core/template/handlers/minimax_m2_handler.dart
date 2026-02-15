@@ -20,6 +20,14 @@ class MinimaxM2Handler extends ChatTemplateHandler {
   List<String> get additionalStops => ['<|end_of_text|>'];
 
   @override
+  List<String> get preservedTokens => const [
+    '<think>',
+    '</think>',
+    '<minimax:tool_call>',
+    '</minimax:tool_call>',
+  ];
+
+  @override
   LlamaChatTemplateResult render({
     required String templateSource,
     required List<LlamaChatMessage> messages,
@@ -37,18 +45,34 @@ class MinimaxM2Handler extends ChatTemplateHandler {
       'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
     });
 
+    var thinkingForcedOpen = false;
+    if (prompt.endsWith('<think>\n')) {
+      if (!enableThinking) {
+        prompt = '$prompt</think>\n\n';
+      } else {
+        thinkingForcedOpen = true;
+      }
+    }
+
     final hasTools = tools != null && tools.isNotEmpty;
     return LlamaChatTemplateResult(
       prompt: prompt,
       format: format.index,
       grammar: buildGrammar(tools),
       grammarLazy: hasTools,
+      thinkingForcedOpen: thinkingForcedOpen,
       additionalStops: getStops(
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
+      preservedTokens: hasTools ? preservedTokens : const [],
       grammarTriggers: hasTools
-          ? [const GrammarTrigger(type: 0, value: '<tool_code>')]
+          ? [
+              const GrammarTrigger(
+                type: 0,
+                value: '<minimax:tool_call>\n<invoke name="',
+              ),
+            ]
           : [],
     );
   }
@@ -84,6 +108,6 @@ class MinimaxM2Handler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    return buildXmlToolCallGrammar(tools, XmlToolCallFormat.minimaxM2);
   }
 }

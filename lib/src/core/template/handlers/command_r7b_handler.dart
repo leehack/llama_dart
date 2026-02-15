@@ -212,9 +212,9 @@ class CommandR7BHandler extends ChatTemplateHandler {
   }
 
   String _commonGbnfRules() {
-    return '''
+    return r'''
 space ::= " "?
-string ::= "\\"" ([^"\\\\] | "\\\\" .)* "\\""
+string ::= "\"" ([^"\\] | "\\\\" .)* "\""
 number ::= "-"? ([0-9] | [1-9] [0-9]*) ("." [0-9]+)? ([eE] [-+]? [0-9]+)?
 boolean ::= "true" | "false"
 null ::= "null"

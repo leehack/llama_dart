@@ -187,6 +187,18 @@ _(Add screenshots here when complete)_
 - Verify llamadart dependency is correctly configured
 - Ensure Flutter version >= 3.38.0
 
+**macOS warning: "Stale file ... located outside of the allowed root paths":**
+- This is usually a stale Flutter/Xcode build cache path after moving or renaming directories.
+- From `example/chat_app`, run:
+  - `flutter clean`
+  - `flutter pub get`
+  - `flutter run -d macos`
+
+**`llama_grammar_init_impl: failed to parse grammar` during tool calls:**
+- This indicates invalid generated GBNF (often from custom template/handler grammar escaping).
+- Update to the latest package version and retry.
+- If using custom handlers, validate grammar strings and prefer Dart raw strings (`r'''...'''`) for multiline GBNF.
+
 ## Tech Stack
 
 - **llamadart** - High-performance LLM inference

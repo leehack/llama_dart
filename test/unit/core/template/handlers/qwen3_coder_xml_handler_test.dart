@@ -31,7 +31,11 @@ void main() {
     expect(rendered.additionalStops, contains('<|im_end|>'));
 
     final parsed = handler.parse(
-      '<function=get_weather><parameter=city>"Seoul"</parameter></function>',
+      '<tool_call>\n'
+      '<function=get_weather>\n'
+      '<parameter=city>\n"Seoul"\n</parameter>\n'
+      '</function>\n'
+      '</tool_call>',
     );
     expect(parsed.toolCalls, hasLength(1));
     expect(parsed.toolCalls.first.function?.name, equals('get_weather'));

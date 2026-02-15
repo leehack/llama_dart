@@ -10,17 +10,31 @@ import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
 import '../thinking_utils.dart';
+import '../tool_call_grammar_utils.dart';
 
 /// Handler for Llama 3.x models.
 ///
 /// Uses the ipython role for tool calls with `<|python_tag|>` trigger.
 /// Tool call format: `{"name": "fn", "parameters": {...}}`
 class Llama3Handler extends ChatTemplateHandler {
+  static const Set<String> _builtinToolNames = {
+    'wolfram_alpha',
+    'web_search',
+    'brave_search',
+    'python',
+    'code_interpreter',
+  };
+
   @override
   ChatFormat get format => ChatFormat.llama3;
 
   @override
   List<String> get additionalStops => ['<|eot_id|>', '<|eom_id|>'];
+
+  @override
+  List<String> getStops({bool hasTools = false, bool enableThinking = true}) {
+    return hasTools ? additionalStops : const ['<|eot_id|>'];
+  }
 
   @override
   LlamaChatTemplateResult render({
@@ -42,18 +56,46 @@ class Llama3Handler extends ChatTemplateHandler {
     });
 
     final hasTools = tools != null && tools.isNotEmpty;
+    final hasBuiltinTools =
+        hasTools && tools.any((tool) => _builtinToolNames.contains(tool.name));
+    final supportsPythonTagBuiltins = templateSource.contains('<|python_tag|>');
+    final resolvedFormat = hasTools
+        ? (hasBuiltinTools && supportsPythonTagBuiltins
+              ? ChatFormat.llama3BuiltinTools
+              : format)
+        : ChatFormat.contentOnly;
+
+    final triggers = <GrammarTrigger>[];
+    if (hasTools) {
+      triggers.add(
+        const GrammarTrigger(
+          type: 3,
+          value:
+              r'(\{\s*(?:"type"\s*:\s*"function"\s*,\s*)?"name"\s*:\s*")[\s\S]*',
+        ),
+      );
+      if (resolvedFormat == ChatFormat.llama3BuiltinTools) {
+        triggers.add(const GrammarTrigger(type: 0, value: '<|python_tag|>'));
+      }
+    }
+
+    final grammar = resolvedFormat == ChatFormat.llama3BuiltinTools
+        ? null
+        : buildGrammar(tools);
+
     return LlamaChatTemplateResult(
       prompt: prompt,
-      format: format.index,
-      grammar: buildGrammar(tools),
+      format: resolvedFormat.index,
+      grammar: grammar,
       grammarLazy: hasTools,
       additionalStops: getStops(
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
-      grammarTriggers: hasTools
-          ? [const GrammarTrigger(type: 0, value: '{"name"')]
-          : [],
+      grammarTriggers: triggers,
+      preservedTokens: resolvedFormat == ChatFormat.llama3BuiltinTools
+          ? const ['<|python_tag|>']
+          : const [],
     );
   }
 
@@ -272,7 +314,12 @@ class Llama3Handler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    // Llama 3 uses native tool calling via the template — grammar not needed
-    return null;
+    return ToolCallGrammarUtils.buildWrappedObjectGrammar(
+      tools: tools,
+      prefix: '',
+      suffix: '',
+      nameKey: 'name',
+      argumentsKey: 'parameters',
+    );
   }
 }

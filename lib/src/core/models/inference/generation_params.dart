@@ -13,6 +13,26 @@
 ///   grammar: 'root ::= "yes" | "no"', // Force binary response
 /// );
 /// ```
+/// Lazy grammar activation trigger.
+class GenerationGrammarTrigger {
+  /// Trigger type (0=word, 1=token, 2=pattern, 3=pattern_full).
+  final int type;
+
+  /// Trigger text value.
+  final String value;
+
+  /// Trigger token id for token-based triggers.
+  final int? token;
+
+  /// Creates a new grammar trigger.
+  const GenerationGrammarTrigger({
+    required this.type,
+    required this.value,
+    this.token,
+  });
+}
+
+/// Parameters controlling the token sampling and generation process.
 class GenerationParams {
   /// Maximum number of new tokens to generate.
   final int maxTokens;
@@ -44,6 +64,15 @@ class GenerationParams {
   /// GBNF grammar string for structured output (e.g., "root ::= \"hello\" | \"world\"").
   final String? grammar;
 
+  /// Whether grammar should be lazily activated by triggers.
+  final bool grammarLazy;
+
+  /// Lazy grammar activation triggers.
+  final List<GenerationGrammarTrigger> grammarTriggers;
+
+  /// Tokens to preserve during constrained decoding.
+  final List<String> preservedTokens;
+
   /// Grammar start symbol. Defaults to "root".
   final String grammarRoot;
 
@@ -57,6 +86,9 @@ class GenerationParams {
     this.seed,
     this.stopSequences = const [],
     this.grammar,
+    this.grammarLazy = false,
+    this.grammarTriggers = const [],
+    this.preservedTokens = const [],
     this.grammarRoot = 'root',
   });
 
@@ -70,6 +102,9 @@ class GenerationParams {
     int? seed,
     List<String>? stopSequences,
     String? grammar,
+    bool? grammarLazy,
+    List<GenerationGrammarTrigger>? grammarTriggers,
+    List<String>? preservedTokens,
     String? grammarRoot,
   }) {
     return GenerationParams(
@@ -81,6 +116,9 @@ class GenerationParams {
       seed: seed ?? this.seed,
       stopSequences: stopSequences ?? this.stopSequences,
       grammar: grammar ?? this.grammar,
+      grammarLazy: grammarLazy ?? this.grammarLazy,
+      grammarTriggers: grammarTriggers ?? this.grammarTriggers,
+      preservedTokens: preservedTokens ?? this.preservedTokens,
       grammarRoot: grammarRoot ?? this.grammarRoot,
     );
   }

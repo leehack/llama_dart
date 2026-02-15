@@ -10,6 +10,7 @@ import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
 import '../thinking_utils.dart';
+import '../tool_call_grammar_utils.dart';
 
 /// Handler for Magistral format.
 ///
@@ -27,6 +28,9 @@ class MagistralHandler extends ChatTemplateHandler {
 
   @override
   List<String> get additionalStops => ['</s>'];
+
+  @override
+  List<String> get preservedTokens => const ['[THINK]', '[/THINK]'];
 
   @override
   List<String> getStops({bool hasTools = false, bool enableThinking = true}) {
@@ -72,6 +76,9 @@ class MagistralHandler extends ChatTemplateHandler {
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
+      preservedTokens: hasTools
+          ? const ['[THINK]', '[/THINK]', '[TOOL_CALLS]']
+          : preservedTokens,
       grammarTriggers: hasTools
           ? [const GrammarTrigger(type: 0, value: '[TOOL_CALLS]')]
           : [],
@@ -151,7 +158,12 @@ class MagistralHandler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    // Mistral-based, native tool calling via template
-    return null;
+    return ToolCallGrammarUtils.buildWrappedArrayGrammar(
+      tools: tools,
+      prefix: '[TOOL_CALLS]',
+      suffix: '',
+      idKey: 'id',
+      idPattern: r'^[a-zA-Z0-9]{9}$',
+    );
   }
 }

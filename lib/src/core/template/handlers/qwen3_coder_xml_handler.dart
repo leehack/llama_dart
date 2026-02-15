@@ -20,6 +20,16 @@ class Qwen3CoderXmlHandler extends ChatTemplateHandler {
   List<String> get additionalStops => ['<|im_end|>', '</s>'];
 
   @override
+  List<String> get preservedTokens => const [
+    '<tool_call>',
+    '</tool_call>',
+    '<function=',
+    '</function>',
+    '<parameter=',
+    '</parameter>',
+  ];
+
+  @override
   LlamaChatTemplateResult render({
     required String templateSource,
     required List<LlamaChatMessage> messages,
@@ -47,8 +57,9 @@ class Qwen3CoderXmlHandler extends ChatTemplateHandler {
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
+      preservedTokens: hasTools ? preservedTokens : const [],
       grammarTriggers: hasTools
-          ? [const GrammarTrigger(type: 0, value: '<tool_code>')]
+          ? [const GrammarTrigger(type: 0, value: '<tool_call>\n<function=')]
           : [],
     );
   }
@@ -84,6 +95,6 @@ class Qwen3CoderXmlHandler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    return buildXmlToolCallGrammar(tools, XmlToolCallFormat.qwen3Coder);
   }
 }

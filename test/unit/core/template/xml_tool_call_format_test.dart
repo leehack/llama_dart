@@ -6,7 +6,11 @@ import 'package:test/test.dart';
 void main() {
   test('parseXmlToolCalls parses a simple XML-like tool call', () {
     const output =
-        '<function=weather><parameter=city>"Seoul"</parameter></function>';
+        '<tool_call>\n'
+        '<function=weather>\n'
+        '<parameter=city>\n"Seoul"\n</parameter>\n'
+        '</function>\n'
+        '</tool_call>';
     final parsed = parseXmlToolCalls(output, XmlToolCallFormat.qwen3Coder);
 
     expect(parsed.toolCalls, hasLength(1));

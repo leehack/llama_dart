@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../models/tools/tool_definition.dart';
 import '../models/chat/completion_chunk.dart';
 import 'chat_parse_result.dart';
 import 'thinking_utils.dart';
@@ -67,37 +68,39 @@ class XmlToolCallFormat {
 
   /// Standard XML format (e.g. Qwen 2.5/3 Coder).
   static const qwen3Coder = XmlToolCallFormat(
-    scopeStart: '',
+    scopeStart: '<tool_call>\n',
     toolStart: '<function=',
-    toolSep: '>',
+    toolSep: '>\n',
     keyStart: '<parameter=',
-    keyValSep: '>',
-    valEnd: '</parameter>',
-    toolEnd: '</function>',
-    scopeEnd: '',
+    keyValSep: '>\n',
+    valEnd: '\n</parameter>\n',
+    toolEnd: '</function>\n',
+    scopeEnd: '</tool_call>',
   );
 
   /// Kimi K2 format.
   static const kimiK2 = XmlToolCallFormat(
     scopeStart: '<|tool_calls_section_begin|>',
-    toolStart: '<tool_code>',
-    toolSep: '\n',
-    keyStart: '<',
-    keyValSep: '>',
-    valEnd: '</',
-    toolEnd: '</tool_code>',
+    toolStart: '<|tool_call_begin|>',
+    toolSep: '<|tool_call_argument_begin|>{',
+    keyStart: '"',
+    keyValSep: '": ',
+    valEnd: ', ',
+    toolEnd: '}<|tool_call_end|>',
     scopeEnd: '<|tool_calls_section_end|>',
+    rawArgval: false,
+    lastValEnd: '',
   );
 
   /// MiniMax M2 format.
   static const minimaxM2 = XmlToolCallFormat(
-    scopeStart: '<minimax:tool_call>',
+    scopeStart: '<minimax:tool_call>\n',
     toolStart: '<invoke name="',
-    toolSep: '">',
+    toolSep: '">\n',
     keyStart: '<parameter name="',
     keyValSep: '">',
-    valEnd: '</parameter>',
-    toolEnd: '</invoke>',
+    valEnd: '</parameter>\n',
+    toolEnd: '</invoke>\n',
     scopeEnd: '</minimax:tool_call>',
   );
 
@@ -130,7 +133,7 @@ class XmlToolCallFormat {
 
   /// Xiaomi MiMo format.
   static const xiaomiMimo = XmlToolCallFormat(
-    scopeStart: '',
+    scopeStart: '\n',
     toolStart: '<tool_call>\n{"name": "',
     toolSep: '", "arguments": {',
     keyStart: '"',
@@ -153,6 +156,68 @@ class XmlToolCallFormat {
     toolEnd: '</tool_code>',
     scopeEnd: '',
   );
+}
+
+/// Builds a simple XML-style tool-call grammar for [format].
+String? buildXmlToolCallGrammar(
+  List<ToolDefinition>? tools,
+  XmlToolCallFormat format,
+) {
+  if (tools == null || tools.isEmpty) {
+    return null;
+  }
+
+  final toolNames = tools
+      .map((tool) => tool.name)
+      .toSet()
+      .toList(growable: false);
+  final paramNames = <String>{};
+  for (final tool in tools) {
+    for (final parameter in tool.parameters) {
+      paramNames.add(parameter.name);
+    }
+  }
+
+  final toolNameRule = toolNames.map(_literal).join(' | ');
+  final paramNameRule = paramNames.isEmpty
+      ? 'identifier'
+      : paramNames.map(_literal).join(' | ');
+
+  final scopeStart = format.scopeStart.isEmpty
+      ? ''
+      : '${_literal(format.scopeStart)} ';
+  final scopeEnd = format.scopeEnd.isEmpty
+      ? ''
+      : ' ${_literal(format.scopeEnd)}';
+  const commonRules = r'''
+identifier ::= [A-Za-z_] [A-Za-z0-9_-]*
+space ::= " "?
+string ::= "\"" ([^"\\] | "\\\\" .)* "\""
+number ::= "-"? ([0-9] | [1-9] [0-9]*) ("." [0-9]+)? ([eE] [-+]? [0-9]+)?
+boolean ::= "true" | "false"
+null ::= "null"
+value ::= string | number | boolean | null | arr | obj
+arr ::= "[" space (value ("," space value)*)? space "]"
+obj ::= "{" space (string ":" space value ("," space string ":" space value)*)? space "}"
+''';
+
+  return '''
+root ::= ${scopeStart}tool-call+$scopeEnd
+tool-call ::= ${_literal(format.toolStart)} tool-name ${_literal(format.toolSep)} param* ${_literal(format.toolEnd)}
+param ::= ${_literal(format.keyStart)} param-name ${_literal(format.keyValSep)} value ${_literal(format.valEnd)}
+tool-name ::= $toolNameRule
+param-name ::= $paramNameRule
+$commonRules
+''';
+}
+
+String _literal(String value) {
+  final escaped = value
+      .replaceAll('\\', r'\\')
+      .replaceAll('"', r'\"')
+      .replaceAll('\n', r'\n')
+      .replaceAll('\r', r'\r');
+  return '"$escaped"';
 }
 
 /// Parses XML-style tool calls with optional reasoning.
