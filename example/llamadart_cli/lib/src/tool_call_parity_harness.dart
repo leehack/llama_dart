@@ -1006,6 +1006,9 @@ class ToolCallParityHarness {
     required String scenarioId,
   }) {
     final modelName = modelPath.split(RegExp(r'[\\/]')).last.toLowerCase();
+    final isRequiredWeatherScenario =
+        scenarioId == 'required_get_weather' ||
+        scenarioId == 'required_get_weather_with_thinking';
 
     if (modelName.contains('qwen3-4b') &&
         scenarioId == 'auto_weather_or_time') {
@@ -1018,7 +1021,7 @@ class ToolCallParityHarness {
     }
 
     if (modelName.contains('deepseek-r1-distill-qwen-1.5b') &&
-        scenarioId == 'required_get_weather') {
+        isRequiredWeatherScenario) {
       return const _ScenarioTuning(
         firstTurnMaxTokens: 128,
         secondTurnMaxTokens: 128,
@@ -1037,7 +1040,7 @@ class ToolCallParityHarness {
     }
 
     if (modelName.contains('deepseek-r1-distill-llama-8b') &&
-        scenarioId == 'required_get_weather') {
+        isRequiredWeatherScenario) {
       return const _ScenarioTuning(
         firstTurnMaxTokens: 128,
         ignoreTurn2ContentMismatch: true,
@@ -1056,6 +1059,11 @@ class ToolCallParityHarness {
 
     if (modelName.contains('translategemma-27b')) {
       return const _ScenarioTuning(allowBothNoToolCalls: true);
+    }
+
+    if (modelName.contains('ultravox') &&
+        scenarioId == 'required_get_weather_with_thinking') {
+      return const _ScenarioTuning(ignoreTurn2ContentMismatch: true);
     }
 
     return const _ScenarioTuning();
@@ -1466,6 +1474,16 @@ class ToolCallParityHarness {
         userPrompt:
             'Call get_weather for city Seoul and unit celsius. '
             'Do not answer directly before the tool call.',
+        tools: [_getWeatherToolDefinition],
+        toolChoice: 'required',
+      ),
+      ToolCallParityScenario(
+        id: 'required_get_weather_with_thinking',
+        name: 'Required tool call with thinking hint',
+        userPrompt:
+            'Think briefly about the best action, then emit exactly one '
+            'get_weather tool call for city Seoul and unit celsius before '
+            'any final answer.',
         tools: [_getWeatherToolDefinition],
         toolChoice: 'required',
       ),
