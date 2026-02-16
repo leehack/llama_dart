@@ -112,6 +112,14 @@ class ChatTemplateEngine {
 
   static const Set<ChatFormat> _toolCallGenericFormats = {ChatFormat.gemma};
 
+  // Match llama.cpp routing when tools are provided with `tool_choice=none`.
+  // These formats fall through to the content-only path in llama.cpp's
+  // jinja dispatcher, unless a response schema forces generic routing.
+  static const Set<ChatFormat> _toolChoiceNoneContentOnlyFormats = {
+    ChatFormat.contentOnly,
+    ChatFormat.mistralNemo,
+  };
+
   /// Custom handlers registered by user code.
   static final Map<String, _RegisteredHandler> _customHandlers = {};
 
@@ -298,6 +306,10 @@ class ChatTemplateEngine {
       // generic routing, and some format handlers are disabled with schema.
       if (hasTools && hasSchemaResponseFormat) {
         effectiveFormat = ChatFormat.generic;
+      } else if (hasTools &&
+          toolChoice == ToolChoice.none &&
+          _toolChoiceNoneContentOnlyFormats.contains(format)) {
+        effectiveFormat = ChatFormat.contentOnly;
       } else if (hasTools && _toolCallGenericFormats.contains(format)) {
         // Match llama.cpp server behavior: Gemma tool-call requests route
         // through generic JSON tool-calling semantics.
@@ -311,9 +323,11 @@ class ChatTemplateEngine {
         effectiveFormat = format;
       }
 
-      // Use generic handler fallback only when there is no template at all.
+      // Use generic handler fallback when template is missing, or when tool
+      // calling is requested for an unknown/unclassified template.
       if (effectiveFormat == ChatFormat.contentOnly &&
-          effectiveTemplate == null) {
+          (effectiveTemplate == null ||
+              (hasTools && toolChoice != ToolChoice.none))) {
         effectiveFormat = ChatFormat.generic;
       }
     }
@@ -522,13 +536,32 @@ class ChatTemplateEngine {
       }
     }
 
+    final resultFormat = result.format < ChatFormat.values.length
+        ? ChatFormat.values[result.format]
+        : ChatFormat.generic;
+
+    if (toolChoice == ToolChoice.none &&
+        resultFormat == ChatFormat.ministral &&
+        result.grammar != null) {
+      return LlamaChatTemplateResult(
+        prompt: result.prompt,
+        format: result.format,
+        grammar: null,
+        grammarLazy: false,
+        additionalStops: result.additionalStops,
+        preservedTokens: result.preservedTokens,
+        grammarTriggers: const [],
+        thinkingForcedOpen: result.thinkingForcedOpen,
+        parser: result.parser,
+        tokenCount: result.tokenCount,
+        handlerId: result.handlerId,
+      );
+    }
+
     // If tools are provided and grammar wasn't set by handler, generate it
     // only for generic/content-only routing. Format-specific handlers should
     // provide their own grammar semantics (or leave unconstrained), matching
     // llama.cpp behavior more closely.
-    final resultFormat = result.format < ChatFormat.values.length
-        ? ChatFormat.values[result.format]
-        : ChatFormat.generic;
     final allowGenericToolGrammar =
         resultFormat == ChatFormat.generic ||
         resultFormat == ChatFormat.contentOnly;

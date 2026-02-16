@@ -1009,6 +1009,7 @@ class ToolCallParityHarness {
     final isRequiredWeatherScenario =
         scenarioId == 'required_get_weather' ||
         scenarioId == 'required_get_weather_with_thinking';
+    final isNoneWeatherScenario = scenarioId == 'none_weather_direct';
 
     if (modelName.contains('qwen3-4b') &&
         scenarioId == 'auto_weather_or_time') {
@@ -1039,6 +1040,11 @@ class ToolCallParityHarness {
       );
     }
 
+    if (modelName.contains('deepseek-r1-distill-qwen-1.5b') &&
+        isNoneWeatherScenario) {
+      return const _ScenarioTuning(ignoreTurn1ReasoningMismatch: true);
+    }
+
     if (modelName.contains('deepseek-r1-distill-llama-8b') &&
         isRequiredWeatherScenario) {
       return const _ScenarioTuning(
@@ -1055,6 +1061,11 @@ class ToolCallParityHarness {
         allowBothNoToolCalls: true,
         ignoreTurn1ReasoningMismatch: true,
       );
+    }
+
+    if (modelName.contains('deepseek-r1-distill-llama-8b') &&
+        isNoneWeatherScenario) {
+      return const _ScenarioTuning(ignoreTurn1ReasoningMismatch: true);
     }
 
     if (modelName.contains('translategemma-27b')) {
@@ -1476,6 +1487,17 @@ class ToolCallParityHarness {
             'Do not answer directly before the tool call.',
         tools: [_getWeatherToolDefinition],
         toolChoice: 'required',
+      ),
+      ToolCallParityScenario(
+        id: 'none_weather_direct',
+        name: 'Tool choice none: direct weather answer',
+        userPrompt:
+            'Tool use is disabled for this request. Reply directly with a '
+            'short weather summary for Seoul in one sentence. Do not emit '
+            'any tool call JSON.',
+        tools: [_getWeatherToolDefinition],
+        toolChoice: 'none',
+        expectToolCalls: false,
       ),
       ToolCallParityScenario(
         id: 'required_get_weather_with_thinking',
