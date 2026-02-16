@@ -30,6 +30,7 @@ import 'handlers/lfm2_handler.dart';
 import 'handlers/llama3_handler.dart';
 import 'handlers/magistral_handler.dart';
 import 'handlers/minimax_m2_handler.dart';
+import 'handlers/ministral_handler.dart';
 import 'handlers/mistral_handler.dart';
 import 'handlers/nemotron_v2_handler.dart';
 import 'handlers/qwen3_coder_xml_handler.dart';
@@ -665,6 +666,8 @@ class ChatTemplateEngine {
         return FunctionaryV31Llama31Handler();
       case ChatFormat.mistralNemo:
         return MistralHandler();
+      case ChatFormat.ministral:
+        return MinistralHandler();
       case ChatFormat.magistral:
         return MagistralHandler();
       case ChatFormat.lfm2:

@@ -147,6 +147,19 @@ void main() {
       expect(format, equals(ChatFormat.functionGemma));
     });
 
+    test('detects Ministral format before Magistral', () {
+      const source =
+          '[SYSTEM_PROMPT]x[/SYSTEM_PROMPT][TOOL_CALLS]get_weather[ARGS]{}';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.ministral));
+    });
+
+    test('detects Magistral format from think tags', () {
+      const source = '[THINK]reasoning[/THINK]';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.magistral));
+    });
+
     test('prefers FunctionGemma over Gemma when both markers are present', () {
       const source =
           '<start_of_turn>user\nhi<end_of_turn>'

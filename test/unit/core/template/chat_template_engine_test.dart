@@ -316,6 +316,24 @@ void main() {
       expect(result.grammarLazy, isFalse);
     });
 
+    test('routes Ministral templates to Ministral handler', () {
+      const template =
+          '[SYSTEM_PROMPT]x[/SYSTEM_PROMPT]'
+          '[TOOL_CALLS]get_weather[ARGS]{}';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: grammarMessages,
+        metadata: const {},
+        tools: tools,
+        toolChoice: ToolChoice.auto,
+      );
+
+      expect(result.format, equals(ChatFormat.ministral.index));
+      expect(result.grammar, isNotNull);
+      expect(result.grammarLazy, isTrue);
+    });
+
     test('keeps generic routing for LFM2 required tool choice', () {
       const template =
           '{%- set keep_past_thinking = true -%}\n'

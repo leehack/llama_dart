@@ -106,6 +106,9 @@ enum ChatFormat {
 
   /// TranslateGemma format with language-code message content fields.
   translateGemma,
+
+  /// Ministral 3 reasoning format with `[TOOL_CALLS]name[ARGS]{...}`.
+  ministral,
 }
 
 /// Detects the [ChatFormat] by scanning a Jinja template source string
@@ -269,7 +272,7 @@ ChatFormat detectChatFormat(String? templateSource) {
   if (templateSource.contains('[SYSTEM_PROMPT]') &&
       templateSource.contains('[TOOL_CALLS]') &&
       templateSource.contains('[ARGS]')) {
-    return ChatFormat.magistral;
+    return ChatFormat.ministral;
   }
   if (templateSource.contains('[THINK]') &&
       templateSource.contains('[/THINK]')) {
