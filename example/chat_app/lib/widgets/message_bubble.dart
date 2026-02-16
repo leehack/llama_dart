@@ -101,6 +101,9 @@ class MessageBubble extends StatelessWidget {
                         border: border,
                         isUser: isUser,
                       ),
+
+                    if (!isUser && message.debugBadges.isNotEmpty)
+                      _buildDebugBadges(context),
                   ],
                 ),
               ),
@@ -368,6 +371,38 @@ class MessageBubble extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDebugBadges(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: message.debugBadges
+            .map(
+              (badge) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: colorScheme.outlineVariant),
+                ),
+                child: Text(
+                  badge,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            )
+            .toList(growable: false),
       ),
     );
   }

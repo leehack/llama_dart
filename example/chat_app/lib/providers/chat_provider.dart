@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -11,6 +13,12 @@ import '../services/chat_service.dart';
 import '../services/settings_service.dart';
 
 class ChatProvider extends ChangeNotifier {
+  static const String _postToolFollowupInstruction =
+      'Use the tool result messages above as authoritative facts. '
+      'Answer the user directly from those results. '
+      'Do not say you lack real-time access when tool results are present.';
+  static const int _maxToolExecutionsPerToolPerTurn = 2;
+
   final ChatService _chatService;
   final SettingsService _settingsService;
 
@@ -32,6 +40,7 @@ class ChatProvider extends ChangeNotifier {
   double _loadingProgress = 0.0;
   bool _isLoaded = false;
   bool _isGenerating = false;
+  bool _isShuttingDown = false;
   bool _supportsVision = false;
   bool _supportsAudio = false;
   bool _templateSupportsTools = true;
@@ -132,7 +141,12 @@ class ChatProvider extends ChangeNotifier {
 
     // Weather tool - with typed parameters
     _toolHandlers['get_current_weather'] = (args) async {
-      final location = args['location'] as String? ?? 'Unknown';
+      final location =
+          args['location'] as String? ??
+          args['city'] as String? ??
+          args['place'] as String? ??
+          args['query'] as String? ??
+          'Unknown';
       final unit = args['unit'] as String? ?? 'celsius';
 
       // Mock weather response
@@ -328,7 +342,13 @@ class ChatProvider extends ChangeNotifier {
     _isGenerating = true;
     notifyListeners();
 
-    await _generateResponse(text, parts: parts.isEmpty ? null : parts);
+    await _generateResponse(
+      text,
+      parts: parts.isEmpty ? null : parts,
+      toolChoiceForTurn: _settings.forceToolCall
+          ? ToolChoice.required
+          : ToolChoice.auto,
+    );
   }
 
   /// Maximum number of tool call iterations per user message.
@@ -338,6 +358,7 @@ class ChatProvider extends ChangeNotifier {
     String text, {
     List<LlamaContentPart>? parts,
     int remainingToolIterations = _maxToolIterations,
+    ToolChoice? toolChoiceForTurn,
   }) async {
     final generationStopwatch = Stopwatch()..start();
     var sawFirstToken = false;
@@ -368,37 +389,12 @@ class ChatProvider extends ChangeNotifier {
 
       // Tools passed per-request now (caller-managed pattern)
       final tools = _settings.toolsEnabled ? _tools : null;
-      final toolChoice = _settings.forceToolCall
-          ? ToolChoice.required
-          : ToolChoice.auto;
 
       await for (final chunk in _session!.create(
         chatParts,
         params: params,
         tools: tools,
-        toolChoice: tools != null ? toolChoice : null,
-        onMessageAdded: (msg) {
-          // Handle intermediate messages for UI
-          final isJson =
-              msg.role == LlamaChatRole.assistant &&
-              msg.parts.any(
-                (p) =>
-                    p is LlamaTextContent &&
-                    (p.text.trim().startsWith('{') ||
-                        p.text.trim().startsWith('[{')),
-              );
-
-          if (isJson) {
-            // Insert tool call before the streaming bubble
-            if (_messages.isNotEmpty) {
-              _messages.insert(
-                _messages.length - 1,
-                ChatMessage.fromLlama(msg),
-              );
-              notifyListeners();
-            }
-          }
-        },
+        toolChoice: tools != null ? toolChoiceForTurn : null,
       )) {
         if (!_isGenerating) {
           break;
@@ -455,23 +451,67 @@ class ChatProvider extends ChangeNotifier {
 
       // Final update
       if (_messages.isNotEmpty && !_messages.last.isUser) {
-        final finalText = _chatService.cleanResponse(fullResponse);
+        final lastSessionMessage = _session!.history.isNotEmpty
+            ? _session!.history.last
+            : null;
+        final hasToolCallOnlyTurn =
+            (lastSessionMessage?.parts
+                    .whereType<LlamaToolCallContent>()
+                    .isNotEmpty ??
+                false) &&
+            fullResponse.trim().isEmpty &&
+            fullThinking.trim().isEmpty;
 
-        final parts = <LlamaContentPart>[];
-        if (fullThinking.isNotEmpty) {
-          parts.add(LlamaThinkingContent(fullThinking));
-        }
-        if (finalText.isNotEmpty) {
-          parts.add(LlamaTextContent(finalText));
+        if (hasToolCallOnlyTurn) {
+          _messages.removeLast();
         }
 
-        _messages[_messages.length - 1] = _messages.last.copyWith(
-          text: finalText,
-          parts: parts,
+        final hadRawThinkingTags = _containsReasoningTag(fullResponse);
+        final hadThinkingStream = fullThinking.trim().isNotEmpty;
+        final normalized = _normalizeAssistantOutput(
+          streamedContent: fullResponse,
+          streamedThinking: fullThinking,
         );
-        _messages.last.tokenCount = await _chatService.engine.getTokenCount(
-          finalText,
-        );
+        var finalText = normalized.text;
+        final finalThinking = normalized.thinking;
+        final debugBadges = kDebugMode
+            ? _buildAssistantDebugBadges(
+                hadRawThinkingTags: hadRawThinkingTags,
+                hadThinkingStream: hadThinkingStream,
+                finalThinking: finalThinking,
+                finalText: finalText,
+              )
+            : <String>[];
+
+        if (_settings.toolsEnabled &&
+            _looksLikeToolResultDisclaimer(finalText)) {
+          final fallback = _buildRecentToolResultSummary();
+          if (fallback != null && fallback.isNotEmpty) {
+            finalText = fallback;
+            if (kDebugMode) {
+              debugBadges.add('fallback:tool-result');
+            }
+          }
+        }
+
+        if (_messages.isNotEmpty && !_messages.last.isUser) {
+          final parts = <LlamaContentPart>[];
+          if (finalThinking.isNotEmpty) {
+            parts.add(LlamaThinkingContent(finalThinking));
+          }
+          if (finalText.isNotEmpty) {
+            parts.add(LlamaTextContent(finalText));
+          }
+
+          _messages[_messages.length - 1] = _messages.last.copyWith(
+            text: finalText,
+            parts: parts,
+            debugBadges: debugBadges,
+          );
+          _messages.last.tokenCount = await _chatService.engine.getTokenCount(
+            finalText,
+          );
+        }
       }
 
       // Check for tool calls in the session history and execute them
@@ -481,9 +521,15 @@ class ChatProvider extends ChangeNotifier {
             .whereType<LlamaToolCallContent>()
             .toList();
 
-        if (toolCalls.isNotEmpty && remainingToolIterations > 0) {
-          await _executeToolCalls(toolCalls, remainingToolIterations - 1);
-          return; // _executeToolCalls handles the rest
+        if (toolCalls.isNotEmpty) {
+          if (remainingToolIterations > 0) {
+            await _executeToolCalls(toolCalls, remainingToolIterations - 1);
+            return; // _executeToolCalls handles the rest
+          }
+
+          _addInfoMessage(
+            'Stopped after $_maxToolIterations tool-call rounds to prevent an infinite loop.',
+          );
         }
       }
     } catch (e) {
@@ -509,6 +555,187 @@ class ChatProvider extends ChangeNotifier {
       _isGenerating = false;
       notifyListeners();
     }
+  }
+
+  ({String text, String thinking}) _normalizeAssistantOutput({
+    required String streamedContent,
+    required String streamedThinking,
+  }) {
+    var normalizedText = _chatService.cleanResponse(streamedContent);
+    var normalizedThinking = streamedThinking;
+
+    final shouldParseForNormalization =
+        _settings.toolsEnabled ||
+        normalizedText.contains('<think>') ||
+        normalizedText.contains('</think>') ||
+        normalizedText.trimLeft().startsWith('{');
+
+    if (!shouldParseForNormalization) {
+      return (text: normalizedText, thinking: normalizedThinking);
+    }
+
+    final parseFormat = _detectedChatFormat == ChatFormat.contentOnly
+        ? ChatFormat.generic
+        : (_detectedChatFormat ?? ChatFormat.generic);
+
+    try {
+      final parsed = ChatTemplateEngine.parse(
+        parseFormat.index,
+        streamedContent,
+        parseToolCalls: true,
+      );
+
+      final parsedText = _chatService.cleanResponse(parsed.content);
+      if (parsed.hasToolCalls) {
+        normalizedText = '';
+      } else if (parsedText.isNotEmpty) {
+        normalizedText = parsedText;
+      }
+
+      final parsedReasoning = parsed.reasoningContent?.trim();
+      if (normalizedThinking.isEmpty &&
+          parsedReasoning != null &&
+          parsedReasoning.isNotEmpty) {
+        normalizedThinking = parsedReasoning;
+      }
+    } catch (_) {
+      // Keep streamed values when parsing fails.
+    }
+
+    if (normalizedThinking.isEmpty) {
+      final extracted = _extractMinistralReasoningHeuristic(normalizedText);
+      if (extracted != null) {
+        normalizedThinking = extracted.reasoning;
+        normalizedText = extracted.answer;
+      }
+    }
+
+    return (text: normalizedText, thinking: normalizedThinking);
+  }
+
+  ({String reasoning, String answer})? _extractMinistralReasoningHeuristic(
+    String text,
+  ) {
+    final trimmed = text.trim();
+    if (trimmed.length < 64) {
+      return null;
+    }
+
+    final repeatedQuotedAnswer = RegExp(
+      r'^(.*?)(?:\n+\s*(?:Response|Final answer|Answer)\s*:\s*)?"([^"\n]{4,})"\s*(?:\2)?\s*$',
+      dotAll: true,
+    ).firstMatch(trimmed);
+
+    if (repeatedQuotedAnswer != null) {
+      final reasoning = repeatedQuotedAnswer.group(1)?.trim() ?? '';
+      final answer = repeatedQuotedAnswer.group(2)?.trim() ?? '';
+      if (reasoning.length >= 24 && answer.isNotEmpty) {
+        return (reasoning: reasoning, answer: answer);
+      }
+    }
+
+    final plainTailAnswer = RegExp(
+      r'^(.*?)(?:\n+\s*(?:Response|Final answer|Answer)\s*:\s*)([^\n]{4,})\s*$',
+      dotAll: true,
+    ).firstMatch(trimmed);
+
+    if (plainTailAnswer != null) {
+      final reasoning = plainTailAnswer.group(1)?.trim() ?? '';
+      final answer = plainTailAnswer.group(2)?.trim() ?? '';
+      if (reasoning.length >= 24 && answer.isNotEmpty) {
+        return (reasoning: reasoning, answer: answer);
+      }
+    }
+
+    return null;
+  }
+
+  bool _containsReasoningTag(String text) {
+    return text.contains('<think>') ||
+        text.contains('</think>') ||
+        text.contains('[THINK]') ||
+        text.contains('[/THINK]');
+  }
+
+  List<String> _buildAssistantDebugBadges({
+    required bool hadRawThinkingTags,
+    required bool hadThinkingStream,
+    required String finalThinking,
+    required String finalText,
+  }) {
+    final badges = <String>[];
+    final formatName = (_detectedChatFormat ?? ChatFormat.generic).name;
+    badges.add('fmt:$formatName');
+
+    final hasFinalThinking = finalThinking.trim().isNotEmpty;
+    final thinkingSource = hadThinkingStream
+        ? 'stream'
+        : hasFinalThinking && hadRawThinkingTags
+        ? 'tag-parse'
+        : hasFinalThinking
+        ? 'parse'
+        : 'none';
+    badges.add('think:$thinkingSource');
+
+    final trimmed = finalText.trimLeft();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      badges.add('content:json');
+    }
+
+    return badges;
+  }
+
+  bool _looksLikeToolResultDisclaimer(String text) {
+    final lower = text.toLowerCase();
+    return lower.contains("don't have real-time access") ||
+        lower.contains('do not have real-time access') ||
+        lower.contains("can't access real-time") ||
+        lower.contains('cannot access real-time') ||
+        lower.contains('no real-time access') ||
+        lower.contains('fictional response') ||
+        lower.contains('as an ai') && lower.contains('real-time');
+  }
+
+  String? _buildRecentToolResultSummary() {
+    final start = _indexAfterLastUserMessage();
+    final seen = <String>{};
+    final summaries = <MapEntry<String, String>>[];
+
+    for (int i = start; i < _messages.length; i++) {
+      final message = _messages[i];
+      final results = message.parts?.whereType<LlamaToolResultContent>();
+      if (results == null) {
+        continue;
+      }
+
+      for (final result in results) {
+        final raw = result.result;
+        final rendered = raw is String ? raw.trim() : jsonEncode(raw).trim();
+        if (rendered.isEmpty) {
+          continue;
+        }
+
+        final key = '${result.id ?? result.name}:$rendered';
+        if (!seen.add(key)) {
+          continue;
+        }
+
+        summaries.add(MapEntry(result.name, rendered));
+      }
+    }
+
+    if (summaries.isEmpty) {
+      return null;
+    }
+    if (summaries.length == 1) {
+      return summaries.first.value;
+    }
+    return summaries
+        .map((entry) {
+          final prefix = entry.key.isNotEmpty ? '${entry.key}: ' : '';
+          return '- $prefix${entry.value}';
+        })
+        .join('\n');
   }
 
   void _updateRuntimeDiagnostics({
@@ -577,7 +804,39 @@ class ChatProvider extends ChangeNotifier {
   ) async {
     _removeRawToolCallPlaceholderMessages(toolCalls);
 
-    for (final tc in toolCalls) {
+    final freshToolCalls = toolCalls
+        .where((call) => !_hasCompletedEquivalentToolCall(call))
+        .toList(growable: false);
+
+    final budgetedToolCalls = freshToolCalls
+        .where((call) {
+          final completedForName = _completedToolCountForName(call.name);
+          return completedForName < _maxToolExecutionsPerToolPerTurn;
+        })
+        .toList(growable: false);
+
+    if (freshToolCalls.isEmpty || budgetedToolCalls.isEmpty) {
+      _addInfoMessage(
+        'Model repeated tool calls. Requesting a direct answer without tools.',
+      );
+      notifyListeners();
+      await _generateResponse(
+        '',
+        parts: [],
+        remainingToolIterations: 0,
+        toolChoiceForTurn: ToolChoice.none,
+      );
+      return;
+    }
+
+    if (budgetedToolCalls.length < freshToolCalls.length) {
+      _addInfoMessage(
+        'Skipping repeated tool calls for the same function to avoid loops.',
+      );
+      notifyListeners();
+    }
+
+    for (final tc in budgetedToolCalls) {
       final toolMessageIndex = _ensureToolCallMessage(tc);
       final handler = _toolHandlers[tc.name];
       if (handler == null) {
@@ -627,10 +886,78 @@ class ChatProvider extends ChangeNotifier {
 
     // Continue generation to get final response with tool results
     await _generateResponse(
-      '',
+      _postToolFollowupInstruction,
       parts: [],
       remainingToolIterations: remainingIterations,
+      toolChoiceForTurn: null,
     );
+  }
+
+  bool _hasCompletedEquivalentToolCall(LlamaToolCallContent target) {
+    final start = _indexAfterLastUserMessage();
+
+    for (int i = _messages.length - 1; i >= start; i--) {
+      final message = _messages[i];
+      final calls = message.parts?.whereType<LlamaToolCallContent>().toList();
+      final results = message.parts
+          ?.whereType<LlamaToolResultContent>()
+          .toList();
+
+      if (calls == null ||
+          calls.isEmpty ||
+          results == null ||
+          results.isEmpty) {
+        continue;
+      }
+
+      for (final call in calls) {
+        final sameId =
+            call.id != null && target.id != null && call.id == target.id;
+        final sameNameAndArgs =
+            call.name == target.name &&
+            mapEquals(call.arguments, target.arguments);
+        if (!sameId && !sameNameAndArgs) {
+          continue;
+        }
+
+        final hasMatchingResult = results.any((result) {
+          if (result.id != null && call.id != null) {
+            return result.id == call.id;
+          }
+          return result.name == call.name;
+        });
+
+        if (hasMatchingResult) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  int _completedToolCountForName(String name) {
+    if (name.isEmpty) {
+      return 0;
+    }
+
+    final start = _indexAfterLastUserMessage();
+    var count = 0;
+
+    for (int i = start; i < _messages.length; i++) {
+      final message = _messages[i];
+      final results = message.parts?.whereType<LlamaToolResultContent>();
+      if (results == null) {
+        continue;
+      }
+      for (final result in results) {
+        if (result.name == name) {
+          count++;
+        }
+      }
+    }
+
+    return count;
   }
 
   int _ensureToolCallMessage(LlamaToolCallContent toolCall) {
@@ -961,11 +1288,9 @@ class ChatProvider extends ChangeNotifier {
 
     final hasDedicatedToolTemplate =
         toolTemplate != null && toolTemplate.trim().isNotEmpty;
-    final hasToolMarkers = _templateHasToolMarkers(effectiveTemplate);
 
     _templateSupportsTools =
-        hasDedicatedToolTemplate ||
-        (_formatCanUseTools(format) && hasToolMarkers);
+        hasDedicatedToolTemplate || _formatCanUseTools(format);
 
     if (_settings.toolsEnabled && !_templateSupportsTools) {
       _settings = _settings.copyWith(toolsEnabled: false, forceToolCall: false);
@@ -973,39 +1298,12 @@ class ChatProvider extends ChangeNotifier {
       _messages.add(
         ChatMessage(
           text:
-              'Tool calling disabled for this model: chat template does not '
-              'advertise tool support.',
+              'Tool calling disabled for this model: template is content-only.',
           isUser: false,
           isInfo: true,
         ),
       );
     }
-  }
-
-  bool _templateHasToolMarkers(String template) {
-    const markers = [
-      'tools',
-      'tool_call',
-      'tool_calls',
-      '[TOOL_CALLS]',
-      '<tool_call>',
-      '<tool_calls>',
-      '<available_tools>',
-      '<|python_tag|>',
-      '<|tool_list_start|>',
-      '<start_function_call>',
-      'functools[',
-      '>>>all',
-      '<function=',
-      '<|tool_calls_section_begin|>',
-    ];
-
-    for (final marker in markers) {
-      if (template.contains(marker)) {
-        return true;
-      }
-    }
-    return false;
   }
 
   bool _formatCanUseTools(ChatFormat format) {
@@ -1150,12 +1448,28 @@ class ChatProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    _chatService.dispose();
+    stopGeneration();
+    _session?.reset();
+    _session = null;
+    unawaited(_chatService.dispose());
     super.dispose();
   }
 
   Future<void> shutdown() async {
-    await _chatService.dispose();
+    if (_isShuttingDown) {
+      return;
+    }
+
+    _isShuttingDown = true;
+    try {
+      stopGeneration();
+      _session?.reset();
+      _session = null;
+      _isLoaded = false;
+      await _chatService.dispose();
+    } finally {
+      _isShuttingDown = false;
+    }
   }
 
   Future<void> estimateDynamicSettings() async {

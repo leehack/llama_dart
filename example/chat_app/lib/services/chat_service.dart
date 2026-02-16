@@ -72,6 +72,7 @@ class ChatService {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    _engine.cancelGeneration();
     await _engine.dispose();
   }
 
