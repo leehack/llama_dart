@@ -19,6 +19,20 @@ It exposes OpenAI-compatible endpoints:
 - CORS support for local browser clients
 - One loaded GGUF model per server process
 
+## Project structure
+
+This example now follows a feature-first structure:
+
+- `lib/src/features/openai_api/` - OpenAI-compatible HTTP server and docs
+- `lib/src/features/chat_completion/` - chat request model, parser, mapper, and
+  completion use cases
+- `lib/src/features/model_management/` - model path resolution and download
+- `lib/src/features/server_engine/` - engine contract + llama engine adapter
+- `lib/src/features/shared/` - shared API error types
+- `lib/src/bootstrap/` - CLI argument parsing and runtime wiring
+
+Public APIs are exported directly from `lib/llamadart_server.dart`.
+
 ## Limitations
 
 - Supports a single generation at a time (returns 429 while busy)
@@ -49,6 +63,12 @@ Optional flags:
 - `--max-tool-rounds` (default: `5`; used only when tool execution is enabled)
 - `--log` (enable verbose Dart + HTTP request logs; native logs stay error-only)
 
+### Exit codes
+
+- `0` - success (including `--help`)
+- `64` - invalid CLI usage or argument values
+- `70` - runtime/server startup failure
+
 ### Sampling defaults
 
 When omitted in a request body, this example server applies a stable default
@@ -67,6 +87,8 @@ Request-provided sampling fields (for example `temperature`, `top_p`, `seed`,
 
 - OpenAPI JSON: `http://127.0.0.1:8080/openapi.json`
 - Swagger UI: `http://127.0.0.1:8080/docs`
+- Swagger includes ready-made chat request examples (basic, streaming, tools)
+  under `POST /v1/chat/completions`.
 
 ```bash
 curl http://127.0.0.1:8080/openapi.json
