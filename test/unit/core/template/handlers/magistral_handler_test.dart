@@ -95,6 +95,20 @@ void main() {
     );
   });
 
+  test('parses tool-call JSON array when marker is missing', () {
+    final handler = MagistralHandler();
+    final parsed = handler.parse(
+      '[{"name":"get_weather","arguments":{"city":"Seoul"}}]',
+    );
+
+    expect(parsed.toolCalls, hasLength(1));
+    expect(parsed.toolCalls.first.function?.name, equals('get_weather'));
+    expect(
+      jsonDecode(parsed.toolCalls.first.function!.arguments!),
+      containsPair('city', 'Seoul'),
+    );
+  });
+
   test('parses Ministral [ARGS] tool names starting with digits', () {
     final handler = MagistralHandler();
     final parsed = handler.parse(

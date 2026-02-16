@@ -43,15 +43,16 @@ void main() {
 
       expect(result, isNotNull);
       expect(result!.grammar, contains('root ::='));
-      // Tool call format uses escaped quotes for property names
+      expect(result.grammar, contains(r'\"tool_call\"'));
       expect(result.grammar, contains(r'\"name\"'));
       expect(result.grammar, contains(r'\"arguments\"'));
-      expect(result.grammar, contains('"get_weather"'));
+      expect(result.grammar, contains(r'\"get_weather\"'));
       expect(result.grammar, contains(r'\"location\"'));
       expect(result.grammarLazy, isFalse);
+      expect(result.grammar, isNot(contains(r'\"response\"')));
     });
 
-    test('generates lazy grammar for ToolChoice.auto', () {
+    test('generates response-or-tool grammar for ToolChoice.auto', () {
       final tool = makeTool('search', 'Search the web', [
         ToolParam.string('query', description: 'Search query', required: true),
       ]);
@@ -61,8 +62,10 @@ void main() {
       ], toolChoice: ToolChoice.auto);
 
       expect(result, isNotNull);
-      expect(result!.grammarLazy, isTrue);
-      expect(result.grammarTriggers, isNotEmpty);
+      expect(result!.grammarLazy, isFalse);
+      expect(result.grammarTriggers, isEmpty);
+      expect(result.grammar, contains(r'\"tool_call\"'));
+      expect(result.grammar, contains(r'\"response\"'));
     });
 
     test('generates grammar for multiple tools', () {
@@ -86,10 +89,9 @@ void main() {
 
       expect(result, isNotNull);
       expect(result!.grammar, contains('root ::='));
-      // Tool names appear unquoted in GBNF alternation
-      expect(result.grammar, contains('"search"'));
-      expect(result.grammar, contains('"calculate"'));
-      // Property names use escaped quotes
+      expect(result.grammar, contains(r'\"tool_call\"'));
+      expect(result.grammar, contains(r'\"search\"'));
+      expect(result.grammar, contains(r'\"calculate\"'));
       expect(result.grammar, contains(r'\"query\"'));
       expect(result.grammar, contains(r'\"expression\"'));
     });

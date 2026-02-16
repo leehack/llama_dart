@@ -202,10 +202,8 @@ ChatFormat detectChatFormat(String? templateSource) {
   }
 
   // LFM2
-  if ((templateSource.contains('List of tools: <|tool_list_start|>[') &&
-          templateSource.contains(']<|tool_list_end|>')) ||
-      templateSource.contains('<|tool_list_start|>') ||
-      templateSource.contains('keep_past_thinking')) {
+  if (templateSource.contains('List of tools: <|tool_list_start|>[') &&
+      templateSource.contains(']<|tool_list_end|>')) {
     return ChatFormat.lfm2;
   }
 

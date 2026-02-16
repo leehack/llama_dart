@@ -49,6 +49,18 @@ Future<void> main(List<String> arguments) async {
       help: 'Number of layers to offload to GPU.',
     )
     ..addFlag(
+      'enable-tool-execution',
+      defaultsTo: false,
+      help:
+          'Enable server-side execution loop for model-emitted tool calls. '
+          'This example includes built-in mock handlers for common demo tools.',
+    )
+    ..addOption(
+      'max-tool-rounds',
+      defaultsTo: '5',
+      help: 'Maximum tool-call rounds per request when execution is enabled.',
+    )
+    ..addFlag(
       'log',
       abbr: 'g',
       defaultsTo: false,
@@ -80,6 +92,7 @@ Future<void> main(List<String> arguments) async {
   final host = results['host'] as String;
   final apiKey = results['api-key'] as String?;
   final enableDartLogs = results['log'] as bool;
+  final enableToolExecution = results['enable-tool-execution'] as bool;
 
   final port = _parseIntOption(results['port'] as String, 'port');
   final contextSize = _parseIntOption(
@@ -90,6 +103,14 @@ Future<void> main(List<String> arguments) async {
     results['gpu-layers'] as String,
     'gpu-layers',
   );
+  final maxToolRounds = _parseIntOption(
+    results['max-tool-rounds'] as String,
+    'max-tool-rounds',
+  );
+
+  if (maxToolRounds < 1) {
+    throw ArgumentError('`max-tool-rounds` must be >= 1.');
+  }
 
   final address = InternetAddress.tryParse(host);
   if (address == null) {
@@ -117,10 +138,16 @@ Future<void> main(List<String> arguments) async {
       modelParams: ModelParams(contextSize: contextSize, gpuLayers: gpuLayers),
     );
 
+    final OpenAiToolInvoker? toolInvoker = enableToolExecution
+        ? _invokeExampleTool
+        : null;
+
     final apiServer = OpenAiApiServer(
       engine: serverEngine,
       modelId: modelId,
       apiKey: apiKey,
+      toolInvoker: toolInvoker,
+      maxToolRounds: maxToolRounds,
       enableRequestLogs: enableDartLogs,
     );
 
@@ -143,6 +170,12 @@ Future<void> main(List<String> arguments) async {
       stdout.writeln('  Auth:     enabled (Bearer token required)');
     } else {
       stdout.writeln('  Auth:     disabled');
+    }
+    stdout.writeln(
+      '  Tools:    ${enableToolExecution ? 'server execution enabled' : 'pass-through only'}',
+    );
+    if (enableToolExecution) {
+      stdout.writeln('  Tool rounds: $maxToolRounds');
     }
 
     await _waitForShutdownSignal();
@@ -183,4 +216,94 @@ Future<void> _waitForShutdownSignal() {
   sigTermSub = ProcessSignal.sigterm.watch().listen((_) => completeIfNeeded());
 
   return completer.future;
+}
+
+Future<Object?> _invokeExampleTool(
+  String toolName,
+  Map<String, dynamic> arguments,
+) async {
+  switch (toolName) {
+    case 'get_current_time':
+    case 'get_time':
+      final timezone =
+          _extractStringValue(arguments['timezone'])?.toLowerCase() ?? 'local';
+      final now = timezone == 'utc' ? DateTime.now().toUtc() : DateTime.now();
+      return {
+        'ok': true,
+        'tool': toolName,
+        'timezone': timezone,
+        'iso8601': now.toIso8601String(),
+      };
+
+    case 'get_current_weather':
+    case 'get_weather':
+      final city =
+          _extractStringValue(arguments['city']) ??
+          _extractStringValue(arguments['location']) ??
+          'unknown';
+      final unit = (_extractStringValue(arguments['unit']) ?? 'celsius')
+          .toLowerCase();
+      const celsius = 23;
+      final temperature = unit == 'fahrenheit'
+          ? (celsius * 9 / 5 + 32).round()
+          : celsius;
+
+      return {
+        'ok': true,
+        'tool': toolName,
+        'city': city,
+        'unit': unit,
+        'condition': 'sunny',
+        'temperature': temperature,
+      };
+
+    default:
+      throw UnsupportedError(
+        'No server-side handler registered for `$toolName`.',
+      );
+  }
+}
+
+String? _extractStringValue(Object? value) {
+  if (value == null) {
+    return null;
+  }
+
+  if (value is String) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  if (value is num || value is bool) {
+    return value.toString();
+  }
+
+  if (value is List) {
+    for (final item in value) {
+      final extracted = _extractStringValue(item);
+      if (extracted != null && extracted.isNotEmpty) {
+        return extracted;
+      }
+    }
+    return null;
+  }
+
+  if (value is Map) {
+    final map = Map<String, dynamic>.from(value);
+    if (map.containsKey('value')) {
+      final extracted = _extractStringValue(map['value']);
+      if (extracted != null && extracted.isNotEmpty) {
+        return extracted;
+      }
+    }
+
+    for (final entry in map.entries) {
+      final extracted = _extractStringValue(entry.value);
+      if (extracted != null && extracted.isNotEmpty) {
+        return extracted;
+      }
+    }
+  }
+
+  return null;
 }

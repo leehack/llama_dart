@@ -8,7 +8,7 @@ import 'package:llamadart/src/core/template/handlers/mistral_handler.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('MistralHandler parses [TOOL_CALLS] payload and fallback cases', () {
+  test('MistralHandler parses strict [TOOL_CALLS] payload', () {
     final handler = MistralHandler();
     final tools = [
       ToolDefinition(
@@ -46,6 +46,23 @@ void main() {
     final invalid = handler.parse('[TOOL_CALLS] not-json');
     expect(invalid.content, equals('[TOOL_CALLS] not-json'));
     expect(invalid.toolCalls, isEmpty);
+
+    final markerMissing = handler.parse(
+      '[{"name":"get_weather","arguments":{"city":"Seoul"}}]',
+    );
+    expect(markerMissing.toolCalls, hasLength(1));
+    expect(markerMissing.toolCalls.first.function?.name, equals('get_weather'));
+
+    final semicolon = handler.parse(
+      '{"type":"function","function":"get_weather","parameters":{"city":"Seoul"}}; '
+      '{"type":"function","function":"get_time","parameters":{"city":"Seoul"}}',
+    );
+    expect(semicolon.toolCalls, isEmpty);
+    expect(
+      semicolon.content,
+      '{"type":"function","function":"get_weather","parameters":{"city":"Seoul"}}; '
+      '{"type":"function","function":"get_time","parameters":{"city":"Seoul"}}',
+    );
 
     final plain = handler.parse('plain text', parseToolCalls: false);
     expect(plain.content, equals('plain text'));

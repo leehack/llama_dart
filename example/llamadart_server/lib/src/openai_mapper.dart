@@ -35,10 +35,55 @@ class OpenAiChatCompletionRequest {
   });
 }
 
+/// Invokes one server-side tool by name and arguments.
+typedef OpenAiToolInvoker =
+    Future<Object?> Function(String toolName, Map<String, dynamic> arguments);
+
+/// Parsed tool-call payload emitted by one completion turn.
+class OpenAiToolCallRecord {
+  /// Tool call index in emitted order.
+  final int index;
+
+  /// Tool call id.
+  final String id;
+
+  /// Tool call type (usually `function`).
+  final String type;
+
+  /// Tool function name.
+  final String name;
+
+  /// Raw JSON arguments string.
+  final String argumentsRaw;
+
+  /// Parsed argument object when valid JSON object, else empty map.
+  final Map<String, dynamic> arguments;
+
+  /// Creates an immutable tool-call record.
+  const OpenAiToolCallRecord({
+    required this.index,
+    required this.id,
+    required this.type,
+    required this.name,
+    required this.argumentsRaw,
+    required this.arguments,
+  });
+
+  /// Converts this record into OpenAI-compatible `tool_calls` JSON.
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'type': type,
+      'function': {'name': name, 'arguments': argumentsRaw},
+    };
+  }
+}
+
 /// Parses and validates an OpenAI chat completion request body.
 OpenAiChatCompletionRequest parseChatCompletionRequest(
   Map<String, dynamic> json, {
   required String configuredModelId,
+  OpenAiToolInvoker? toolInvoker,
 }) {
   final model = json['model'];
   if (model is! String || model.trim().isEmpty) {
@@ -74,7 +119,7 @@ OpenAiChatCompletionRequest parseChatCompletionRequest(
       .map((Object? raw) => _parseMessage(raw))
       .toList(growable: false);
 
-  final tools = _parseTools(json['tools']);
+  final tools = _parseTools(json['tools'], toolInvoker: toolInvoker);
   final toolChoice = _parseToolChoice(json['tool_choice'], tools);
 
   if (toolChoice == ToolChoice.required && (tools == null || tools.isEmpty)) {
@@ -90,7 +135,7 @@ OpenAiChatCompletionRequest parseChatCompletionRequest(
   final seed = _readIntField(json['seed'], 'seed');
   final stops = _parseStopSequences(json['stop']);
 
-  var params = const GenerationParams();
+  var params = const GenerationParams(penalty: 1.0);
   if (maxTokens != null) {
     params = params.copyWith(maxTokens: maxTokens);
   }
@@ -167,6 +212,11 @@ Map<String, dynamic> toOpenAiChatCompletionChunk(
         .toList(growable: false);
   }
 
+  final reasoning = choice.delta.thinking;
+  if (reasoning != null && reasoning.isNotEmpty) {
+    delta['reasoning_content'] = reasoning;
+  }
+
   return {
     'id': chunk.id,
     'object': 'chat.completion.chunk',
@@ -185,6 +235,7 @@ Map<String, dynamic> toOpenAiChatCompletionChunk(
 /// Accumulates streaming chunks into a single non-stream OpenAI response.
 class OpenAiChatCompletionAccumulator {
   final StringBuffer _content = StringBuffer();
+  final StringBuffer _reasoning = StringBuffer();
   final Map<int, _ToolCallAccumulator> _toolCallsByIndex =
       <int, _ToolCallAccumulator>{};
 
@@ -201,6 +252,11 @@ class OpenAiChatCompletionAccumulator {
     final content = choice.delta.content;
     if (content != null) {
       _content.write(content);
+    }
+
+    final reasoning = choice.delta.thinking;
+    if (reasoning != null) {
+      _reasoning.write(reasoning);
     }
 
     final toolCalls = choice.delta.toolCalls;
@@ -223,6 +279,18 @@ class OpenAiChatCompletionAccumulator {
   /// Accumulated assistant content.
   String get content => _content.toString();
 
+  /// Accumulated assistant reasoning text.
+  String get reasoningContent => _reasoning.toString();
+
+  /// Parsed tool calls emitted in this completion.
+  List<OpenAiToolCallRecord> get toolCalls {
+    final accumulators = _toolCallsByIndex.values.toList(growable: false)
+      ..sort((a, b) => a.index.compareTo(b.index));
+    return accumulators
+        .map((accumulator) => accumulator.toRecord())
+        .toList(growable: false);
+  }
+
   /// Builds a full OpenAI completion response JSON object.
   Map<String, dynamic> toResponseJson({
     required String id,
@@ -231,18 +299,17 @@ class OpenAiChatCompletionAccumulator {
     required int promptTokens,
     required int completionTokens,
   }) {
-    final toolCalls = _toolCallsByIndex.values.toList(growable: false)
-      ..sort((a, b) => a.index.compareTo(b.index));
-
     final toolCallJson = toolCalls
-        .map((acc) => acc.toJson())
+        .map((record) => record.toJson())
         .toList(growable: false);
 
     final hasToolCalls = toolCallJson.isNotEmpty;
+    final reasoning = reasoningContent;
 
     final message = <String, dynamic>{
       'role': 'assistant',
-      'content': hasToolCalls && content.isEmpty ? null : content,
+      'content': hasToolCalls ? null : content,
+      if (reasoning.isNotEmpty) 'reasoning_content': reasoning,
       if (hasToolCalls) 'tool_calls': toolCallJson,
     };
 
@@ -252,7 +319,11 @@ class OpenAiChatCompletionAccumulator {
       'created': created,
       'model': model,
       'choices': [
-        {'index': 0, 'message': message, 'finish_reason': _finishReason},
+        {
+          'index': 0,
+          'message': message,
+          'finish_reason': hasToolCalls ? 'tool_calls' : _finishReason,
+        },
       ],
       'usage': {
         'prompt_tokens': promptTokens,
@@ -299,6 +370,11 @@ LlamaChatMessage _parseMessage(Object? raw) {
   final parts = _parseContentParts(message['content'], role);
 
   if (role == LlamaChatRole.assistant) {
+    final reasoning = _readContentAsString(message['reasoning_content']).trim();
+    if (reasoning.isNotEmpty) {
+      parts.add(LlamaThinkingContent(reasoning));
+    }
+
     final assistantToolCalls = _parseAssistantToolCalls(message['tool_calls']);
     parts.addAll(assistantToolCalls);
   }
@@ -528,7 +604,10 @@ String _readContentAsString(Object? content) {
   return jsonEncode(content);
 }
 
-List<ToolDefinition>? _parseTools(Object? rawTools) {
+List<ToolDefinition>? _parseTools(
+  Object? rawTools, {
+  OpenAiToolInvoker? toolInvoker,
+}) {
   if (rawTools == null) {
     return null;
   }
@@ -597,8 +676,12 @@ List<ToolDefinition>? _parseTools(Object? rawTools) {
         name: name,
         description: description as String? ?? '',
         parameters: parameters,
-        handler: (ToolParams _) async {
-          return 'Tool execution is disabled in this server example.';
+        handler: (ToolParams params) async {
+          if (toolInvoker == null) {
+            return 'Tool execution is disabled in this server example.';
+          }
+
+          return toolInvoker(name, params.raw);
         },
       ),
     );
@@ -926,11 +1009,37 @@ class _ToolCallAccumulator {
     }
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id ?? 'call_$index',
-      'type': type ?? 'function',
-      'function': {'name': name ?? '', 'arguments': arguments.toString()},
-    };
+  OpenAiToolCallRecord toRecord() {
+    final rawArguments = arguments.toString();
+    return OpenAiToolCallRecord(
+      index: index,
+      id: id ?? 'call_$index',
+      type: type ?? 'function',
+      name: name ?? '',
+      argumentsRaw: rawArguments,
+      arguments: _decodeArgumentsObject(rawArguments),
+    );
   }
+
+  Map<String, dynamic> toJson() {
+    return toRecord().toJson();
+  }
+}
+
+Map<String, dynamic> _decodeArgumentsObject(String rawArguments) {
+  final trimmed = rawArguments.trim();
+  if (trimmed.isEmpty) {
+    return const <String, dynamic>{};
+  }
+
+  try {
+    final decoded = jsonDecode(trimmed);
+    if (decoded is Map) {
+      return Map<String, dynamic>.from(decoded);
+    }
+  } catch (_) {
+    // Keep fallback empty map when the model emits non-JSON arguments.
+  }
+
+  return const <String, dynamic>{};
 }

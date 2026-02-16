@@ -227,16 +227,91 @@ void main() {
       expect(first.statusCode, 200);
     });
   });
+
+  group('OpenAiApiServer server tool loop', () {
+    late _ToolLoopApiServerEngine toolEngine;
+    late _RunningServer server;
+    late http.Client client;
+
+    setUp(() async {
+      toolEngine = _ToolLoopApiServerEngine();
+      server = await _startServer(
+        toolEngine,
+        toolInvoker: _exampleToolInvoker,
+        maxToolRounds: 3,
+      );
+      client = http.Client();
+    });
+
+    tearDown(() async {
+      client.close();
+      await server.close();
+    });
+
+    test('executes tool calls and returns final assistant answer', () async {
+      final response = await client.post(
+        server.uri('/v1/chat/completions'),
+        headers: <String, String>{'Content-Type': 'application/json'},
+        body: jsonEncode(<String, dynamic>{
+          'model': 'test-model',
+          'messages': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'role': 'user',
+              'content': 'Call get_weather for Seoul.',
+            },
+          ],
+          'tools': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'type': 'function',
+              'function': <String, dynamic>{
+                'name': 'get_weather',
+                'description': 'Get weather by city.',
+                'parameters': <String, dynamic>{
+                  'type': 'object',
+                  'properties': <String, dynamic>{
+                    'city': <String, dynamic>{'type': 'string'},
+                  },
+                  'required': <String>['city'],
+                },
+              },
+            },
+          ],
+          'tool_choice': 'required',
+        }),
+      );
+
+      expect(response.statusCode, 200);
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final choices = json['choices'] as List<dynamic>;
+      final choice = choices.first as Map<String, dynamic>;
+      final message = choice['message'] as Map<String, dynamic>;
+
+      expect(choice['finish_reason'], 'stop');
+      expect(message['content'], 'The weather in Seoul is sunny.');
+
+      expect(toolEngine.createCalls, hasLength(2));
+      expect(
+        toolEngine.createCalls[1].any(
+          (message) => message.role == LlamaChatRole.tool,
+        ),
+        isTrue,
+      );
+    });
+  });
 }
 
 Future<_RunningServer> _startServer(
   ApiServerEngine engine, {
   String? apiKey,
+  OpenAiToolInvoker? toolInvoker,
+  int maxToolRounds = 5,
 }) async {
   final app = OpenAiApiServer(
     engine: engine,
     modelId: 'test-model',
     apiKey: apiKey,
+    toolInvoker: toolInvoker,
+    maxToolRounds: maxToolRounds,
   ).buildApp();
 
   final relicServer = await app.serve(
@@ -354,4 +429,105 @@ class _BlockingApiServerEngine extends _FakeApiServerEngine {
       ],
     );
   }
+}
+
+class _ToolLoopApiServerEngine implements ApiServerEngine {
+  final List<List<LlamaChatMessage>> createCalls = <List<LlamaChatMessage>>[];
+
+  @override
+  bool get isReady => true;
+
+  @override
+  Future<LlamaChatTemplateResult> chatTemplate(
+    List<LlamaChatMessage> messages, {
+    bool addAssistant = true,
+    List<ToolDefinition>? tools,
+    ToolChoice toolChoice = ToolChoice.auto,
+  }) async {
+    return LlamaChatTemplateResult(
+      prompt: 'prompt',
+      tokenCount: messages.length * 3,
+    );
+  }
+
+  @override
+  Stream<LlamaCompletionChunk> create(
+    List<LlamaChatMessage> messages, {
+    GenerationParams params = const GenerationParams(),
+    List<ToolDefinition>? tools,
+    ToolChoice? toolChoice,
+  }) async* {
+    createCalls.add(List<LlamaChatMessage>.from(messages));
+    final hasToolResult = messages.any(
+      (message) => message.role == LlamaChatRole.tool,
+    );
+
+    if (!hasToolResult) {
+      yield LlamaCompletionChunk(
+        id: 'chatcmpl-tool-round-1',
+        object: 'chat.completion.chunk',
+        created: 1700001000,
+        model: 'test-model',
+        choices: <LlamaCompletionChunkChoice>[
+          LlamaCompletionChunkChoice(
+            index: 0,
+            delta: LlamaCompletionChunkDelta(
+              toolCalls: <LlamaCompletionChunkToolCall>[
+                LlamaCompletionChunkToolCall(
+                  index: 0,
+                  id: 'call_weather_1',
+                  type: 'function',
+                  function: LlamaCompletionChunkFunction(
+                    name: 'get_weather',
+                    arguments: '{"city":"Seoul"}',
+                  ),
+                ),
+              ],
+            ),
+            finishReason: 'tool_calls',
+          ),
+        ],
+      );
+      return;
+    }
+
+    yield LlamaCompletionChunk(
+      id: 'chatcmpl-tool-round-2',
+      object: 'chat.completion.chunk',
+      created: 1700001001,
+      model: 'test-model',
+      choices: <LlamaCompletionChunkChoice>[
+        LlamaCompletionChunkChoice(
+          index: 0,
+          delta: LlamaCompletionChunkDelta(
+            content: 'The weather in Seoul is sunny.',
+          ),
+          finishReason: 'stop',
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<int> getTokenCount(String text) async {
+    return text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+  }
+
+  @override
+  void cancelGeneration() {}
+}
+
+Future<Object?> _exampleToolInvoker(
+  String toolName,
+  Map<String, dynamic> arguments,
+) async {
+  if (toolName != 'get_weather') {
+    throw UnsupportedError('Unsupported tool: $toolName');
+  }
+
+  return <String, dynamic>{
+    'ok': true,
+    'city': arguments['city'] ?? 'unknown',
+    'condition': 'sunny',
+  };
 }

@@ -114,6 +114,19 @@ class MagistralHandler extends ChatTemplateHandler {
     // This is a known limitation — the proper fix belongs in the engine layer
     // (e.g. prepending the trigger text to the buffer after grammar activation).
     if (!trimmed.contains('[TOOL_CALLS]')) {
+      try {
+        final parsedBareArray = _parseToolCallArray(trimmed);
+        if (parsedBareArray.isNotEmpty) {
+          return ChatParseResult(
+            content: '',
+            reasoningContent: thinking.reasoning,
+            toolCalls: parsedBareArray,
+          );
+        }
+      } catch (_) {
+        // Not a strict JSON array tool-call payload.
+      }
+
       return ChatParseResult(
         content: trimmed,
         reasoningContent: thinking.reasoning,
@@ -161,26 +174,7 @@ class MagistralHandler extends ChatTemplateHandler {
 
     // Format 2: Mistral Nemo JSON array - [TOOL_CALLS][{...}, ...]
     try {
-      final list = jsonDecode(afterMarker) as List<dynamic>;
-      for (var i = 0; i < list.length; i++) {
-        final call = list[i] as Map<String, dynamic>;
-        final name = call['name'] as String?;
-        final args = call['arguments'];
-        final id = call['id'] as String?;
-        if (name != null) {
-          toolCalls.add(
-            LlamaCompletionChunkToolCall(
-              index: i,
-              id: id ?? 'call_$i',
-              type: 'function',
-              function: LlamaCompletionChunkFunction(
-                name: name,
-                arguments: args is String ? args : jsonEncode(args ?? {}),
-              ),
-            ),
-          );
-        }
-      }
+      toolCalls.addAll(_parseToolCallArray(afterMarker));
       if (toolCalls.isNotEmpty) {
         return ChatParseResult(
           content: contentBefore,
@@ -252,6 +246,39 @@ class MagistralHandler extends ChatTemplateHandler {
       }
     }
     return null; // unbalanced braces
+  }
+
+  List<LlamaCompletionChunkToolCall> _parseToolCallArray(String jsonText) {
+    final toolCalls = <LlamaCompletionChunkToolCall>[];
+    final list = jsonDecode(jsonText) as List<dynamic>;
+    for (var i = 0; i < list.length; i++) {
+      final item = list[i];
+      if (item is! Map) {
+        continue;
+      }
+
+      final call = Map<String, dynamic>.from(item);
+      final name = call['name'] as String?;
+      if (name == null || name.isEmpty) {
+        continue;
+      }
+
+      final args = call['arguments'];
+      final id = call['id'] as String?;
+      toolCalls.add(
+        LlamaCompletionChunkToolCall(
+          index: i,
+          id: id ?? 'call_$i',
+          type: 'function',
+          function: LlamaCompletionChunkFunction(
+            name: name,
+            arguments: args is String ? args : jsonEncode(args ?? {}),
+          ),
+        ),
+      );
+    }
+
+    return toolCalls;
   }
 
   @override

@@ -1,6 +1,7 @@
 import '../grammar/tool_grammar_generator.dart' as grammar;
 import '../llama_logger.dart';
 import '../models/chat/chat_message.dart';
+import '../models/chat/chat_role.dart';
 import '../models/chat/chat_template_result.dart';
 import '../models/chat/content_part.dart';
 import '../models/inference/tool_choice.dart';
@@ -86,6 +87,11 @@ class ChatTemplateRoutingContext {
 /// final parsed = engine.parse(result.format, rawOutput);
 /// ```
 class ChatTemplateEngine {
+  static const String _genericToolSystemInstruction =
+      'Respond in JSON format, either with `tool_call` '
+      '(a request to call tools) or with `response` reply '
+      'to the user\'s request';
+
   /// Singleton handler instances, lazily initialized.
   static final Map<ChatFormat, ChatTemplateHandler> _handlers = {};
 
@@ -102,6 +108,8 @@ class ChatTemplateEngine {
     ChatFormat.nemotronV2,
     ChatFormat.lfm2,
   };
+
+  static const Set<ChatFormat> _toolCallGenericFormats = {ChatFormat.gemma};
 
   /// Custom handlers registered by user code.
   static final Map<String, _RegisteredHandler> _customHandlers = {};
@@ -289,6 +297,10 @@ class ChatTemplateEngine {
       // generic routing, and some format handlers are disabled with schema.
       if (hasTools && hasSchemaResponseFormat) {
         effectiveFormat = ChatFormat.generic;
+      } else if (hasTools && _toolCallGenericFormats.contains(format)) {
+        // Match llama.cpp server behavior: Gemma tool-call requests route
+        // through generic JSON tool-calling semantics.
+        effectiveFormat = ChatFormat.generic;
       } else if (hasSchemaResponseFormat &&
           _schemaDisabledFormats.contains(format)) {
         effectiveFormat = hasTools
@@ -323,6 +335,13 @@ class ChatTemplateEngine {
     // Apply only to built-in routing; custom handlers are expected to own
     // their message preprocessing semantics.
     if (selectedHandler == null) {
+      if (hasTools && effectiveFormat == ChatFormat.generic) {
+        effectiveMessages = _prependSystemInstruction(
+          effectiveMessages,
+          _genericToolSystemInstruction,
+        );
+      }
+
       if (!caps.supportsSystemRole) {
         effectiveMessages = TemplateWorkarounds.applySystemMessageWorkaround(
           effectiveMessages,
@@ -523,16 +542,16 @@ class ChatTemplateEngine {
         toolChoice: _toGrammarToolChoice(toolChoice),
       );
       if (grammarResult != null) {
+        // Match llama.cpp generic/content-only behavior: tool grammar is
+        // eagerly applied (non-lazy) for auto/required selection.
         return LlamaChatTemplateResult(
           prompt: result.prompt,
           format: result.format,
           grammar: grammarResult.grammar,
-          grammarLazy: grammarResult.grammarLazy,
+          grammarLazy: false,
           additionalStops: result.additionalStops,
           preservedTokens: result.preservedTokens,
-          grammarTriggers: grammarResult.grammarTriggers
-              .map((t) => GrammarTrigger(type: 0, value: t))
-              .toList(),
+          grammarTriggers: const [],
           thinkingForcedOpen: result.thinkingForcedOpen,
           parser: result.parser,
           tokenCount: result.tokenCount,
@@ -821,6 +840,29 @@ class ChatTemplateEngine {
       case ToolChoice.auto:
         return grammar.ToolChoice.auto;
     }
+  }
+
+  static List<LlamaChatMessage> _prependSystemInstruction(
+    List<LlamaChatMessage> messages,
+    String instruction,
+  ) {
+    if (messages.isNotEmpty && messages.first.role == LlamaChatRole.system) {
+      final first = messages.first;
+      if (first.content.contains(instruction)) {
+        return messages;
+      }
+
+      final merged = '${instruction.trim()}\n\n${first.content.trim()}';
+      return <LlamaChatMessage>[
+        first.copyWith(content: merged),
+        ...messages.skip(1),
+      ];
+    }
+
+    return <LlamaChatMessage>[
+      LlamaChatMessage.fromText(role: LlamaChatRole.system, text: instruction),
+      ...messages,
+    ];
   }
 }
 

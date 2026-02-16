@@ -23,6 +23,7 @@ void main() {
       expect(request.params.maxTokens, 64);
       expect(request.params.temp, 0.2);
       expect(request.params.topP, 0.8);
+      expect(request.params.penalty, 1.0);
       expect(request.params.seed, 42);
       expect(request.params.stopSequences, <String>['END']);
     });
@@ -111,6 +112,34 @@ void main() {
       expect(delta['content'], 'Hello');
       expect(choice['finish_reason'], isNull);
     });
+
+    test('includes reasoning_content when thinking delta is present', () {
+      final chunk = LlamaCompletionChunk(
+        id: 'chatcmpl-456',
+        object: 'chat.completion.chunk',
+        created: 456,
+        model: 'ignored',
+        choices: <LlamaCompletionChunkChoice>[
+          LlamaCompletionChunkChoice(
+            index: 0,
+            delta: LlamaCompletionChunkDelta(thinking: 'I should call a tool.'),
+          ),
+        ],
+      );
+
+      final json = toOpenAiChatCompletionChunk(
+        chunk,
+        model: 'llamadart-local',
+        includeRole: false,
+      );
+
+      final choices = json['choices'] as List<dynamic>;
+      final choice = choices.first as Map<String, dynamic>;
+      final delta = choice['delta'] as Map<String, dynamic>;
+
+      expect(delta['reasoning_content'], 'I should call a tool.');
+      expect(delta.containsKey('content'), isFalse);
+    });
   });
 
   group('OpenAiChatCompletionAccumulator', () {
@@ -186,6 +215,86 @@ void main() {
       expect(function['name'], 'get_weather');
       expect(function['arguments'], '{"city":"Seoul"}');
       expect(message['content'], isNull);
+    });
+
+    test('preserves reasoning_content in non-stream response payload', () {
+      final accumulator = OpenAiChatCompletionAccumulator();
+
+      accumulator.addChunk(
+        LlamaCompletionChunk(
+          id: 'chatcmpl-789',
+          object: 'chat.completion.chunk',
+          created: 789,
+          model: 'ignored',
+          choices: <LlamaCompletionChunkChoice>[
+            LlamaCompletionChunkChoice(
+              index: 0,
+              delta: LlamaCompletionChunkDelta(
+                thinking: 'Reasoning step.',
+                content: 'Final answer.',
+              ),
+              finishReason: 'stop',
+            ),
+          ],
+        ),
+      );
+
+      final response = accumulator.toResponseJson(
+        id: 'chatcmpl-789',
+        created: 789,
+        model: 'llamadart-local',
+        promptTokens: 4,
+        completionTokens: 3,
+      );
+
+      final choices = response['choices'] as List<dynamic>;
+      final choice = choices.first as Map<String, dynamic>;
+      final message = choice['message'] as Map<String, dynamic>;
+
+      expect(message['content'], 'Final answer.');
+      expect(message['reasoning_content'], 'Reasoning step.');
+    });
+
+    test('does not infer tool calls from content-only text', () {
+      final accumulator = OpenAiChatCompletionAccumulator();
+
+      accumulator.addChunk(
+        LlamaCompletionChunk(
+          id: 'chatcmpl-101',
+          object: 'chat.completion.chunk',
+          created: 101,
+          model: 'ignored',
+          choices: <LlamaCompletionChunkChoice>[
+            LlamaCompletionChunkChoice(
+              index: 0,
+              delta: LlamaCompletionChunkDelta(
+                content:
+                    "```tool_code\nget_weather(city='Seoul', unit='celsius')\n```",
+              ),
+              finishReason: 'stop',
+            ),
+          ],
+        ),
+      );
+
+      final response = accumulator.toResponseJson(
+        id: 'chatcmpl-101',
+        created: 101,
+        model: 'llamadart-local',
+        promptTokens: 10,
+        completionTokens: 5,
+      );
+
+      final choice =
+          (response['choices'] as List<dynamic>).first as Map<String, dynamic>;
+      final message = choice['message'] as Map<String, dynamic>;
+
+      expect(choice['finish_reason'], 'stop');
+      expect(message.containsKey('tool_calls'), isFalse);
+      expect(
+        message['content'],
+        "```tool_code\nget_weather(city='Seoul', unit='celsius')\n```",
+      );
     });
   });
 

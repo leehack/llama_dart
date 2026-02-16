@@ -3,27 +3,44 @@ import 'dart:convert';
 import 'package:dinja/dinja.dart';
 
 import '../../models/chat/chat_message.dart';
+import '../../models/chat/chat_role.dart';
 import '../../models/chat/chat_template_result.dart';
 import '../../models/chat/completion_chunk.dart';
 import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
-import '../thinking_utils.dart';
 import '../tool_call_grammar_utils.dart';
 
 /// Handler for LFM2 (Liquid Foundation Model 2) format.
 ///
 /// Uses `<|tool_call_start|>` / `<|tool_call_end|>` special tokens for tool calls,
 /// and `<|tool_list_start|>` / `<|tool_list_end|>` for tool definitions.
-///
-/// Also supports the legacy bracket format: `[function_name(arg1='val1')]`
 class Lfm2Handler extends ChatTemplateHandler {
+  static final RegExp _forceJsonSchemaLineMarker = RegExp(
+    r'force json schema\.\n',
+    caseSensitive: false,
+  );
+
+  static final RegExp _forceJsonSchemaMarker = RegExp(
+    r'force json schema\.',
+    caseSensitive: false,
+  );
+
   @override
   ChatFormat get format => ChatFormat.lfm2;
 
   @override
   List<String> get additionalStops => ['<|im_end|>'];
+
+  @override
+  List<String> getStops({bool hasTools = false, bool enableThinking = true}) {
+    if (hasTools) {
+      return const [];
+    }
+
+    return additionalStops;
+  }
 
   @override
   List<String> get preservedTokens => const [
@@ -41,26 +58,32 @@ class Lfm2Handler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
+    final hasTools = tools != null && tools.isNotEmpty;
+    final shouldConstrainWithJsonTools =
+        hasTools && _shouldConstrainWithJsonTools(messages);
+    final effectiveMessages = shouldConstrainWithJsonTools
+        ? _stripForceJsonSchemaMarker(messages)
+        : messages;
+
     final prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
+      'messages': effectiveMessages.map((m) => m.toJson()).toList(),
       'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
+      'tools': _serializeToolsForTemplate(tools),
       'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '',
       'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '',
     });
 
-    final hasTools = tools != null && tools.isNotEmpty;
     return LlamaChatTemplateResult(
       prompt: prompt,
       format: format.index,
-      grammar: buildGrammar(tools),
-      grammarLazy: hasTools,
+      grammar: shouldConstrainWithJsonTools ? buildGrammar(tools) : null,
+      grammarLazy: shouldConstrainWithJsonTools,
       additionalStops: getStops(
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
       preservedTokens: hasTools ? preservedTokens : const [],
-      grammarTriggers: hasTools
+      grammarTriggers: shouldConstrainWithJsonTools
           ? [
               const GrammarTrigger(
                 type: 3,
@@ -71,6 +94,65 @@ class Lfm2Handler extends ChatTemplateHandler {
     );
   }
 
+  bool _shouldConstrainWithJsonTools(List<LlamaChatMessage> messages) {
+    if (messages.isEmpty) {
+      return false;
+    }
+
+    final first = messages.first;
+    if (first.role != LlamaChatRole.system) {
+      return false;
+    }
+
+    final content = first.content;
+    return _forceJsonSchemaLineMarker.hasMatch(content) ||
+        _forceJsonSchemaMarker.hasMatch(content);
+  }
+
+  List<LlamaChatMessage> _stripForceJsonSchemaMarker(
+    List<LlamaChatMessage> messages,
+  ) {
+    if (messages.isEmpty) {
+      return messages;
+    }
+
+    final first = messages.first;
+    if (first.role != LlamaChatRole.system) {
+      return messages;
+    }
+
+    var stripped = first.content.replaceFirst(_forceJsonSchemaLineMarker, '');
+    if (stripped == first.content) {
+      stripped = first.content.replaceFirst(_forceJsonSchemaMarker, '');
+    }
+    if (stripped == first.content) {
+      return messages;
+    }
+
+    return <LlamaChatMessage>[
+      first.copyWith(content: stripped),
+      ...messages.skip(1),
+    ];
+  }
+
+  List<Map<String, dynamic>>? _serializeToolsForTemplate(
+    List<ToolDefinition>? tools,
+  ) {
+    if (tools == null || tools.isEmpty) {
+      return null;
+    }
+
+    return tools
+        .map(
+          (tool) => <String, dynamic>{
+            'name': tool.name,
+            'description': tool.description,
+            'parameters': tool.toJsonSchema(),
+          },
+        )
+        .toList(growable: false);
+  }
+
   @override
   ChatParseResult parse(
     String output, {
@@ -78,40 +160,43 @@ class Lfm2Handler extends ChatTemplateHandler {
     bool parseToolCalls = true,
     bool thinkingForcedOpen = false,
   }) {
-    final thinking = extractThinking(
-      output,
-      thinkingForcedOpen: thinkingForcedOpen,
-    );
-    final text = thinking.content;
-
     if (!parseToolCalls) {
-      return ChatParseResult(
-        content: text.trim(),
-        reasoningContent: thinking.reasoning,
-      );
+      return ChatParseResult(content: output.trim());
     }
 
     final toolCalls = <LlamaCompletionChunkToolCall>[];
-    var contentText = text;
+    var contentText = output;
 
-    // Try <|tool_call_start|>/<|tool_call_end|> format first
+    // LFM2 format:
+    // <|tool_call_start|>[{"name":"fn","arguments":{...}}]<|tool_call_end|>
     final toolCallRegex = RegExp(
       r'<\|tool_call_start\|>\s*(.*?)\s*<\|tool_call_end\|>',
       dotAll: true,
     );
 
-    final matches = toolCallRegex.allMatches(text);
+    final matches = toolCallRegex.allMatches(output);
     for (var i = 0; i < matches.length; i++) {
       final match = matches.elementAt(i);
       try {
-        final json = jsonDecode(match.group(1)!) as Map<String, dynamic>;
-        final name = json['name'] as String?;
-        final args = json['arguments'];
-        if (name != null) {
+        final decoded = jsonDecode(match.group(1)!);
+        if (decoded is! List) {
+          continue;
+        }
+
+        for (final item in decoded) {
+          if (item is! Map) {
+            continue;
+          }
+          final toolCall = Map<String, dynamic>.from(item);
+          final name = toolCall['name'];
+          if (name is! String || name.isEmpty) {
+            continue;
+          }
+          final args = toolCall['arguments'];
           toolCalls.add(
             LlamaCompletionChunkToolCall(
-              index: i,
-              id: 'call_$i',
+              index: toolCalls.length,
+              id: 'call_${toolCalls.length}',
               type: 'function',
               function: LlamaCompletionChunkFunction(
                 name: name,
@@ -120,66 +205,13 @@ class Lfm2Handler extends ChatTemplateHandler {
             ),
           );
         }
-      } catch (_) {}
+      } catch (_) {
+        // Keep content unchanged when payload is malformed.
+      }
       contentText = contentText.replaceAll(match.group(0)!, '');
     }
 
-    // Fallback: try legacy bracket format [function_name(args)]
-    if (toolCalls.isEmpty) {
-      final bracketRegex = RegExp(
-        r'\[([a-zA-Z0-9_]+)\((.*?)\)\]',
-        dotAll: true,
-      );
-      final bracketMatches = bracketRegex.allMatches(text);
-      for (var i = 0; i < bracketMatches.length; i++) {
-        final match = bracketMatches.elementAt(i);
-        final name = match.group(1)?.trim() ?? '';
-        final argsStr = match.group(2)?.trim() ?? '';
-
-        toolCalls.add(
-          LlamaCompletionChunkToolCall(
-            index: i,
-            id: 'call_$i',
-            type: 'function',
-            function: LlamaCompletionChunkFunction(
-              name: name,
-              arguments: _parseBracketArgs(argsStr),
-            ),
-          ),
-        );
-        contentText = contentText.replaceAll(match.group(0)!, '');
-      }
-    }
-
-    return ChatParseResult(
-      content: contentText.trim(),
-      reasoningContent: thinking.reasoning,
-      toolCalls: toolCalls,
-    );
-  }
-
-  /// Parses the bracket-style arguments (key=value, key='value')
-  /// into a JSON string.
-  String _parseBracketArgs(String argsStr) {
-    if (argsStr.isEmpty) return '{}';
-
-    final args = <String, dynamic>{};
-    // Match key=value pairs, where value can be quoted
-    final argRegex = RegExp(r'''(\w+)\s*=\s*(?:'([^']*)'|"([^"]*)"|(\S+))''');
-    for (final match in argRegex.allMatches(argsStr)) {
-      final key = match.group(1)!;
-      final value = match.group(2) ?? match.group(3) ?? match.group(4) ?? '';
-      // Try to parse as number
-      final numVal = num.tryParse(value);
-      if (numVal != null) {
-        args[key] = numVal;
-      } else if (value == 'true' || value == 'false') {
-        args[key] = value == 'true';
-      } else {
-        args[key] = value;
-      }
-    }
-    return jsonEncode(args);
+    return ChatParseResult(content: contentText.trim(), toolCalls: toolCalls);
   }
 
   @override
@@ -188,6 +220,8 @@ class Lfm2Handler extends ChatTemplateHandler {
       tools: tools,
       prefix: '<|tool_call_start|>',
       suffix: '<|tool_call_end|>',
+      idKey: 'id',
+      allowParallelToolCalls: false,
     );
   }
 }

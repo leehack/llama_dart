@@ -83,6 +83,21 @@ void main() {
       containsPair('location', 'Seoul'),
     );
   });
+
+  test('keeps non-tagged payload as content', () {
+    final handler = HermesHandler();
+    final parsed = handler.parse(
+      '{"type":"function","function":"get_weather","parameters":{"city":"Seoul"}}; '
+      '{"type":"function","function":"get_time","parameters":{"city":"Seoul"}}',
+    );
+
+    expect(parsed.toolCalls, isEmpty);
+    expect(
+      parsed.content,
+      '{"type":"function","function":"get_weather","parameters":{"city":"Seoul"}}; '
+      '{"type":"function","function":"get_time","parameters":{"city":"Seoul"}}',
+    );
+  });
 }
 
 Future<Object?> _noop(_) async {

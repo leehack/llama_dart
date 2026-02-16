@@ -22,6 +22,12 @@ class OpenAiApiServer {
   /// Optional API key required for `/v1/*` endpoints.
   final String? apiKey;
 
+  /// Optional server-side tool invoker.
+  final OpenAiToolInvoker? toolInvoker;
+
+  /// Maximum server-side tool-call rounds per request.
+  final int maxToolRounds;
+
   /// Whether request logs should be emitted.
   final bool enableRequestLogs;
 
@@ -35,6 +41,8 @@ class OpenAiApiServer {
     required this.engine,
     required this.modelId,
     this.apiKey,
+    this.toolInvoker,
+    this.maxToolRounds = 5,
     this.enableRequestLogs = false,
     int? modelCreated,
   }) : modelCreated =
@@ -111,6 +119,7 @@ class OpenAiApiServer {
       final request = parseChatCompletionRequest(
         Map<String, dynamic>.from(decoded),
         configuredModelId: modelId,
+        toolInvoker: toolInvoker,
       );
 
       if (_isGenerating) {
@@ -143,45 +152,58 @@ class OpenAiApiServer {
     OpenAiChatCompletionRequest request,
   ) async {
     try {
-      var promptTokens = 0;
-      try {
-        final templateResult = await engine.chatTemplate(
-          request.messages,
-          tools: request.tools,
-          toolChoice: request.toolChoice ?? ToolChoice.auto,
+      final conversation = List<LlamaChatMessage>.from(request.messages);
+      final tools = request.tools;
+
+      var roundToolChoice = request.toolChoice;
+      var totalPromptTokens = 0;
+      var totalCompletionTokens = 0;
+
+      _CompletionRoundResult? finalRound;
+      final maxRounds = maxToolRounds < 1 ? 1 : maxToolRounds;
+
+      for (var round = 0; round < maxRounds; round++) {
+        final currentRound = await _runCompletionRound(
+          messages: conversation,
+          params: request.params,
+          tools: tools,
+          toolChoice: roundToolChoice,
         );
-        promptTokens = templateResult.tokenCount ?? 0;
-      } catch (_) {
-        promptTokens = 0;
+
+        finalRound = currentRound;
+        totalPromptTokens += currentRound.promptTokens;
+        totalCompletionTokens += currentRound.completionTokens;
+
+        final emittedToolCalls = currentRound.accumulator.toolCalls;
+        final canExecuteTools =
+            toolInvoker != null && tools != null && tools.isNotEmpty;
+        final hasToolCalls = emittedToolCalls.isNotEmpty;
+        final hasRemainingRounds = round + 1 < maxRounds;
+
+        if (!(canExecuteTools && hasToolCalls && hasRemainingRounds)) {
+          break;
+        }
+
+        await _appendToolExecutionMessages(
+          conversation: conversation,
+          tools: tools,
+          toolCalls: emittedToolCalls,
+        );
+
+        roundToolChoice = ToolChoice.auto;
       }
 
-      final accumulator = OpenAiChatCompletionAccumulator();
-
-      var completionId = 'chatcmpl-${DateTime.now().millisecondsSinceEpoch}';
-      var created = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-
-      await for (final chunk in engine.create(
-        request.messages,
-        params: request.params,
-        tools: request.tools,
-        toolChoice: request.toolChoice,
-      )) {
-        completionId = chunk.id;
-        created = chunk.created;
-        accumulator.addChunk(chunk);
+      final round = finalRound;
+      if (round == null) {
+        throw OpenAiHttpException.server('No completion output generated.');
       }
 
-      final completionContent = accumulator.content;
-      final completionTokens = completionContent.isEmpty
-          ? 0
-          : await engine.getTokenCount(completionContent);
-
-      final responseBody = accumulator.toResponseJson(
-        id: completionId,
-        created: created,
+      final responseBody = round.accumulator.toResponseJson(
+        id: round.completionId,
+        created: round.created,
         model: modelId,
-        promptTokens: promptTokens,
-        completionTokens: completionTokens,
+        promptTokens: totalPromptTokens,
+        completionTokens: totalCompletionTokens,
       );
 
       return _jsonResponse(responseBody);
@@ -196,6 +218,132 @@ class OpenAiApiServer {
     } finally {
       engine.cancelGeneration();
       _isGenerating = false;
+    }
+  }
+
+  Future<_CompletionRoundResult> _runCompletionRound({
+    required List<LlamaChatMessage> messages,
+    required GenerationParams params,
+    required List<ToolDefinition>? tools,
+    required ToolChoice? toolChoice,
+  }) async {
+    var promptTokens = 0;
+    try {
+      final templateResult = await engine.chatTemplate(
+        messages,
+        tools: tools,
+        toolChoice: toolChoice ?? ToolChoice.auto,
+      );
+      promptTokens = templateResult.tokenCount ?? 0;
+    } catch (_) {
+      promptTokens = 0;
+    }
+
+    final accumulator = OpenAiChatCompletionAccumulator();
+    var completionId = 'chatcmpl-${DateTime.now().millisecondsSinceEpoch}';
+    var created = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    await for (final chunk in engine.create(
+      messages,
+      params: params,
+      tools: tools,
+      toolChoice: toolChoice,
+    )) {
+      completionId = chunk.id;
+      created = chunk.created;
+      accumulator.addChunk(chunk);
+    }
+
+    final completionTokenText = _completionTokenText(accumulator);
+    final completionTokens = completionTokenText.isEmpty
+        ? 0
+        : await engine.getTokenCount(completionTokenText);
+
+    return _CompletionRoundResult(
+      accumulator: accumulator,
+      completionId: completionId,
+      created: created,
+      promptTokens: promptTokens,
+      completionTokens: completionTokens,
+    );
+  }
+
+  String _completionTokenText(OpenAiChatCompletionAccumulator accumulator) {
+    final parts = <String>[];
+    final reasoning = accumulator.reasoningContent;
+    if (reasoning.isNotEmpty) {
+      parts.add(reasoning);
+    }
+
+    final content = accumulator.content;
+    if (content.isNotEmpty) {
+      parts.add(content);
+    }
+
+    return parts.join('\n');
+  }
+
+  Future<void> _appendToolExecutionMessages({
+    required List<LlamaChatMessage> conversation,
+    required List<ToolDefinition> tools,
+    required List<OpenAiToolCallRecord> toolCalls,
+  }) async {
+    if (toolCalls.isEmpty) {
+      return;
+    }
+
+    final assistantParts = toolCalls
+        .map(
+          (call) => LlamaToolCallContent(
+            id: call.id,
+            name: call.name,
+            arguments: call.arguments,
+            rawJson: call.argumentsRaw,
+          ),
+        )
+        .toList(growable: false);
+
+    conversation.add(
+      LlamaChatMessage.withContent(
+        role: LlamaChatRole.assistant,
+        content: assistantParts,
+      ),
+    );
+
+    final toolsByName = {
+      for (final definition in tools) definition.name: definition,
+    };
+
+    for (final call in toolCalls) {
+      final definition = toolsByName[call.name];
+      Object? result;
+
+      if (definition == null) {
+        result = {'ok': false, 'error': 'Tool `${call.name}` was not found.'};
+      } else {
+        try {
+          result = await definition.invoke(call.arguments);
+        } catch (error) {
+          result = {
+            'ok': false,
+            'error': 'Tool `${call.name}` execution failed.',
+            'details': '$error',
+          };
+        }
+      }
+
+      conversation.add(
+        LlamaChatMessage.withContent(
+          role: LlamaChatRole.tool,
+          content: <LlamaContentPart>[
+            LlamaToolResultContent(
+              id: call.id,
+              name: call.name,
+              result: result,
+            ),
+          ],
+        ),
+      );
     }
   }
 
@@ -282,4 +430,20 @@ class OpenAiApiServer {
       body: Body.fromString(jsonEncode(body), mimeType: MimeType.json),
     );
   }
+}
+
+class _CompletionRoundResult {
+  final OpenAiChatCompletionAccumulator accumulator;
+  final String completionId;
+  final int created;
+  final int promptTokens;
+  final int completionTokens;
+
+  const _CompletionRoundResult({
+    required this.accumulator,
+    required this.completionId,
+    required this.created,
+    required this.promptTokens,
+    required this.completionTokens,
+  });
 }

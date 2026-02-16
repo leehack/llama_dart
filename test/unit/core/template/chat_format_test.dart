@@ -7,16 +7,23 @@ import 'package:test/test.dart';
 
 void main() {
   group('ChatFormat Detection', () {
-    test('detects LFM 2.5 template from fixture', () {
+    test('treats non-strict LFM 2.5 fixture as generic', () {
       final file = File('test/fixtures/templates/LFM2_5-1_2B-Thinking.jinja');
       final source = file.readAsStringSync();
       final format = detectChatFormat(source);
-      expect(format, equals(ChatFormat.lfm2));
+      expect(format, equals(ChatFormat.generic));
     });
 
-    test('detects LFM 2.5 from keep_past_thinking marker', () {
+    test('does not detect LFM2 from keep_past_thinking marker alone', () {
       const source =
           '{%- set keep_past_thinking = true -%}<|im_start|>user\nhi<|im_end|>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.generic));
+    });
+
+    test('detects LFM2 from strict tool list markers', () {
+      const source =
+          'List of tools: <|tool_list_start|>[{"name":"search"}]<|tool_list_end|>';
       final format = detectChatFormat(source);
       expect(format, equals(ChatFormat.lfm2));
     });
