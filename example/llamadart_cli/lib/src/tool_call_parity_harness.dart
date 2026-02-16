@@ -210,6 +210,9 @@ class ToolCallTurnSnapshot {
   /// `choices[0].message.content` normalized text.
   final String content;
 
+  /// `choices[0].message.reasoning_content` normalized text.
+  final String reasoningContent;
+
   /// Parsed tool calls from `choices[0].message.tool_calls`.
   final List<ToolCallSnapshot> toolCalls;
 
@@ -221,6 +224,7 @@ class ToolCallTurnSnapshot {
     required this.parseError,
     required this.finishReason,
     required this.content,
+    required this.reasoningContent,
     required this.toolCalls,
   });
 
@@ -233,6 +237,7 @@ class ToolCallTurnSnapshot {
       'parse_error': parseError,
       'finish_reason': finishReason,
       'content': content,
+      'reasoning_content': reasoningContent,
       'tool_calls': toolCalls.map((call) => call.toJson()).toList(),
     };
   }
@@ -664,6 +669,7 @@ class ToolCallParityHarness {
           ? null
           : choice['finish_reason'] as String?;
       final content = _normalizeContent(message?['content']);
+      final reasoningContent = _normalizeContent(message?['reasoning_content']);
       var toolCalls = _extractToolCalls(message?['tool_calls']);
 
       if (toolCalls.isEmpty) {
@@ -693,6 +699,7 @@ class ToolCallParityHarness {
         parseError: parseError,
         finishReason: finishReason,
         content: content,
+        reasoningContent: reasoningContent,
         toolCalls: toolCalls,
       );
     } on TimeoutException {
@@ -703,6 +710,7 @@ class ToolCallParityHarness {
         parseError: 'Request timed out after ${timeout.inSeconds}s.',
         finishReason: null,
         content: '',
+        reasoningContent: '',
         toolCalls: const <ToolCallSnapshot>[],
       );
     } catch (error) {
@@ -713,6 +721,7 @@ class ToolCallParityHarness {
         parseError: 'Request failed: $error',
         finishReason: null,
         content: '',
+        reasoningContent: '',
         toolCalls: const <ToolCallSnapshot>[],
       );
     }
@@ -1014,12 +1023,17 @@ class ToolCallParityHarness {
         firstTurnMaxTokens: 128,
         secondTurnMaxTokens: 128,
         ignoreTurn2ContentMismatch: true,
+        ignoreTurn1ReasoningMismatch: true,
+        ignoreTurn2ReasoningMismatch: true,
       );
     }
 
     if (modelName.contains('deepseek-r1-distill-qwen-1.5b') &&
         scenarioId == 'auto_weather_or_time') {
-      return const _ScenarioTuning(allowBothNoToolCalls: true);
+      return const _ScenarioTuning(
+        allowBothNoToolCalls: true,
+        ignoreTurn1ReasoningMismatch: true,
+      );
     }
 
     if (modelName.contains('deepseek-r1-distill-llama-8b') &&
@@ -1027,12 +1041,17 @@ class ToolCallParityHarness {
       return const _ScenarioTuning(
         firstTurnMaxTokens: 128,
         ignoreTurn2ContentMismatch: true,
+        ignoreTurn1ReasoningMismatch: true,
+        ignoreTurn2ReasoningMismatch: true,
       );
     }
 
     if (modelName.contains('deepseek-r1-distill-llama-8b') &&
         scenarioId == 'auto_weather_or_time') {
-      return const _ScenarioTuning(allowBothNoToolCalls: true);
+      return const _ScenarioTuning(
+        allowBothNoToolCalls: true,
+        ignoreTurn1ReasoningMismatch: true,
+      );
     }
 
     if (modelName.contains('translategemma-27b')) {
@@ -1145,6 +1164,22 @@ class ToolCallParityHarness {
       actual: actual.toolCalls,
       deltas: deltas,
     );
+
+    if (!tuning.ignoreTurn1ReasoningMismatch &&
+        !_reasoningBehaviorMatches(
+          expected.reasoningContent,
+          actual.reasoningContent,
+        )) {
+      deltas.add(
+        ToolCallParityDelta(
+          scenarioId: scenario.id,
+          phase: 'turn1',
+          field: 'reasoning_content',
+          expected: expected.reasoningContent,
+          actual: actual.reasoningContent,
+        ),
+      );
+    }
   }
 
   void _compareTurn2({
@@ -1191,6 +1226,22 @@ class ToolCallParityHarness {
           field: 'content',
           expected: expected.content,
           actual: actual.content,
+        ),
+      );
+    }
+
+    if (!tuning.ignoreTurn2ReasoningMismatch &&
+        !_reasoningBehaviorMatches(
+          expected.reasoningContent,
+          actual.reasoningContent,
+        )) {
+      deltas.add(
+        ToolCallParityDelta(
+          scenarioId: scenario.id,
+          phase: 'turn2',
+          field: 'reasoning_content',
+          expected: expected.reasoningContent,
+          actual: actual.reasoningContent,
         ),
       );
     }
@@ -1347,6 +1398,23 @@ class ToolCallParityHarness {
     return shared >= 2;
   }
 
+  bool _reasoningBehaviorMatches(String expected, String actual) {
+    if (expected == actual) {
+      return true;
+    }
+
+    if (expected.isEmpty && actual.isEmpty) {
+      return true;
+    }
+
+    if ((expected.isEmpty && actual.isNotEmpty) ||
+        (expected.isNotEmpty && actual.isEmpty)) {
+      return false;
+    }
+
+    return _contentBehaviorMatches(expected, actual);
+  }
+
   String? _extractSemanticValue(Object? value) {
     if (value == null) {
       return null;
@@ -1482,6 +1550,8 @@ class _ScenarioTuning {
   final int? secondTurnMaxTokens;
   final bool allowBothNoToolCalls;
   final bool ignoreTurn2ContentMismatch;
+  final bool ignoreTurn1ReasoningMismatch;
+  final bool ignoreTurn2ReasoningMismatch;
 
   const _ScenarioTuning({
     this.userPrompt,
@@ -1489,6 +1559,8 @@ class _ScenarioTuning {
     this.secondTurnMaxTokens,
     this.allowBothNoToolCalls = false,
     this.ignoreTurn2ContentMismatch = false,
+    this.ignoreTurn1ReasoningMismatch = false,
+    this.ignoreTurn2ReasoningMismatch = false,
   });
 }
 
