@@ -68,6 +68,15 @@ void main() {
     );
     expect(inThinking.toolCalls, hasLength(1));
     expect(inThinking.toolCalls.first.function?.name, equals('search'));
+    expect(inThinking.reasoningContent, equals('reasoning'));
+    expect(inThinking.content, isEmpty);
+
+    final thinkingOnly = handler.parse(
+      '<think>plan first</think>final answer',
+      parseToolCalls: false,
+    );
+    expect(thinkingOnly.reasoningContent, equals('plan first'));
+    expect(thinkingOnly.content, equals('final answer'));
 
     final legacy = handler.parse("[search(query='llama')] and text");
     expect(legacy.toolCalls, isEmpty);

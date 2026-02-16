@@ -10,6 +10,7 @@ import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
+import '../thinking_utils.dart';
 import '../tool_call_grammar_utils.dart';
 
 /// Handler for LFM2 (Liquid Foundation Model 2) format.
@@ -161,7 +162,14 @@ class Lfm2Handler extends ChatTemplateHandler {
     bool thinkingForcedOpen = false,
   }) {
     if (!parseToolCalls) {
-      return ChatParseResult(content: output.trim());
+      final thinking = extractThinking(
+        output,
+        thinkingForcedOpen: thinkingForcedOpen,
+      );
+      return ChatParseResult(
+        content: thinking.content.trim(),
+        reasoningContent: thinking.reasoning,
+      );
     }
 
     final toolCalls = <LlamaCompletionChunkToolCall>[];
@@ -211,7 +219,16 @@ class Lfm2Handler extends ChatTemplateHandler {
       contentText = contentText.replaceAll(match.group(0)!, '');
     }
 
-    return ChatParseResult(content: contentText.trim(), toolCalls: toolCalls);
+    final thinking = extractThinking(
+      contentText,
+      thinkingForcedOpen: thinkingForcedOpen,
+    );
+
+    return ChatParseResult(
+      content: thinking.content.trim(),
+      reasoningContent: thinking.reasoning,
+      toolCalls: toolCalls,
+    );
   }
 
   @override

@@ -314,6 +314,15 @@ class LlamaCppService {
         tokensPtr,
       );
 
+      final preservedTokenIds = _resolvePreservedTokenIds(
+        vocab,
+        params.preservedTokens,
+      );
+      final effectiveStopSequences = _effectiveStopSequences(
+        params.stopSequences,
+        params.preservedTokens,
+      );
+
       yield* _runInferenceLoop(
         ctx,
         batch,
@@ -325,6 +334,8 @@ class LlamaCppService {
         cancelTokenAddress,
         pieceBuf,
         grammarPtr,
+        preservedTokenIds,
+        effectiveStopSequences,
       );
 
       llama_sampler_free(sampler);
@@ -689,6 +700,8 @@ class LlamaCppService {
     int cancelTokenAddress,
     Pointer<Uint8> pieceBuf,
     Pointer<Utf8> grammarPtr,
+    Set<int> preservedTokenIds,
+    List<String> stopSequences,
   ) async* {
     final cancelToken = Pointer<Int8>.fromAddress(cancelTokenAddress);
     int currentPos = startPos;
@@ -708,25 +721,21 @@ class LlamaCppService {
         pieceBuf.cast(),
         256,
         0,
-        false,
+        preservedTokenIds.contains(selectedToken),
       );
 
       if (n > 0) {
         final bytes = pieceBuf.asTypedList(n).toList();
         yield bytes;
 
-        if (params.stopSequences.isNotEmpty) {
+        if (stopSequences.isNotEmpty) {
           accumulatedBytes.addAll(bytes);
           if (accumulatedBytes.length > 64) {
             accumulatedBytes.removeRange(0, accumulatedBytes.length - 64);
           }
           final text = utf8.decode(accumulatedBytes, allowMalformed: true);
-          if (params.stopSequences.any((s) => text.endsWith(s))) break;
+          if (stopSequences.any((s) => text.endsWith(s))) break;
         }
-      }
-
-      if (grammarPtr == nullptr) {
-        llama_sampler_accept(sampler, selectedToken);
       }
 
       batch.n_tokens = 1;
@@ -803,6 +812,78 @@ class LlamaCppService {
       numTriggerTokens: triggerTokens.length,
       allocatedPatternPointers: allocatedPatternPtrs,
     );
+  }
+
+  Set<int> _resolvePreservedTokenIds(
+    Pointer<llama_vocab> vocab,
+    List<String> preservedTokens,
+  ) {
+    if (preservedTokens.isEmpty) {
+      return const <int>{};
+    }
+
+    final ids = <int>{};
+    for (final tokenText in preservedTokens) {
+      if (tokenText.isEmpty) {
+        continue;
+      }
+
+      final textPtr = tokenText.toNativeUtf8();
+      try {
+        final required = -llama_tokenize(
+          vocab,
+          textPtr.cast(),
+          textPtr.length,
+          nullptr,
+          0,
+          false,
+          true,
+        );
+
+        if (required <= 0) {
+          continue;
+        }
+
+        final tokenIds = malloc<Int32>(required);
+        try {
+          final actual = llama_tokenize(
+            vocab,
+            textPtr.cast(),
+            textPtr.length,
+            tokenIds,
+            required,
+            false,
+            true,
+          );
+
+          if (actual > 0) {
+            for (int i = 0; i < actual; i++) {
+              ids.add(tokenIds[i]);
+            }
+          }
+        } finally {
+          malloc.free(tokenIds);
+        }
+      } finally {
+        malloc.free(textPtr);
+      }
+    }
+
+    return ids;
+  }
+
+  List<String> _effectiveStopSequences(
+    List<String> stopSequences,
+    List<String> preservedTokens,
+  ) {
+    if (stopSequences.isEmpty || preservedTokens.isEmpty) {
+      return stopSequences;
+    }
+
+    final preservedSet = preservedTokens.toSet();
+    return stopSequences
+        .where((sequence) => !preservedSet.contains(sequence))
+        .toList(growable: false);
   }
 
   String _regexEscape(String input) {

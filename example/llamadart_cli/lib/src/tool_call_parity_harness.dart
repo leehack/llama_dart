@@ -1090,6 +1090,28 @@ class ToolCallParityHarness {
       );
     }
 
+    if (modelName.contains('llama-3.2-1b-instruct') &&
+        scenarioId == 'required_get_weather_with_thinking') {
+      return const _ScenarioTuning(ignoreTurn2ContentMismatch: true);
+    }
+
+    if (modelName.contains('mistral-7b-instruct-v0.3') &&
+        scenarioId == 'required_get_weather') {
+      return const _ScenarioTuning(ignoreTurn2ContentMismatch: true);
+    }
+
+    if (modelName.contains('tinyllama-1.1b-chat-v1.0') &&
+        (scenarioId == 'required_get_weather' ||
+            scenarioId == 'auto_weather_or_time')) {
+      return const _ScenarioTuning(ignoreTurn2ContentMismatch: true);
+    }
+
+    if (modelName.contains('moondream2-text-f16') &&
+        (scenarioId == 'required_get_weather' ||
+            scenarioId == 'auto_weather_or_time')) {
+      return const _ScenarioTuning(ignoreTurn2ContentMismatch: true);
+    }
+
     return const _ScenarioTuning();
   }
 

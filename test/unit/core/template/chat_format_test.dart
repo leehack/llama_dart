@@ -160,6 +160,16 @@ void main() {
       expect(format, equals(ChatFormat.magistral));
     });
 
+    test('detects unsloth Ministral 3 reasoning template markers', () {
+      const source =
+          '[SYSTEM_PROMPT]x[/SYSTEM_PROMPT]'
+          '[AVAILABLE_TOOLS][][/AVAILABLE_TOOLS]'
+          '[THINK]plan[/THINK]'
+          '[TOOL_CALLS]get_weather[ARGS]{"city":"Seoul"}';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.ministral));
+    });
+
     test('prefers FunctionGemma over Gemma when both markers are present', () {
       const source =
           '<start_of_turn>user\nhi<end_of_turn>'

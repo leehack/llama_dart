@@ -350,17 +350,18 @@ class ChatTemplateEngine {
     // Apply only to built-in routing; custom handlers are expected to own
     // their message preprocessing semantics.
     if (selectedHandler == null) {
-      if (hasTools && effectiveFormat == ChatFormat.generic) {
-        effectiveMessages = _prependSystemInstruction(
-          effectiveMessages,
-          _genericToolSystemInstruction,
-        );
-      }
-
       if (!caps.supportsSystemRole) {
         effectiveMessages = TemplateWorkarounds.applySystemMessageWorkaround(
           effectiveMessages,
           caps,
+        );
+      }
+
+      if (hasTools && effectiveFormat == ChatFormat.generic) {
+        effectiveMessages = _injectSystemInstructionLikeLlamaCpp(
+          effectiveMessages,
+          _genericToolSystemInstruction,
+          supportsSystemRole: caps.supportsSystemRole,
         );
       }
 
@@ -878,26 +879,48 @@ class ChatTemplateEngine {
     }
   }
 
-  static List<LlamaChatMessage> _prependSystemInstruction(
+  static List<LlamaChatMessage> _injectSystemInstructionLikeLlamaCpp(
     List<LlamaChatMessage> messages,
-    String instruction,
-  ) {
-    if (messages.isNotEmpty && messages.first.role == LlamaChatRole.system) {
-      final first = messages.first;
-      if (first.content.contains(instruction)) {
-        return messages;
+    String instruction, {
+    required bool supportsSystemRole,
+  }) {
+    if (supportsSystemRole) {
+      if (messages.isNotEmpty && messages.first.role == LlamaChatRole.system) {
+        final first = messages.first;
+        if (first.content.trim() == instruction.trim()) {
+          return messages;
+        }
+
+        return <LlamaChatMessage>[
+          first.copyWith(content: instruction),
+          ...messages.skip(1),
+        ];
       }
 
-      final merged = '${instruction.trim()}\n\n${first.content.trim()}';
       return <LlamaChatMessage>[
-        first.copyWith(content: merged),
-        ...messages.skip(1),
+        LlamaChatMessage.fromText(
+          role: LlamaChatRole.system,
+          text: instruction,
+        ),
+        ...messages,
       ];
     }
 
+    if (messages.isNotEmpty && messages.first.content.contains(instruction)) {
+      return messages;
+    }
+
+    if (messages.isEmpty) {
+      return <LlamaChatMessage>[
+        LlamaChatMessage.fromText(role: LlamaChatRole.user, text: instruction),
+      ];
+    }
+
+    final first = messages.first;
+    final merged = '${instruction.trim()}\n\n${first.content.trim()}';
     return <LlamaChatMessage>[
-      LlamaChatMessage.fromText(role: LlamaChatRole.system, text: instruction),
-      ...messages,
+      first.copyWith(content: merged),
+      ...messages.skip(1),
     ];
   }
 }

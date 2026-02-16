@@ -135,7 +135,7 @@ OpenAiChatCompletionRequest parseChatCompletionRequest(
   final seed = _readIntField(json['seed'], 'seed');
   final stops = _parseStopSequences(json['stop']);
 
-  var params = const GenerationParams(penalty: 1.0);
+  var params = const GenerationParams(penalty: 1.0, topP: 0.95, minP: 0.05);
   if (maxTokens != null) {
     params = params.copyWith(maxTokens: maxTokens);
   }
