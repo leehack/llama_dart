@@ -3,6 +3,17 @@ Map<String, dynamic> buildChatRequestSchemas({required String modelId}) {
     'ChatCompletionRequest': <String, dynamic>{
       'type': 'object',
       'required': <String>['model', 'messages'],
+      'example': <String, dynamic>{
+        'model': modelId,
+        'messages': <Map<String, dynamic>>[
+          <String, dynamic>{'role': 'system', 'content': 'You are concise.'},
+          <String, dynamic>{
+            'role': 'user',
+            'content': 'Give one sentence about Seoul.',
+          },
+        ],
+        'max_tokens': 128,
+      },
       'properties': <String, dynamic>{
         'model': <String, dynamic>{'type': 'string', 'example': modelId},
         'messages': <String, dynamic>{
@@ -10,6 +21,9 @@ Map<String, dynamic> buildChatRequestSchemas({required String modelId}) {
           'items': <String, dynamic>{
             r'$ref': '#/components/schemas/ChatMessage',
           },
+          'example': <Map<String, dynamic>>[
+            <String, dynamic>{'role': 'user', 'content': 'Hello!'},
+          ],
         },
         'stream': <String, dynamic>{'type': 'boolean', 'default': false},
         'max_tokens': <String, dynamic>{'type': 'integer', 'minimum': 1},

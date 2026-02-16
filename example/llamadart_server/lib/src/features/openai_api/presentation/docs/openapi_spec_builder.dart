@@ -26,7 +26,7 @@ Map<String, dynamic> buildOpenApiSpec({
       <String, dynamic>{'url': serverUrl, 'description': 'Current server URL'},
     ],
     'tags': _openApiTags,
-    'paths': buildOpenApiPaths(apiKeyEnabled: apiKeyEnabled),
+    'paths': buildOpenApiPaths(apiKeyEnabled: apiKeyEnabled, modelId: modelId),
     'components': buildOpenApiComponents(modelId: modelId),
   };
 }

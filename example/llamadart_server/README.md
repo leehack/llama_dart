@@ -87,6 +87,8 @@ Request-provided sampling fields (for example `temperature`, `top_p`, `seed`,
 
 - OpenAPI JSON: `http://127.0.0.1:8080/openapi.json`
 - Swagger UI: `http://127.0.0.1:8080/docs`
+- Swagger includes ready-made chat request examples (basic, streaming, tools)
+  under `POST /v1/chat/completions`.
 
 ```bash
 curl http://127.0.0.1:8080/openapi.json

@@ -43,6 +43,7 @@ Map<String, dynamic> buildChatPrimitiveSchemas() {
     'ChatMessage': <String, dynamic>{
       'type': 'object',
       'required': <String>['role'],
+      'example': <String, dynamic>{'role': 'user', 'content': 'Hello!'},
       'properties': <String, dynamic>{
         'role': <String, dynamic>{
           'type': 'string',
@@ -78,6 +79,20 @@ Map<String, dynamic> buildChatPrimitiveSchemas() {
     'ToolDefinition': <String, dynamic>{
       'type': 'object',
       'required': <String>['type', 'function'],
+      'example': <String, dynamic>{
+        'type': 'function',
+        'function': <String, dynamic>{
+          'name': 'get_weather',
+          'description': 'Get weather by city.',
+          'parameters': <String, dynamic>{
+            'type': 'object',
+            'properties': <String, dynamic>{
+              'city': <String, dynamic>{'type': 'string'},
+            },
+            'required': <String>['city'],
+          },
+        },
+      },
       'properties': <String, dynamic>{
         'type': <String, dynamic>{
           'type': 'string',
