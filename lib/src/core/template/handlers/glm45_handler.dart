@@ -10,7 +10,6 @@ import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
 import '../thinking_utils.dart';
-import '../xml_tool_call_format.dart';
 
 /// Handler for GLM 4.5 format.
 ///
@@ -27,16 +26,6 @@ class Glm45Handler extends ChatTemplateHandler {
   static final RegExp _argPairPattern = RegExp(
     r'<arg_key>\s*([\s\S]*?)\s*</arg_key>\s*<arg_value>\s*([\s\S]*?)\s*</arg_value>',
     caseSensitive: false,
-  );
-  static const XmlToolCallFormat _glm45ToolCallFormat = XmlToolCallFormat(
-    scopeStart: '',
-    toolStart: '<tool_call>',
-    toolSep: '\n',
-    keyStart: '<arg_key>',
-    keyValSep: '</arg_key><arg_value>',
-    valEnd: '</arg_value>',
-    toolEnd: '</tool_call>',
-    scopeEnd: '',
   );
 
   @override
@@ -95,9 +84,8 @@ class Glm45Handler extends ChatTemplateHandler {
       'tools': tools?.map((t) => t.toJson()).toList(),
       'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '[gMASK]<sop>',
       'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|user|>',
+      'clear_thinking': false,
     });
-
-    prompt = _normalizePromptWhitespace(prompt);
 
     // Handle enableThinking post-render logic
     var thinkingForcedOpen = false;
@@ -173,7 +161,111 @@ class Glm45Handler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return buildXmlToolCallGrammar(tools, _glm45ToolCallFormat);
+    if (tools == null || tools.isEmpty) {
+      return null;
+    }
+
+    final toolChoiceRules = <String>[];
+    final toolRules = <String>[];
+
+    for (final tool in tools) {
+      final toolRuleName = '${_sanitizeRuleName(tool.name)}-call';
+      toolChoiceRules.add(toolRuleName);
+
+      final argParts = <String>[];
+      for (final parameter in tool.parameters) {
+        final paramSchema = parameter.toJsonSchema();
+        final paramRuleName =
+            '${_sanitizeRuleName(tool.name)}-arg-${_sanitizeRuleName(parameter.name)}';
+        final valueRuleName =
+            '${_sanitizeRuleName(tool.name)}-arg-${_sanitizeRuleName(parameter.name)}-value';
+
+        final valueRule = _buildValueRule(
+          valueRuleName: valueRuleName,
+          schema: paramSchema,
+        );
+
+        toolRules.add(valueRule);
+        toolRules.add(
+          '$paramRuleName ::= "<arg_key>${_escapeLiteral(parameter.name)}</arg_key>\\n<arg_value>" $valueRuleName "</arg_value>\\n"',
+        );
+        argParts.add(parameter.required ? paramRuleName : '($paramRuleName)?');
+      }
+
+      final argsRule = argParts.join(' ');
+      toolRules.add(
+        '$toolRuleName ::= "${_escapeLiteral(tool.name)}\\n" $argsRule',
+      );
+    }
+
+    final toolChoiceRule = 'tool-choice ::= ${toolChoiceRules.join(' | ')}';
+
+    return [
+      'root ::= tool-call+',
+      'tool-call ::= "\\n<tool_call>" tool-choice "</tool_call>\\n"',
+      toolChoiceRule,
+      ...toolRules,
+      'raw-alpha ::= [A-Za-z]',
+      'raw-tail ::= [A-Za-z0-9_ ./:-]',
+      'raw-string ::= raw-alpha raw-tail*',
+      'space ::= " "?',
+      'string ::= "\\"" ([^"\\\\] | "\\\\" .)* "\\""',
+      'number ::= "-"? ([0-9] | [1-9] [0-9]*) ("." [0-9]+)? ([eE] [+-]? [0-9]+)?',
+      'boolean ::= "true" | "false"',
+      'null ::= "null"',
+      'value ::= string | number | boolean | null | arr | obj',
+      'arr ::= "[" space (value ("," space value)*)? "]"',
+      'obj ::= "{" space (string ":" space value ("," space string ":" space value)*)? "}"',
+    ].join('\n');
+  }
+
+  String _buildValueRule({
+    required String valueRuleName,
+    required Map<String, dynamic> schema,
+  }) {
+    final type = schema['type'];
+    final enumValues = schema['enum'];
+
+    if (type == 'string') {
+      if (enumValues is List && enumValues.isNotEmpty) {
+        final rawEnum = enumValues
+            .whereType<String>()
+            .map((value) => '"${_escapeLiteral(value)}"')
+            .join(' | ');
+        final jsonEnum = enumValues
+            .whereType<String>()
+            .map((value) => '"\\"${_escapeLiteral(value)}\\""')
+            .join(' | ');
+        return '$valueRuleName ::= $rawEnum | $jsonEnum';
+      }
+      return '$valueRuleName ::= raw-string | string';
+    }
+
+    if (type == 'integer' || type == 'number') {
+      return '$valueRuleName ::= number';
+    }
+
+    if (type == 'boolean') {
+      return '$valueRuleName ::= boolean';
+    }
+
+    if (type == 'array') {
+      return '$valueRuleName ::= arr';
+    }
+
+    if (type == 'object') {
+      return '$valueRuleName ::= obj';
+    }
+
+    return '$valueRuleName ::= value';
+  }
+
+  String _sanitizeRuleName(String input) {
+    return input.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '-').toLowerCase();
+  }
+
+  String _escapeLiteral(String input) {
+    return input.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
   }
 
   Object? _decodeArgValue(String value) {
@@ -233,27 +325,6 @@ class Glm45Handler extends ChatTemplateHandler {
       toolCalls: toolCalls,
       remainingContent: remaining,
     );
-  }
-
-  String _normalizePromptWhitespace(String input) {
-    var output = input.replaceAll(RegExp(r'^\s+'), '');
-
-    const token =
-        r'(\[gMASK\]|\[MASK\]|\[sMASK\]|<sop>|<eop>|<\|system\|>|<\|user\|>|<\|assistant\|>|<\|observation\|>|<think>|</think>)';
-    final adjacentTokenSpacing = RegExp('$token[ \t\r\n]+$token');
-
-    while (true) {
-      final normalized = output.replaceAllMapped(
-        adjacentTokenSpacing,
-        (match) => '${match.group(1)}${match.group(2)}',
-      );
-      if (normalized == output) {
-        break;
-      }
-      output = normalized;
-    }
-
-    return output;
   }
 }
 

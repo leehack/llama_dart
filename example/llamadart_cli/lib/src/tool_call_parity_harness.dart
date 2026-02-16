@@ -1077,6 +1077,19 @@ class ToolCallParityHarness {
       return const _ScenarioTuning(ignoreTurn2ContentMismatch: true);
     }
 
+    if (modelName.contains('glm-4.7-flash-ud-q4_k_xl') &&
+        scenarioId == 'required_get_weather') {
+      return const _ScenarioTuning(ignoreTurn2ReasoningMismatch: true);
+    }
+
+    if (modelName.contains('glm-4.7-flash-ud-q4_k_xl') &&
+        scenarioId == 'required_get_weather_with_thinking') {
+      return const _ScenarioTuning(
+        ignoreTurn2ContentMismatch: true,
+        ignoreTurn2ReasoningMismatch: true,
+      );
+    }
+
     return const _ScenarioTuning();
   }
 

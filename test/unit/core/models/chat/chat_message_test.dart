@@ -134,6 +134,7 @@ void main() {
       expect(msg.toJson(), {
         'role': 'tool',
         'tool_call_id': 'call_1',
+        'name': 'get_weather',
         'content': 'Sunny, 20°C',
       });
     });

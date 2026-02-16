@@ -156,6 +156,7 @@ class LlamaChatMessage {
       json['role'] = 'tool';
       final res = toolResults.first;
       json['tool_call_id'] = res.id;
+      json['name'] = res.name;
       json['content'] = res.result;
       // Tool messages are usually flat in OpenAI format
       return json;
