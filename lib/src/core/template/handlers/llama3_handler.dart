@@ -9,6 +9,7 @@ import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
+import '../tool_call_fallback_parser.dart';
 import '../thinking_utils.dart';
 import '../tool_call_grammar_utils.dart';
 
@@ -152,16 +153,21 @@ class Llama3Handler extends ChatTemplateHandler {
           final name = (call['name'] ?? call['function']) as String?;
           final params = call['parameters'] ?? call['arguments'];
           if (name != null) {
+            final argsMap = normalizeFallbackToolArguments(
+              _toArgumentsObject(params),
+            );
+            final normalizedName = normalizeFallbackToolName(
+              name,
+              arguments: argsMap,
+            );
             toolCalls.add(
               LlamaCompletionChunkToolCall(
                 index: i,
                 id: 'call_$i',
                 type: 'function',
                 function: LlamaCompletionChunkFunction(
-                  name: name,
-                  arguments: params is String
-                      ? params
-                      : jsonEncode(params ?? {}),
+                  name: normalizedName,
+                  arguments: jsonEncode(argsMap),
                 ),
               ),
             );
@@ -170,25 +176,33 @@ class Llama3Handler extends ChatTemplateHandler {
       } catch (_) {}
     } else if (trimmed.startsWith('{') &&
         (trimmed.contains('"name"') || trimmed.contains('"function"'))) {
-      // Single JSON tool call
-      try {
-        final json = jsonDecode(trimmed) as Map<String, dynamic>;
+      // Single JSON tool call. If trailing non-JSON text exists, parse only the
+      // leading object to mirror llama.cpp parser behavior.
+      final json = _tryDecodeLeadingObject(trimmed);
+      if (json != null) {
         final name = (json['name'] ?? json['function']) as String?;
         final params = json['parameters'] ?? json['arguments'];
         if (name != null) {
+          final argsMap = normalizeFallbackToolArguments(
+            _toArgumentsObject(params),
+          );
+          final normalizedName = normalizeFallbackToolName(
+            name,
+            arguments: argsMap,
+          );
           toolCalls.add(
             LlamaCompletionChunkToolCall(
               index: 0,
               id: 'call_0',
               type: 'function',
               function: LlamaCompletionChunkFunction(
-                name: name,
-                arguments: params is String ? params : jsonEncode(params ?? {}),
+                name: normalizedName,
+                arguments: jsonEncode(argsMap),
               ),
             ),
           );
         }
-      } catch (_) {}
+      }
     }
 
     return ChatParseResult(
@@ -196,6 +210,98 @@ class Llama3Handler extends ChatTemplateHandler {
       reasoningContent: thinking.reasoning,
       toolCalls: toolCalls,
     );
+  }
+
+  Map<String, dynamic> _toArgumentsObject(Object? raw) {
+    if (raw == null) {
+      return const <String, dynamic>{};
+    }
+
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+
+    if (raw is String) {
+      return decodeToolArgumentsObject(raw);
+    }
+
+    return const <String, dynamic>{};
+  }
+
+  Map<String, dynamic>? _tryDecodeLeadingObject(String input) {
+    try {
+      final decoded = jsonDecode(input);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+      return null;
+    } catch (_) {
+      final object = _extractLeadingJsonObject(input);
+      if (object == null) {
+        return null;
+      }
+      try {
+        final decoded = jsonDecode(object);
+        if (decoded is Map<String, dynamic>) {
+          return decoded;
+        }
+        if (decoded is Map) {
+          return Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {
+        return null;
+      }
+      return null;
+    }
+  }
+
+  String? _extractLeadingJsonObject(String input) {
+    if (input.isEmpty || input.codeUnitAt(0) != 0x7B) {
+      return null;
+    }
+
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+
+    for (var i = 0; i < input.length; i++) {
+      final ch = input.codeUnitAt(i);
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch == 0x5C) {
+          escaped = true;
+          continue;
+        }
+        if (ch == 0x22) {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch == 0x22) {
+        inString = true;
+        continue;
+      }
+      if (ch == 0x7B) {
+        depth++;
+        continue;
+      }
+      if (ch == 0x7D) {
+        depth--;
+        if (depth == 0) {
+          return input.substring(0, i + 1);
+        }
+      }
+    }
+
+    return null;
   }
 
   LlamaCompletionChunkFunction? _tryParseBuiltinPythonTag(String output) {

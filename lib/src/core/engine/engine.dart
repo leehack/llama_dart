@@ -336,9 +336,10 @@ class LlamaEngine {
               )
               .toList(growable: false)
         : (params?.grammarTriggers ?? const <GenerationGrammarTrigger>[]);
-    final effectivePreservedTokens = hasTemplateGrammar
-        ? result.preservedTokens
-        : (params?.preservedTokens ?? const <String>[]);
+    final effectivePreservedTokens = {
+      ...result.preservedTokens,
+      ...?params?.preservedTokens,
+    }.toList(growable: false);
 
     // Generate raw tokens with grammar constraint
     final tokenStream = generate(

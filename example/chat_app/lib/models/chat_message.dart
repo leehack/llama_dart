@@ -7,6 +7,7 @@ class ChatMessage {
   final bool isInfo; // Non-conversation informational message
   final DateTime timestamp;
   final List<LlamaContentPart>? parts;
+  final List<String> debugBadges;
   final LlamaChatRole? role;
   int? tokenCount; // Cache token count for sliding window optimization
 
@@ -15,6 +16,7 @@ class ChatMessage {
     required this.isUser,
     this.isInfo = false,
     this.parts,
+    this.debugBadges = const [],
     this.role,
     DateTime? timestamp,
     this.tokenCount,
@@ -45,6 +47,7 @@ class ChatMessage {
     bool? isUser,
     bool? isInfo,
     List<LlamaContentPart>? parts,
+    List<String>? debugBadges,
     LlamaChatRole? role,
     DateTime? timestamp,
     int? tokenCount,
@@ -54,6 +57,7 @@ class ChatMessage {
       isUser: isUser ?? this.isUser,
       isInfo: isInfo ?? this.isInfo,
       parts: parts ?? this.parts,
+      debugBadges: debugBadges ?? this.debugBadges,
       role: role ?? this.role,
       timestamp: timestamp ?? this.timestamp,
       tokenCount: tokenCount ?? this.tokenCount,
@@ -90,6 +94,7 @@ class ChatMessage {
       isUser: msg.role == LlamaChatRole.user,
       role: msg.role,
       parts: msg.parts,
+      debugBadges: const [],
     );
   }
 }

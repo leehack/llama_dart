@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import '../models/tools/tool_definition.dart';
 import 'json_schema_converter.dart';
 
@@ -36,27 +34,34 @@ enum ToolChoice {
 
 /// Generates GBNF grammars for tool calling.
 ///
-/// Given a list of [ToolDefinition]s, produces a grammar that constrains
-/// the model to output valid tool calls matching the provided schemas.
+/// The generated schema intentionally matches llama.cpp's generic tool-call
+/// contract:
+/// - `{"tool_call": {...}}` for required/single-call output
+/// - `{"response": "..."}` alternative when [ToolChoice.auto]
 class ToolGrammarGenerator {
   const ToolGrammarGenerator._();
 
   /// Generate a grammar that constrains output to valid tool calls.
   ///
   /// When [toolChoice] is [ToolChoice.none], returns `null` (no constraint).
-  /// When [ToolChoice.required], forces the model to call exactly one tool.
-  /// When [ToolChoice.auto], allows either a tool call or free text.
+  /// When [ToolChoice.required], forces a tool call envelope.
+  /// When [ToolChoice.auto], allows either a tool-call envelope or
+  /// a textual response envelope.
   static ToolGrammarResult? generate(
     List<ToolDefinition> tools, {
     ToolChoice toolChoice = ToolChoice.auto,
   }) {
-    if (tools.isEmpty || toolChoice == ToolChoice.none) return null;
-
-    if (tools.length == 1) {
-      return _generateSingleTool(tools.first, toolChoice);
+    if (tools.isEmpty || toolChoice == ToolChoice.none) {
+      return null;
     }
 
-    return _generateMultiTool(tools, toolChoice);
+    final schema = _buildGenericToolSchema(tools, toolChoice: toolChoice);
+    final grammar = JsonSchemaConverter.convert(schema);
+    return ToolGrammarResult(
+      grammar: grammar,
+      grammarLazy: false,
+      grammarTriggers: const [],
+    );
   }
 
   /// Generate a grammar for a single JSON schema (e.g. `response_format`).
@@ -64,125 +69,56 @@ class ToolGrammarGenerator {
     return JsonSchemaConverter.convert(schema);
   }
 
-  // ---------------------------------------------------------------------------
-  // Single tool
-  // ---------------------------------------------------------------------------
+  static Map<String, dynamic> _buildGenericToolSchema(
+    List<ToolDefinition> tools, {
+    required ToolChoice toolChoice,
+  }) {
+    final toolCallSchemas = tools
+        .map(_buildSingleToolCallSchema)
+        .toList(growable: false);
 
-  static ToolGrammarResult _generateSingleTool(
-    ToolDefinition tool,
-    ToolChoice choice,
-  ) {
-    // Build the parameter schema grammar
-    final paramSchema = tool.toJsonSchema();
-    final paramGrammar = JsonSchemaConverter.convert(paramSchema);
+    final toolCallItem = toolCallSchemas.length == 1
+        ? toolCallSchemas.first
+        : <String, dynamic>{'anyOf': toolCallSchemas};
 
-    // Wrap in a tool call object: {"name": "tool_name", "arguments": {...}}
-    final grammar = _wrapToolCall(tool.name, paramGrammar);
+    final toolCallEnvelope = <String, dynamic>{
+      'type': 'object',
+      'properties': <String, dynamic>{'tool_call': toolCallItem},
+      'required': <String>['tool_call'],
+    };
 
-    return ToolGrammarResult(
-      grammar: grammar,
-      grammarLazy: choice == ToolChoice.auto,
-      grammarTriggers: choice == ToolChoice.auto
-          ? ['{', '<tool_call>']
-          : const [],
-    );
+    if (toolChoice == ToolChoice.required) {
+      return toolCallEnvelope;
+    }
+
+    return <String, dynamic>{
+      'anyOf': <Map<String, dynamic>>[
+        toolCallEnvelope,
+        <String, dynamic>{
+          'type': 'object',
+          'properties': <String, dynamic>{
+            'response': <String, dynamic>{'type': 'string'},
+          },
+          'required': <String>['response'],
+        },
+      ],
+    };
   }
 
-  // ---------------------------------------------------------------------------
-  // Multi-tool
-  // ---------------------------------------------------------------------------
+  static Map<String, dynamic> _buildSingleToolCallSchema(ToolDefinition tool) {
+    final schema = <String, dynamic>{
+      'type': 'object',
+      'properties': <String, dynamic>{
+        'name': <String, dynamic>{'type': 'string', 'const': tool.name},
+        'arguments': tool.toJsonSchema(),
+      },
+      'required': <String>['name', 'arguments'],
+    };
 
-  static ToolGrammarResult _generateMultiTool(
-    List<ToolDefinition> tools,
-    ToolChoice choice,
-  ) {
-    // Build individual tool call grammars and combine with union
-    final toolRules = <String>[];
-    final allRules = <String, String>{};
-
-    for (var i = 0; i < tools.length; i++) {
-      final tool = tools[i];
-      final paramSchema = tool.toJsonSchema();
-      final converter = JsonSchemaConverter();
-      converter.resolveRefs(paramSchema, paramSchema);
-      final paramRuleName = converter.visit(paramSchema, 'tool-$i-params');
-
-      // Add all rules from this converter
-      for (final entry in converter.rules.entries) {
-        allRules[entry.key] = entry.value;
-      }
-
-      // Build the tool call rule for this specific tool
-      final nameStr = jsonEncode(tool.name);
-      final toolRule =
-          '"{" space "\\"name\\"" space ":" space $nameStr space "," space "\\"arguments\\"" space ":" space $paramRuleName "}" space';
-      final toolRuleName = 'tool-$i';
-      allRules[toolRuleName] = toolRule;
-      toolRules.add(toolRuleName);
+    if (tool.description.isNotEmpty) {
+      schema['description'] = tool.description;
     }
 
-    // Root rule is union of all tool calls
-    allRules['root'] = toolRules.join(' | ');
-
-    // Format grammar
-    final buf = StringBuffer();
-    final sortedEntries = allRules.entries.toList()
-      ..sort((a, b) {
-        if (a.key == 'root') return -1;
-        if (b.key == 'root') return 1;
-        return a.key.compareTo(b.key);
-      });
-    for (final entry in sortedEntries) {
-      buf.writeln('${entry.key} ::= ${entry.value}');
-    }
-
-    return ToolGrammarResult(
-      grammar: buf.toString(),
-      grammarLazy: choice == ToolChoice.auto,
-      grammarTriggers: choice == ToolChoice.auto
-          ? ['{', '<tool_call>']
-          : const [],
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helper: wrap parameter grammar in a tool call object
-  // ---------------------------------------------------------------------------
-
-  static String _wrapToolCall(String toolName, String paramGrammar) {
-    // Parse the param grammar to extract the root rule content
-    // and re-embed it in a tool call wrapper
-    final lines = paramGrammar.split('\n').where((l) => l.trim().isNotEmpty);
-    final rules = <String, String>{};
-    for (final line in lines) {
-      final idx = line.indexOf(' ::= ');
-      if (idx == -1) continue;
-      rules[line.substring(0, idx).trim()] = line.substring(idx + 5).trim();
-    }
-
-    // Get the root rule content (this is the parameter object grammar)
-    final rootContent = rules.remove('root');
-    if (rootContent == null) {
-      return paramGrammar; // Fallback
-    }
-
-    // Create a new root that wraps name + arguments
-    final nameStr = jsonEncode(toolName);
-    rules['root'] =
-        '"{" space "\\"name\\"" space ":" space $nameStr space "," space "\\"arguments\\"" space ":" space params "}" space';
-    rules['params'] = rootContent;
-
-    // Format
-    final buf = StringBuffer();
-    final sortedEntries = rules.entries.toList()
-      ..sort((a, b) {
-        if (a.key == 'root') return -1;
-        if (b.key == 'root') return 1;
-        return a.key.compareTo(b.key);
-      });
-    for (final entry in sortedEntries) {
-      buf.writeln('${entry.key} ::= ${entry.value}');
-    }
-    return buf.toString();
+    return schema;
   }
 }

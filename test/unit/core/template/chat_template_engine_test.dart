@@ -159,6 +159,7 @@ void main() {
 
       expect(result.format, equals(ChatFormat.generic.index));
       expect(result.grammar, isNotNull);
+      expect(result.grammarLazy, isFalse);
     });
 
     test(
@@ -234,6 +235,190 @@ void main() {
       expect(result.grammarLazy, isFalse);
     });
 
+    test('routes LFM2 tool requests to generic tool grammar', () {
+      const template =
+          '{%- set keep_past_thinking = true -%}\n'
+          '<|im_start|>user\n{{ messages[0]["content"] }}<|im_end|>';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: grammarMessages,
+        metadata: const {},
+        tools: tools,
+        toolChoice: ToolChoice.required,
+      );
+
+      expect(result.format, equals(ChatFormat.generic.index));
+      expect(result.grammar, isNotNull);
+      expect(result.grammarLazy, isFalse);
+    });
+
+    test('keeps strict LFM2 marker templates on LFM2 handler', () {
+      const template =
+          'List of tools: <|tool_list_start|>[{"name":"x"}]<|tool_list_end|>'
+          '<|im_start|>user\n{{ messages[0]["content"] }}<|im_end|>';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: grammarMessages,
+        metadata: const {},
+        tools: tools,
+        toolChoice: ToolChoice.required,
+      );
+
+      expect(result.format, equals(ChatFormat.lfm2.index));
+      expect(result.grammar, isNull);
+    });
+
+    test('keeps lazy grammar for strict LFM2 force-json-schema mode', () {
+      const template =
+          'List of tools: <|tool_list_start|>[{"name":"x"}]<|tool_list_end|>'
+          '{% if messages[0]["role"] == "system" %}'
+          '<|im_start|>system\n{{ messages[0]["content"] }}<|im_end|>'
+          '{% endif %}'
+          '<|im_start|>user\n{{ messages[1]["content"] }}<|im_end|>';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: const [
+          LlamaChatMessage.fromText(
+            role: LlamaChatRole.system,
+            text: 'Force JSON schema.\nSystem prompt',
+          ),
+          LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'ping'),
+        ],
+        metadata: const {},
+        tools: tools,
+        toolChoice: ToolChoice.required,
+      );
+
+      expect(result.format, equals(ChatFormat.lfm2.index));
+      expect(result.grammar, isNotNull);
+      expect(result.grammarLazy, isTrue);
+    });
+
+    test('routes Gemma tool requests to generic tool grammar', () {
+      const template =
+          '{%- if messages -%}<start_of_turn>user\n'
+          '{{ messages[0]["content"] }}<end_of_turn>\n'
+          '<start_of_turn>model\n{%- endif -%}';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: grammarMessages,
+        metadata: const {},
+        tools: tools,
+        toolChoice: ToolChoice.auto,
+      );
+
+      expect(result.format, equals(ChatFormat.generic.index));
+      expect(result.grammar, isNotNull);
+      expect(result.grammarLazy, isFalse);
+    });
+
+    test(
+      'keeps generic routing for generic templates with tool_choice none',
+      () {
+        const template =
+            '<|im_start|>user\n{{ messages[0]["content"] }}<|im_end|>\n'
+            '<|im_start|>assistant\n';
+
+        final result = ChatTemplateEngine.render(
+          templateSource: template,
+          messages: grammarMessages,
+          metadata: const {},
+          tools: tools,
+          toolChoice: ToolChoice.none,
+        );
+
+        expect(result.format, equals(ChatFormat.generic.index));
+        expect(result.grammar, isNull);
+        expect(result.prompt, contains('Respond in JSON format'));
+      },
+    );
+
+    test(
+      'routes Mistral Nemo templates to content-only for tool_choice none',
+      () {
+        const template = '[TOOL_CALLS]{{ messages[0]["content"] }}';
+
+        final result = ChatTemplateEngine.render(
+          templateSource: template,
+          messages: grammarMessages,
+          metadata: const {},
+          tools: tools,
+          toolChoice: ToolChoice.none,
+        );
+
+        expect(result.format, equals(ChatFormat.contentOnly.index));
+        expect(result.grammar, isNull);
+      },
+    );
+
+    test('routes Ministral templates to Ministral handler', () {
+      const template =
+          '[SYSTEM_PROMPT]x[/SYSTEM_PROMPT]'
+          '[TOOL_CALLS]get_weather[ARGS]{}';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: grammarMessages,
+        metadata: const {},
+        tools: tools,
+        toolChoice: ToolChoice.auto,
+      );
+
+      expect(result.format, equals(ChatFormat.ministral.index));
+      expect(result.grammar, isNotNull);
+      expect(result.grammarLazy, isTrue);
+    });
+
+    test('keeps Ministral handler but strips grammar for tool_choice none', () {
+      const template =
+          '[SYSTEM_PROMPT]x[/SYSTEM_PROMPT]'
+          '[TOOL_CALLS]get_weather[ARGS]{}';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: grammarMessages,
+        metadata: const {},
+        tools: tools,
+        toolChoice: ToolChoice.none,
+      );
+
+      expect(result.format, equals(ChatFormat.ministral.index));
+      expect(result.grammar, isNull);
+      expect(result.grammarLazy, isFalse);
+      expect(result.grammarTriggers, isEmpty);
+      expect(result.preservedTokens, contains('[TOOL_CALLS]'));
+      expect(result.preservedTokens, contains('[ARGS]'));
+    });
+
+    test('keeps generic routing for LFM2 required tool choice', () {
+      const template =
+          '{%- set keep_past_thinking = true -%}\n'
+          '<|im_start|>system\n{{ messages[0]["content"] }}<|im_end|>'
+          '<|im_start|>user\n{{ messages[1]["content"] }}<|im_end|>';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: const [
+          LlamaChatMessage.fromText(
+            role: LlamaChatRole.system,
+            text: 'force json schema.\nSystem prompt',
+          ),
+          LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'ping'),
+        ],
+        metadata: const {},
+        tools: tools,
+        toolChoice: ToolChoice.required,
+      );
+
+      expect(result.format, equals(ChatFormat.generic.index));
+      expect(result.grammar, isNotNull);
+      expect(result.grammarLazy, isFalse);
+    });
+
     test('keeps lazy grammar for formats that always use lazy mode', () {
       const template =
           '<|system_start|>{{ messages[0]["content"] }}<|system_end|><|tools_prefix|>';
@@ -249,6 +434,21 @@ void main() {
       expect(result.format, equals(ChatFormat.apertus.index));
       expect(result.grammar, isNotNull);
       expect(result.grammarLazy, isTrue);
+    });
+
+    test('routes unknown templates with tools to generic handler', () {
+      const template = '{{ messages[0]["content"] }}';
+
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: grammarMessages,
+        metadata: const {},
+        tools: tools,
+        toolChoice: ToolChoice.required,
+      );
+
+      expect(result.format, equals(ChatFormat.generic.index));
+      expect(result.grammar, isNotNull);
     });
   });
 }

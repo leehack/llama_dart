@@ -114,73 +114,34 @@ class MagistralHandler extends ChatTemplateHandler {
     // This is a known limitation — the proper fix belongs in the engine layer
     // (e.g. prepending the trigger text to the buffer after grammar activation).
     if (!trimmed.contains('[TOOL_CALLS]')) {
+      try {
+        final parsedBareArray = _parseToolCallArray(trimmed);
+        if (parsedBareArray.isNotEmpty) {
+          return ChatParseResult(
+            content: '',
+            reasoningContent: thinking.reasoning,
+            toolCalls: parsedBareArray,
+          );
+        }
+      } catch (_) {
+        // Not a strict JSON array tool-call payload.
+      }
+
       return ChatParseResult(
         content: trimmed,
         reasoningContent: thinking.reasoning,
       );
     }
 
-    final toolCalls = <LlamaCompletionChunkToolCall>[];
     final markerIdx = trimmed.indexOf('[TOOL_CALLS]');
     final contentBefore = trimmed.substring(0, markerIdx).trim();
     final afterMarker = trimmed
         .substring(markerIdx + '[TOOL_CALLS]'.length)
         .trim();
 
-    // Format 1: Ministral - function_name[ARGS]{...}
-    // [ARGS] is an explicit marker that doesn't appear in natural text.
-    final ministralPattern = RegExp(r'([\w-]+)\[ARGS\]');
-    if (ministralPattern.hasMatch(afterMarker)) {
-      for (final match in ministralPattern.allMatches(afterMarker)) {
-        final name = match.group(1)!;
-        final argsStart = match.end;
-        final jsonObj = _extractJsonObject(afterMarker, argsStart);
-        if (jsonObj != null) {
-          toolCalls.add(
-            LlamaCompletionChunkToolCall(
-              index: toolCalls.length,
-              id: 'call_${toolCalls.length}',
-              type: 'function',
-              function: LlamaCompletionChunkFunction(
-                name: name,
-                arguments: jsonObj,
-              ),
-            ),
-          );
-        }
-      }
-
-      if (toolCalls.isNotEmpty) {
-        return ChatParseResult(
-          content: contentBefore,
-          reasoningContent: thinking.reasoning,
-          toolCalls: toolCalls,
-        );
-      }
-    }
-
-    // Format 2: Mistral Nemo JSON array - [TOOL_CALLS][{...}, ...]
+    // Magistral tool-calls: [TOOL_CALLS][{...}, ...]
     try {
-      final list = jsonDecode(afterMarker) as List<dynamic>;
-      for (var i = 0; i < list.length; i++) {
-        final call = list[i] as Map<String, dynamic>;
-        final name = call['name'] as String?;
-        final args = call['arguments'];
-        final id = call['id'] as String?;
-        if (name != null) {
-          toolCalls.add(
-            LlamaCompletionChunkToolCall(
-              index: i,
-              id: id ?? 'call_$i',
-              type: 'function',
-              function: LlamaCompletionChunkFunction(
-                name: name,
-                arguments: args is String ? args : jsonEncode(args ?? {}),
-              ),
-            ),
-          );
-        }
-      }
+      final toolCalls = _parseToolCallArray(afterMarker);
       if (toolCalls.isNotEmpty) {
         return ChatParseResult(
           content: contentBefore,
@@ -199,59 +160,37 @@ class MagistralHandler extends ChatTemplateHandler {
     );
   }
 
-  /// Extracts a balanced JSON object starting at [offset] in [input].
-  ///
-  /// Counts brace depth while respecting quoted strings so that nested
-  /// objects like `{"a": {"b": 1}}` are extracted correctly.
-  /// Returns the JSON substring, or `null` if no valid object is found.
-  String? _extractJsonObject(String input, int offset) {
-    // Skip whitespace (including newlines/tabs) to find the opening brace
-    var start = offset;
-    while (start < input.length) {
-      final ch = input[start];
-      if (ch != ' ' && ch != '\n' && ch != '\r' && ch != '\t') break;
-      start++;
+  List<LlamaCompletionChunkToolCall> _parseToolCallArray(String jsonText) {
+    final toolCalls = <LlamaCompletionChunkToolCall>[];
+    final list = jsonDecode(jsonText) as List<dynamic>;
+    for (var i = 0; i < list.length; i++) {
+      final item = list[i];
+      if (item is! Map) {
+        continue;
+      }
+
+      final call = Map<String, dynamic>.from(item);
+      final name = call['name'] as String?;
+      if (name == null || name.isEmpty) {
+        continue;
+      }
+
+      final args = call['arguments'];
+      final id = call['id'] as String?;
+      toolCalls.add(
+        LlamaCompletionChunkToolCall(
+          index: i,
+          id: id ?? 'call_$i',
+          type: 'function',
+          function: LlamaCompletionChunkFunction(
+            name: name,
+            arguments: args is String ? args : jsonEncode(args ?? {}),
+          ),
+        ),
+      );
     }
-    if (start >= input.length || input[start] != '{') return null;
 
-    var depth = 0;
-    var inString = false;
-    for (var i = start; i < input.length; i++) {
-      final c = input[i];
-
-      if (inString) {
-        if (c == r'\') {
-          i++; // skip escaped character
-        } else if (c == '"') {
-          inString = false;
-        }
-        continue;
-      }
-
-      if (c == '"') {
-        inString = true;
-        continue;
-      }
-
-      if (c == '{') {
-        depth++;
-        continue;
-      }
-
-      if (c == '}') {
-        depth--;
-        if (depth == 0) {
-          final json = input.substring(start, i + 1);
-          try {
-            jsonDecode(json); // validate
-            return json;
-          } catch (_) {
-            return null;
-          }
-        }
-      }
-    }
-    return null; // unbalanced braces
+    return toolCalls;
   }
 
   @override

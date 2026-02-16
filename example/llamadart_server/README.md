@@ -23,8 +23,9 @@ It exposes OpenAI-compatible endpoints:
 
 - Supports a single generation at a time (returns 429 while busy)
 - Supports `n = 1` only
-- Tools are passed through to the model prompt only; this example does not
-  execute tools server-side
+- By default, tools are passed through to the model prompt only (no server-side
+  execution). Use `--enable-tool-execution` to enable an example built-in tool
+  loop.
 - Chat Completions only (no Embeddings or legacy Completions endpoint)
 
 ## Run
@@ -44,7 +45,21 @@ Optional flags:
 - `--api-key` (optional)
 - `--context-size` (default: `4096`)
 - `--gpu-layers` (default: `999`)
+- `--enable-tool-execution` (default: disabled; enables built-in demo handlers)
+- `--max-tool-rounds` (default: `5`; used only when tool execution is enabled)
 - `--log` (enable verbose Dart + HTTP request logs; native logs stay error-only)
+
+### Sampling defaults
+
+When omitted in a request body, this example server applies a stable default
+`GenerationParams` baseline:
+
+- `penalty = 1.0`
+- `top_p = 0.95`
+- `min_p = 0.05`
+
+Request-provided sampling fields (for example `temperature`, `top_p`, `seed`,
+`max_tokens`) override these defaults per call.
 
 ## API Examples
 

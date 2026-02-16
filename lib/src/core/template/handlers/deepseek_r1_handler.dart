@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dinja/dinja.dart';
 
+import '../../grammar/json_schema_converter.dart';
 import '../../models/chat/chat_message.dart';
 import '../../models/chat/chat_template_result.dart';
 import '../../models/chat/completion_chunk.dart';
@@ -9,6 +10,7 @@ import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
+import '../tool_call_fallback_parser.dart';
 import '../thinking_utils.dart';
 
 /// Handler for DeepSeek R1 format.
@@ -133,27 +135,40 @@ class DeepseekR1Handler extends ChatTemplateHandler {
         final callContent = callMatches.elementAt(i).group(1)!.trim();
 
         final sepIdx = callContent.indexOf('<｜tool▁sep｜>');
-        if (sepIdx != -1) {
-          final name = callContent.substring(0, sepIdx).trim();
-          final argsStr = callContent
-              .substring(sepIdx + '<｜tool▁sep｜>'.length)
-              .trim();
-
-          try {
-            final args = jsonDecode(argsStr);
-            toolCalls.add(
-              LlamaCompletionChunkToolCall(
-                index: i,
-                id: 'call_$i',
-                type: 'function',
-                function: LlamaCompletionChunkFunction(
-                  name: name,
-                  arguments: args is String ? args : jsonEncode(args),
-                ),
-              ),
-            );
-          } catch (_) {}
+        if (sepIdx == -1) {
+          continue;
         }
+
+        var toolName = callContent.substring(0, sepIdx).trim();
+        final payload = callContent
+            .substring(sepIdx + '<｜tool▁sep｜>'.length)
+            .trim();
+        if (_isPlaceholderToolName(toolName)) {
+          final extractedName = _extractToolNameFromPayload(payload);
+          if (extractedName != null && extractedName.isNotEmpty) {
+            toolName = extractedName;
+          }
+        }
+
+        var arguments = _extractArgumentsFromPayload(payload);
+        arguments = normalizeFallbackToolArguments(arguments);
+        toolName = normalizeFallbackToolName(toolName, arguments: arguments);
+
+        if (toolName.isEmpty) {
+          continue;
+        }
+
+        toolCalls.add(
+          LlamaCompletionChunkToolCall(
+            index: i,
+            id: 'call_$i',
+            type: 'function',
+            function: LlamaCompletionChunkFunction(
+              name: toolName,
+              arguments: jsonEncode(arguments),
+            ),
+          ),
+        );
       }
     } else {
       final legacyToolCallRegex = RegExp(
@@ -213,19 +228,45 @@ class DeepseekR1Handler extends ChatTemplateHandler {
       return null;
     }
 
-    final toolNames = tools
-        .map((tool) => _literal(tool.name))
-        .toSet()
-        .toList(growable: false);
-    final toolNameRule = toolNames.join(' | ');
+    final converter = JsonSchemaConverter();
+    final toolRuleNames = <String>[];
 
-    return '''
-root ::= ( "</think>" space )? tool-calls
-tool-calls ::= ( "<｜tool▁calls▁begin｜>" | "<｜tool_calls_begin｜>" | "<｜tool calls begin｜>" | "<｜tool\\\\_calls\\\\_begin｜>" | "<｜tool▁calls｜>" ) space tool-call+ "<｜tool▁calls▁end｜>" space
-tool-call ::= ( "<｜tool▁call▁begin｜>" )? tool-name "<｜tool▁sep｜>" obj "<｜tool▁call▁end｜>" space
-tool-name ::= $toolNameRule
-${_commonGbnfRules()}
-''';
+    for (var i = 0; i < tools.length; i++) {
+      final tool = tools[i];
+      final schema = tool.toJsonSchema();
+      converter.resolveRefs(schema, schema);
+      final argsRule = converter.visit(schema, 'tool-$i-args');
+
+      final toolRuleName = 'tool-$i-call';
+      final prefix = _literal('function<｜tool▁sep｜>${tool.name}\\n```json\\n');
+      final suffix = _literal('```<｜tool▁call▁end｜>');
+      converter.rules[toolRuleName] =
+          '( "<｜tool▁call▁begin｜>" )? $prefix $argsRule $suffix';
+      toolRuleNames.add(toolRuleName);
+    }
+
+    const rootRule = '( "</think>" space )? tool-calls';
+    const toolCallsRule =
+        '( "<｜tool▁calls▁begin｜>" | "<｜tool_calls_begin｜>" | "<｜tool calls begin｜>" | "<｜tool\\\\_calls\\\\_begin｜>" | "<｜tool▁calls｜>" ) space tool-call+ "<｜tool▁calls▁end｜>" space';
+    final toolCallRule = toolRuleNames.join(' | ');
+
+    final buffer = StringBuffer()
+      ..writeln('root ::= $rootRule')
+      ..writeln('tool-calls ::= $toolCallsRule')
+      ..writeln('tool-call ::= $toolCallRule');
+
+    final otherRules = converter.rules.entries.toList(growable: false)
+      ..sort((a, b) => a.key.compareTo(b.key));
+    for (final entry in otherRules) {
+      if (entry.key == 'root' ||
+          entry.key == 'tool-calls' ||
+          entry.key == 'tool-call') {
+        continue;
+      }
+      buffer.writeln('${entry.key} ::= ${entry.value}');
+    }
+
+    return buffer.toString();
   }
 
   String _literal(String value) {
@@ -237,15 +278,70 @@ ${_commonGbnfRules()}
     return '"$escaped"';
   }
 
-  String _commonGbnfRules() {
-    return r'''
-space ::= " "?
-string ::= "\"" ([^"\\] | "\\\\" .)* "\""
-number ::= "-"? ([0-9] | [1-9] [0-9]*) ("." [0-9]+)? ([eE] [-+]? [0-9]+)?
-boolean ::= "true" | "false"
-null ::= "null"
-value ::= string | number | boolean | null | arr | obj
-arr ::= "[" space (value ("," space value)*)? space "]"
-obj ::= "{" space (string ":" space value ("," space string ":" space value)*)? space "}"''';
+  Map<String, dynamic> _extractArgumentsFromPayload(String payload) {
+    if (payload.isEmpty) {
+      return const <String, dynamic>{};
+    }
+
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+      if (decoded is String) {
+        return decodeToolArgumentsObject(decoded);
+      }
+    } catch (_) {
+      // Fall through to looser extractors.
+    }
+
+    final extractedObject = _extractJsonObject(payload);
+    if (extractedObject != null) {
+      return extractedObject;
+    }
+
+    return const <String, dynamic>{};
+  }
+
+  bool _isPlaceholderToolName(String name) {
+    return name == 'function' || name == 'call' || name == 'tool';
+  }
+
+  String? _extractToolNameFromPayload(String payload) {
+    if (payload.isEmpty) {
+      return null;
+    }
+
+    final nameMatch = RegExp(
+      r'^([A-Za-z_][A-Za-z0-9_\.-]*)',
+    ).firstMatch(payload);
+    return nameMatch?.group(1);
+  }
+
+  Map<String, dynamic>? _extractJsonObject(String payload) {
+    if (payload.isEmpty) {
+      return null;
+    }
+
+    final objectMatch = RegExp(r'(\{[\s\S]*?\})').firstMatch(payload);
+    if (objectMatch == null) {
+      return null;
+    }
+
+    final rawObject = objectMatch.group(1);
+    if (rawObject == null || rawObject.isEmpty) {
+      return null;
+    }
+
+    try {
+      final decoded = jsonDecode(rawObject);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {
+      return null;
+    }
+
+    return null;
   }
 }

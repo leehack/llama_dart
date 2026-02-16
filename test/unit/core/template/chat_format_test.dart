@@ -7,16 +7,23 @@ import 'package:test/test.dart';
 
 void main() {
   group('ChatFormat Detection', () {
-    test('detects LFM 2.5 template from fixture', () {
+    test('treats non-strict LFM 2.5 fixture as generic', () {
       final file = File('test/fixtures/templates/LFM2_5-1_2B-Thinking.jinja');
       final source = file.readAsStringSync();
       final format = detectChatFormat(source);
-      expect(format, equals(ChatFormat.lfm2));
+      expect(format, equals(ChatFormat.generic));
     });
 
-    test('detects LFM 2.5 from keep_past_thinking marker', () {
+    test('does not detect LFM2 from keep_past_thinking marker alone', () {
       const source =
           '{%- set keep_past_thinking = true -%}<|im_start|>user\nhi<|im_end|>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.generic));
+    });
+
+    test('detects LFM2 from strict tool list markers', () {
+      const source =
+          'List of tools: <|tool_list_start|>[{"name":"search"}]<|tool_list_end|>';
       final format = detectChatFormat(source);
       expect(format, equals(ChatFormat.lfm2));
     });
@@ -138,6 +145,29 @@ void main() {
           '<end_function_call>';
       final format = detectChatFormat(source);
       expect(format, equals(ChatFormat.functionGemma));
+    });
+
+    test('detects Ministral format before Magistral', () {
+      const source =
+          '[SYSTEM_PROMPT]x[/SYSTEM_PROMPT][TOOL_CALLS]get_weather[ARGS]{}';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.ministral));
+    });
+
+    test('detects Magistral format from think tags', () {
+      const source = '[THINK]reasoning[/THINK]';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.magistral));
+    });
+
+    test('detects unsloth Ministral 3 reasoning template markers', () {
+      const source =
+          '[SYSTEM_PROMPT]x[/SYSTEM_PROMPT]'
+          '[AVAILABLE_TOOLS][][/AVAILABLE_TOOLS]'
+          '[THINK]plan[/THINK]'
+          '[TOOL_CALLS]get_weather[ARGS]{"city":"Seoul"}';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.ministral));
     });
 
     test('prefers FunctionGemma over Gemma when both markers are present', () {

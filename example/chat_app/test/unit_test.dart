@@ -79,6 +79,173 @@ void main() {
       expect(provider.currentTokens, 1);
     });
 
+    test('normalizes generic JSON response envelope for display', () async {
+      final jsonEngine = _JsonResponseEngine();
+      final jsonProvider = ChatProvider(
+        chatService: MockChatService(engine: jsonEngine),
+        settingsService: mockSettingsService,
+        initialSettings: const ChatSettings(modelPath: 'test_model.gguf'),
+      );
+
+      await jsonProvider.loadModel();
+      await jsonProvider.sendMessage('hello');
+
+      final assistant = jsonProvider.messages
+          .where((m) => !m.isUser && !m.isInfo)
+          .last;
+      expect(assistant.text, equals('Hello from JSON envelope.'));
+      expect(assistant.debugBadges, contains('fmt:generic'));
+      expect(assistant.debugBadges, contains('think:none'));
+    });
+
+    test('extracts think tags into dedicated thinking content', () async {
+      final thinkingEngine = _ThinkTaggedResponseEngine();
+      final thinkingProvider = ChatProvider(
+        chatService: MockChatService(engine: thinkingEngine),
+        settingsService: mockSettingsService,
+        initialSettings: const ChatSettings(modelPath: 'test_model.gguf'),
+      );
+
+      await thinkingProvider.loadModel();
+      await thinkingProvider.sendMessage('reason briefly');
+
+      final assistant = thinkingProvider.messages
+          .where((m) => !m.isUser && !m.isInfo)
+          .last;
+      expect(assistant.text, equals('Final answer.'));
+      expect(assistant.thinkingText, equals('plan first'));
+      expect(assistant.debugBadges, contains('think:tag-parse'));
+    });
+
+    test('extracts Ministral-style plain reasoning fallback', () async {
+      final engine = _MinistralPlainReasoningEngine();
+      final providerWithFallback = ChatProvider(
+        chatService: MockChatService(engine: engine),
+        settingsService: mockSettingsService,
+        initialSettings: const ChatSettings(modelPath: 'test_model.gguf'),
+      );
+
+      await providerWithFallback.loadModel();
+      await providerWithFallback.sendMessage('hi');
+
+      final assistant = providerWithFallback.messages
+          .where((m) => !m.isUser && !m.isInfo)
+          .last;
+      expect(assistant.thinkingText, contains('user has greeted me'));
+      expect(assistant.text, equals('Hello! How can I help you today?'));
+      expect(assistant.debugBadges, contains('think:parse'));
+    });
+
+    test('uses forced tool choice only on first turn', () async {
+      final loopEngine = _FirstTurnToolChoiceEngine();
+      final loopProvider = ChatProvider(
+        chatService: MockChatService(engine: loopEngine),
+        settingsService: mockSettingsService,
+        initialSettings: const ChatSettings(modelPath: 'test_model.gguf'),
+      );
+
+      await loopProvider.loadModel();
+      loopProvider.updateToolsEnabled(true);
+      loopProvider.updateForceToolCall(true);
+
+      await loopProvider.sendMessage('what time is it?');
+
+      expect(loopEngine.receivedToolChoices.length, equals(2));
+      expect(loopEngine.receivedToolChoices.first, equals(ToolChoice.required));
+      expect(loopEngine.receivedToolChoices.last, isNull);
+      expect(
+        loopProvider.messages
+            .where(
+              (m) =>
+                  !m.isUser &&
+                  !m.isInfo &&
+                  m.text.trim().isEmpty &&
+                  (m.parts == null || m.parts!.isEmpty),
+            )
+            .isEmpty,
+        isTrue,
+      );
+    });
+
+    test('stops repeated tool loops after max rounds', () async {
+      final loopEngine = _InfiniteToolLoopEngine();
+      final loopProvider = ChatProvider(
+        chatService: MockChatService(engine: loopEngine),
+        settingsService: mockSettingsService,
+        initialSettings: const ChatSettings(modelPath: 'test_model.gguf'),
+      );
+
+      await loopProvider.loadModel();
+      loopProvider.updateToolsEnabled(true);
+      loopProvider.updateForceToolCall(true);
+
+      await loopProvider.sendMessage('loop forever');
+
+      expect(
+        loopProvider.messages.any(
+          (m) =>
+              m.isInfo &&
+              (m.text.contains('Model repeated tool calls') ||
+                  m.text.contains('Skipping repeated tool calls') ||
+                  m.text.contains('Stopped after 5 tool-call rounds')),
+        ),
+        isTrue,
+      );
+      expect(loopEngine.createCallCount, lessThanOrEqualTo(6));
+    });
+
+    test('limits repeated calls for same tool name', () async {
+      final engine = _VaryingArgsLoopEngine();
+      final guardedProvider = ChatProvider(
+        chatService: MockChatService(engine: engine),
+        settingsService: mockSettingsService,
+        initialSettings: const ChatSettings(modelPath: 'test_model.gguf'),
+      );
+
+      await guardedProvider.loadModel();
+      guardedProvider.updateToolsEnabled(true);
+      guardedProvider.updateForceToolCall(true);
+
+      await guardedProvider.sendMessage('weather please');
+
+      expect(
+        guardedProvider.messages.any(
+          (m) =>
+              m.isInfo &&
+              (m.text.contains('Model repeated tool calls') ||
+                  m.text.contains('Skipping repeated tool calls') ||
+                  m.text.contains('Stopped after 5 tool-call rounds')),
+        ),
+        isTrue,
+      );
+      expect(engine.createCallCount, lessThanOrEqualTo(6));
+    });
+
+    test('falls back to tool result when model ignores it', () async {
+      final engine = _ToolResultIgnoringEngine();
+      final providerWithFallback = ChatProvider(
+        chatService: MockChatService(engine: engine),
+        settingsService: mockSettingsService,
+        initialSettings: const ChatSettings(modelPath: 'test_model.gguf'),
+      );
+
+      await providerWithFallback.loadModel();
+      providerWithFallback.updateToolsEnabled(true);
+      providerWithFallback.updateForceToolCall(true);
+
+      await providerWithFallback.sendMessage('how is weather in london?');
+
+      final assistant = providerWithFallback.messages
+          .where((m) => !m.isUser && !m.isInfo)
+          .last;
+      expect(assistant.text, contains('The weather in London, UK is'));
+      expect(
+        assistant.text.toLowerCase(),
+        isNot(contains('fictional response')),
+      );
+      expect(assistant.debugBadges, contains('fallback:tool-result'));
+    });
+
     test('clearConversation resets tokens', () async {
       await provider.loadModel();
       await provider.sendMessage("Hello");
@@ -201,4 +368,292 @@ void main() {
       expect(result, '  hello world  '); // MockChatService doesn't trim
     });
   });
+}
+
+class _JsonResponseEngine extends MockLlamaEngine {
+  @override
+  Stream<LlamaCompletionChunk> create(
+    List<LlamaChatMessage> messages, {
+    GenerationParams? params,
+    List<ToolDefinition>? tools,
+    ToolChoice? toolChoice,
+    String? sourceLangCode,
+    String? targetLangCode,
+  }) async* {
+    yield LlamaCompletionChunk(
+      id: 'json-id',
+      object: 'chat.completion.chunk',
+      created: 1,
+      model: 'mock-model',
+      choices: [
+        LlamaCompletionChunkChoice(
+          index: 0,
+          delta: LlamaCompletionChunkDelta(
+            content: '{"response":"Hello from JSON envelope."}',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ThinkTaggedResponseEngine extends MockLlamaEngine {
+  @override
+  Stream<LlamaCompletionChunk> create(
+    List<LlamaChatMessage> messages, {
+    GenerationParams? params,
+    List<ToolDefinition>? tools,
+    ToolChoice? toolChoice,
+    String? sourceLangCode,
+    String? targetLangCode,
+  }) async* {
+    yield LlamaCompletionChunk(
+      id: 'think-id',
+      object: 'chat.completion.chunk',
+      created: 1,
+      model: 'mock-model',
+      choices: [
+        LlamaCompletionChunkChoice(
+          index: 0,
+          delta: LlamaCompletionChunkDelta(
+            content: '<think>plan first</think>Final answer.',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MinistralPlainReasoningEngine extends MockLlamaEngine {
+  @override
+  Stream<LlamaCompletionChunk> create(
+    List<LlamaChatMessage> messages, {
+    GenerationParams? params,
+    List<ToolDefinition>? tools,
+    ToolChoice? toolChoice,
+    String? sourceLangCode,
+    String? targetLangCode,
+  }) async* {
+    yield LlamaCompletionChunk(
+      id: 'ministral-plain-id',
+      object: 'chat.completion.chunk',
+      created: 1,
+      model: 'mock-model',
+      choices: [
+        LlamaCompletionChunkChoice(
+          index: 0,
+          delta: LlamaCompletionChunkDelta(
+            content:
+                'Alright, the user has greeted me. I should respond politely.\n\nResponse:\n"Hello! How can I help you today?"Hello! How can I help you today?',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FirstTurnToolChoiceEngine extends MockLlamaEngine {
+  final List<ToolChoice?> receivedToolChoices = [];
+  int _callIndex = 0;
+
+  @override
+  Stream<LlamaCompletionChunk> create(
+    List<LlamaChatMessage> messages, {
+    GenerationParams? params,
+    List<ToolDefinition>? tools,
+    ToolChoice? toolChoice,
+    String? sourceLangCode,
+    String? targetLangCode,
+  }) async* {
+    receivedToolChoices.add(toolChoice);
+
+    if (_callIndex == 0) {
+      _callIndex++;
+      yield LlamaCompletionChunk(
+        id: 'tool-turn-1',
+        object: 'chat.completion.chunk',
+        created: 1,
+        model: 'mock-model',
+        choices: [
+          LlamaCompletionChunkChoice(
+            index: 0,
+            delta: LlamaCompletionChunkDelta(
+              toolCalls: [
+                LlamaCompletionChunkToolCall(
+                  index: 0,
+                  id: 'call_0',
+                  type: 'function',
+                  function: LlamaCompletionChunkFunction(
+                    name: 'get_current_time',
+                    arguments: '{}',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+      return;
+    }
+
+    yield LlamaCompletionChunk(
+      id: 'tool-turn-2',
+      object: 'chat.completion.chunk',
+      created: 2,
+      model: 'mock-model',
+      choices: [
+        LlamaCompletionChunkChoice(
+          index: 0,
+          delta: LlamaCompletionChunkDelta(content: 'Tool complete.'),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfiniteToolLoopEngine extends MockLlamaEngine {
+  int createCallCount = 0;
+
+  @override
+  Stream<LlamaCompletionChunk> create(
+    List<LlamaChatMessage> messages, {
+    GenerationParams? params,
+    List<ToolDefinition>? tools,
+    ToolChoice? toolChoice,
+    String? sourceLangCode,
+    String? targetLangCode,
+  }) async* {
+    createCallCount++;
+
+    yield LlamaCompletionChunk(
+      id: 'loop-$createCallCount',
+      object: 'chat.completion.chunk',
+      created: createCallCount,
+      model: 'mock-model',
+      choices: [
+        LlamaCompletionChunkChoice(
+          index: 0,
+          delta: LlamaCompletionChunkDelta(
+            toolCalls: [
+              LlamaCompletionChunkToolCall(
+                index: 0,
+                id: 'call_$createCallCount',
+                type: 'function',
+                function: LlamaCompletionChunkFunction(
+                  name: 'get_current_time',
+                  arguments: '{}',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ToolResultIgnoringEngine extends MockLlamaEngine {
+  int _callIndex = 0;
+
+  @override
+  Stream<LlamaCompletionChunk> create(
+    List<LlamaChatMessage> messages, {
+    GenerationParams? params,
+    List<ToolDefinition>? tools,
+    ToolChoice? toolChoice,
+    String? sourceLangCode,
+    String? targetLangCode,
+  }) async* {
+    if (_callIndex == 0) {
+      _callIndex++;
+      yield LlamaCompletionChunk(
+        id: 'ignore-tool-1',
+        object: 'chat.completion.chunk',
+        created: 1,
+        model: 'mock-model',
+        choices: [
+          LlamaCompletionChunkChoice(
+            index: 0,
+            delta: LlamaCompletionChunkDelta(
+              toolCalls: [
+                LlamaCompletionChunkToolCall(
+                  index: 0,
+                  id: 'call_1',
+                  type: 'function',
+                  function: LlamaCompletionChunkFunction(
+                    name: 'get_current_weather',
+                    arguments: '{"city":"London, UK","unit":"celsius"}',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+      return;
+    }
+
+    yield LlamaCompletionChunk(
+      id: 'ignore-tool-2',
+      object: 'chat.completion.chunk',
+      created: 2,
+      model: 'mock-model',
+      choices: [
+        LlamaCompletionChunkChoice(
+          index: 0,
+          delta: LlamaCompletionChunkDelta(
+            content:
+                "This is a fictional response, as I don't have real-time access to current weather conditions.",
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _VaryingArgsLoopEngine extends MockLlamaEngine {
+  int createCallCount = 0;
+
+  @override
+  Stream<LlamaCompletionChunk> create(
+    List<LlamaChatMessage> messages, {
+    GenerationParams? params,
+    List<ToolDefinition>? tools,
+    ToolChoice? toolChoice,
+    String? sourceLangCode,
+    String? targetLangCode,
+  }) async* {
+    createCallCount++;
+
+    final city = switch (createCallCount) {
+      1 => 'London, UK',
+      2 => 'London UK',
+      _ => 'London',
+    };
+
+    yield LlamaCompletionChunk(
+      id: 'vary-$createCallCount',
+      object: 'chat.completion.chunk',
+      created: createCallCount,
+      model: 'mock-model',
+      choices: [
+        LlamaCompletionChunkChoice(
+          index: 0,
+          delta: LlamaCompletionChunkDelta(
+            toolCalls: [
+              LlamaCompletionChunkToolCall(
+                index: 0,
+                id: 'call_$createCallCount',
+                type: 'function',
+                function: LlamaCompletionChunkFunction(
+                  name: 'get_current_weather',
+                  arguments: '{"city":"$city","unit":"celsius"}',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }

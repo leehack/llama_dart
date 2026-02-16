@@ -33,7 +33,8 @@ void main() {
 
     expect(rendered.prompt, contains('<BOS>sys|hello'));
     expect(rendered.prompt, endsWith('</think>\n'));
-    expect(rendered.grammar, contains(r'<｜tool\\_calls\\_begin｜>'));
+    expect(rendered.grammar, contains('<｜tool▁calls▁begin｜>'));
+    expect(rendered.grammar, contains('city'));
     expect(rendered.grammarTriggers, isNotEmpty);
     expect(
       rendered.grammarTriggers.first.value,
@@ -54,6 +55,26 @@ void main() {
       jsonDecode(parsed.toolCalls.first.function!.arguments!),
       containsPair('city', 'Seoul'),
     );
+
+    final tokenParsed = handler.parse(
+      '<｜tool calls begin｜>'
+      'function<｜tool▁sep｜>get_weather\n```json\n{"city":"Seoul"}\n```'
+      '<｜tool▁call▁end｜>',
+    );
+    expect(tokenParsed.toolCalls, isEmpty);
+
+    final truncatedTokenParsed = handler.parse(
+      '<｜tool▁call▁begin｜>function<｜tool▁sep｜>'
+      'get_weather\n{"city":"Seoul"}',
+    );
+    expect(truncatedTokenParsed.toolCalls, isEmpty);
+
+    final functionStylePayload = handler.parse(
+      '<｜tool▁call▁begin｜>function<｜tool▁sep｜>'
+      'weather_tool.get_weather_and_local_time(location="Seoul")'
+      '<｜tool▁call▁end｜>',
+    );
+    expect(functionStylePayload.toolCalls, isEmpty);
 
     final noToolParse = handler.parse('plain', parseToolCalls: false);
     expect(noToolParse.content, equals('plain'));

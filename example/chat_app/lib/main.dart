@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -24,6 +25,9 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     _listener = AppLifecycleListener(
+      onDetach: () {
+        unawaited(_chatProvider.shutdown());
+      },
       onExitRequested: () async {
         await _chatProvider.shutdown();
         return AppExitResponse.exit;
@@ -34,6 +38,7 @@ class _MyAppState extends State<MyApp> {
   @override
   void dispose() {
     _listener.dispose();
+    unawaited(_chatProvider.shutdown());
     _chatProvider.dispose();
     super.dispose();
   }

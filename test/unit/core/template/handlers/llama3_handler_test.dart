@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:llamadart/src/core/template/chat_format.dart';
 import 'package:llamadart/src/core/template/handlers/llama3_handler.dart';
 import 'package:llamadart/src/core/models/chat/chat_message.dart';
@@ -67,6 +69,36 @@ void main() {
     expect(result.grammar, isNotNull);
     expect(result.grammar, contains('name-kv'));
     expect(result.grammar, contains('parameters-kv'));
+  });
+
+  test('parses strict JSON tool payload and keeps loose text content', () {
+    final handler = Llama3Handler();
+
+    final strict = handler.parse(
+      '[{"name":"get_weather","parameters":{"city":"Seoul"}}]',
+    );
+    expect(strict.toolCalls, hasLength(1));
+    expect(strict.toolCalls.first.function?.name, equals('get_weather'));
+    expect(
+      jsonDecode(strict.toolCalls.first.function!.arguments!),
+      containsPair('city', 'Seoul'),
+    );
+
+    final semicolon = handler.parse(
+      '{"type":"function","function":"get_weather","parameters":{"city":"Seoul"}}; '
+      '{"type":"function","function":"get_time","parameters":{"city":"Seoul"}}',
+    );
+    expect(semicolon.toolCalls, hasLength(1));
+    expect(semicolon.toolCalls.first.function?.name, equals('get_weather'));
+    expect(
+      jsonDecode(semicolon.toolCalls.first.function!.arguments!),
+      containsPair('city', 'Seoul'),
+    );
+    expect(semicolon.content, isEmpty);
+
+    final alias = handler.parse('weatherlookup');
+    expect(alias.toolCalls, isEmpty);
+    expect(alias.content, equals('weatherlookup'));
   });
 }
 

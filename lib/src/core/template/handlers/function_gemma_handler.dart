@@ -11,6 +11,7 @@ import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
+import '../tool_call_fallback_parser.dart';
 
 /// Handler for FunctionGemma format.
 ///
@@ -228,14 +229,20 @@ class FunctionGemmaHandler extends ChatTemplateHandler {
       // Convert to valid JSON by quoting unquoted keys
       arguments = _toValidJson(arguments);
 
+      final normalizedArguments = decodeToolArgumentsObject(arguments);
+      final normalizedName = normalizeFallbackToolName(
+        name,
+        arguments: normalizedArguments,
+      );
+
       toolCalls.add(
         LlamaCompletionChunkToolCall(
           index: i,
           id: 'call_$i',
           type: 'function',
           function: LlamaCompletionChunkFunction(
-            name: name,
-            arguments: arguments,
+            name: normalizedName,
+            arguments: jsonEncode(normalizedArguments),
           ),
         ),
       );

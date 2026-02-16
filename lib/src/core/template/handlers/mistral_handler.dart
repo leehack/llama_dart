@@ -89,6 +89,19 @@ class MistralHandler extends ChatTemplateHandler {
 
     // Check for [TOOL_CALLS] prefix
     if (!trimmed.startsWith('[TOOL_CALLS]')) {
+      try {
+        final parsedBareArray = _parseToolCallArray(trimmed);
+        if (parsedBareArray.isNotEmpty) {
+          return ChatParseResult(
+            content: '',
+            reasoningContent: thinking.reasoning,
+            toolCalls: parsedBareArray,
+          );
+        }
+      } catch (_) {
+        // Not a strict JSON array tool-call payload.
+      }
+
       return ChatParseResult(
         content: trimmed,
         reasoningContent: thinking.reasoning,
@@ -97,28 +110,14 @@ class MistralHandler extends ChatTemplateHandler {
 
     // Strip the prefix and parse JSON array
     final jsonStr = trimmed.substring('[TOOL_CALLS]'.length).trim();
-    final toolCalls = <LlamaCompletionChunkToolCall>[];
-
     try {
-      final list = jsonDecode(jsonStr) as List<dynamic>;
-      for (var i = 0; i < list.length; i++) {
-        final call = list[i] as Map<String, dynamic>;
-        final name = call['name'] as String?;
-        final args = call['arguments'];
-        final id = call['id'] as String?;
-        if (name != null) {
-          toolCalls.add(
-            LlamaCompletionChunkToolCall(
-              index: i,
-              id: id ?? 'call_$i',
-              type: 'function',
-              function: LlamaCompletionChunkFunction(
-                name: name,
-                arguments: args is String ? args : jsonEncode(args ?? {}),
-              ),
-            ),
-          );
-        }
+      final toolCalls = _parseToolCallArray(jsonStr);
+      if (toolCalls.isNotEmpty) {
+        return ChatParseResult(
+          content: '',
+          reasoningContent: thinking.reasoning,
+          toolCalls: toolCalls,
+        );
       }
     } catch (_) {
       // If JSON parsing fails, return as content
@@ -129,10 +128,39 @@ class MistralHandler extends ChatTemplateHandler {
     }
 
     return ChatParseResult(
-      content: '',
+      content: trimmed,
       reasoningContent: thinking.reasoning,
-      toolCalls: toolCalls,
     );
+  }
+
+  List<LlamaCompletionChunkToolCall> _parseToolCallArray(String jsonText) {
+    final toolCalls = <LlamaCompletionChunkToolCall>[];
+    final list = jsonDecode(jsonText) as List<dynamic>;
+    for (var i = 0; i < list.length; i++) {
+      final item = list[i];
+      if (item is! Map) {
+        continue;
+      }
+      final call = Map<String, dynamic>.from(item);
+      final name = call['name'] as String?;
+      final args = call['arguments'];
+      final id = call['id'] as String?;
+      if (name == null || name.isEmpty) {
+        continue;
+      }
+      toolCalls.add(
+        LlamaCompletionChunkToolCall(
+          index: i,
+          id: id ?? 'call_$i',
+          type: 'function',
+          function: LlamaCompletionChunkFunction(
+            name: name,
+            arguments: args is String ? args : jsonEncode(args ?? {}),
+          ),
+        ),
+      );
+    }
+    return toolCalls;
   }
 
   @override

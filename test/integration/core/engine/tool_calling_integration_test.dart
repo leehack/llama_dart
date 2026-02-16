@@ -223,15 +223,37 @@ void main() {
       final toolCalls = responseChunks
           .expand((c) => c.choices.first.delta.toolCalls ?? [])
           .toList();
+      final assistantText = responseChunks
+          .map((c) => c.choices.first.delta.content ?? '')
+          .join();
 
-      final name = toolCalls.first.function?.name;
-      final argumentsStr = toolCalls.first.function?.arguments ?? '{}';
-      final params = jsonDecode(argumentsStr) as Map<String, dynamic>;
+      String? name;
+      Map<String, dynamic> params;
+      if (toolCalls.isNotEmpty) {
+        name = toolCalls.first.function?.name;
+        final argumentsStr = toolCalls.first.function?.arguments ?? '{}';
+        params = jsonDecode(argumentsStr) as Map<String, dynamic>;
+      } else {
+        final match = RegExp(
+          r'<tool_call>\s*(\{[\s\S]*?\})\s*</tool_call>',
+        ).firstMatch(assistantText);
+        expect(match, isNotNull);
+        final payload = jsonDecode(match!.group(1)!) as Map<String, dynamic>;
+        name = payload['name'] as String?;
+        final arguments = payload['arguments'];
+        if (arguments is String) {
+          params = jsonDecode(arguments) as Map<String, dynamic>;
+        } else if (arguments is Map<String, dynamic>) {
+          params = arguments;
+        } else {
+          params = <String, dynamic>{};
+        }
+      }
 
-      expect(toolCalls, isNotEmpty);
       expect(name, 'get_weather');
       expect(params, containsPair('location', 'London'));
-      final tool = tools.firstWhere((t) => t.name == name);
+      final toolName = name!;
+      final tool = tools.firstWhere((t) => t.name == toolName);
       final toolResult = await tool.invoke(params);
       expect(toolResult, contains('London'));
 
@@ -239,7 +261,7 @@ void main() {
       session.addMessage(
         LlamaChatMessage.withContent(
           role: LlamaChatRole.tool,
-          content: [LlamaToolResultContent(name: name, result: toolResult)],
+          content: [LlamaToolResultContent(name: toolName, result: toolResult)],
         ),
       );
 

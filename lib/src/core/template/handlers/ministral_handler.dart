@@ -1,0 +1,434 @@
+import 'dart:convert';
+
+import 'package:dinja/dinja.dart';
+
+import '../../grammar/json_schema_converter.dart';
+import '../../models/chat/chat_message.dart';
+import '../../models/chat/chat_template_result.dart';
+import '../../models/chat/completion_chunk.dart';
+import '../../models/tools/tool_definition.dart';
+import '../chat_format.dart';
+import '../chat_parse_result.dart';
+import '../chat_template_handler.dart';
+import '../thinking_utils.dart';
+
+/// Handler for Ministral format.
+///
+/// Uses `[TOOL_CALLS]name[ARGS]{...}` tool call records with optional
+/// `[THINK]...[/THINK]` reasoning blocks.
+class MinistralHandler extends ChatTemplateHandler {
+  @override
+  ChatFormat get format => ChatFormat.ministral;
+
+  @override
+  String get thinkingStartTag => '[THINK]';
+
+  @override
+  String get thinkingEndTag => '[/THINK]';
+
+  @override
+  List<String> get additionalStops => ['</s>'];
+
+  @override
+  List<String> get preservedTokens => const [
+    '[THINK]',
+    '[/THINK]',
+    '[TOOL_CALLS]',
+    '[ARGS]',
+  ];
+
+  @override
+  List<String> getStops({bool hasTools = false, bool enableThinking = true}) {
+    return [...additionalStops, if (hasTools) '[TOOL_CALLS]'];
+  }
+
+  @override
+  LlamaChatTemplateResult render({
+    required String templateSource,
+    required List<LlamaChatMessage> messages,
+    required Map<String, String> metadata,
+    bool addAssistant = true,
+    List<ToolDefinition>? tools,
+    bool enableThinking = true,
+  }) {
+    final template = Template(templateSource);
+    var prompt = template.render({
+      'messages': _serializeMessages(messages),
+      'add_generation_prompt': addAssistant,
+      'tools': tools?.map((tool) => tool.toJson()).toList(growable: false),
+      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
+      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
+    });
+
+    var thinkingForcedOpen = false;
+    if (isThinkingForcedOpen(prompt, startTag: thinkingStartTag)) {
+      if (!enableThinking) {
+        prompt = '${prompt.trimRight()}$thinkingEndTag\n';
+      } else {
+        thinkingForcedOpen = true;
+      }
+    }
+
+    final hasTools = tools != null && tools.isNotEmpty;
+    return LlamaChatTemplateResult(
+      prompt: prompt,
+      format: format.index,
+      grammar: buildGrammar(tools),
+      grammarLazy: hasTools,
+      thinkingForcedOpen: thinkingForcedOpen,
+      additionalStops: getStops(
+        hasTools: hasTools,
+        enableThinking: enableThinking,
+      ),
+      preservedTokens: hasTools
+          ? preservedTokens
+          : const ['[THINK]', '[/THINK]'],
+      grammarTriggers: hasTools
+          ? [const GrammarTrigger(type: 0, value: '[TOOL_CALLS]')]
+          : [],
+    );
+  }
+
+  List<Map<String, dynamic>> _serializeMessages(
+    List<LlamaChatMessage> messages,
+  ) {
+    return messages
+        .map((message) {
+          final json = message.toJson();
+          final role = json['role'];
+          if (role != 'system' && role != 'assistant') {
+            return json;
+          }
+
+          final blocks = <Map<String, dynamic>>[];
+
+          final reasoning = json['reasoning_content'];
+          if (reasoning is String && reasoning.isNotEmpty) {
+            blocks.add({'type': 'thinking', 'thinking': reasoning});
+          }
+
+          final content = json['content'];
+          if (content is String) {
+            if (content.isNotEmpty) {
+              blocks.add({'type': 'text', 'text': content});
+            }
+          } else if (content is List) {
+            for (final item in content) {
+              if (item is Map<String, dynamic>) {
+                blocks.add(item);
+              } else if (item is Map) {
+                blocks.add(Map<String, dynamic>.from(item));
+              }
+            }
+          }
+
+          if (blocks.isNotEmpty) {
+            json['content'] = blocks;
+          }
+          json.remove('reasoning_content');
+          return json;
+        })
+        .toList(growable: false);
+  }
+
+  @override
+  ChatParseResult parse(
+    String output, {
+    bool isPartial = false,
+    bool parseToolCalls = true,
+    bool thinkingForcedOpen = false,
+  }) {
+    final thinking = extractThinking(
+      output,
+      thinkingForcedOpen: thinkingForcedOpen,
+      startTag: thinkingStartTag,
+      endTag: thinkingEndTag,
+    );
+    final text = thinking.content;
+    final trimmed = text.trim();
+
+    if (!parseToolCalls) {
+      return ChatParseResult(
+        content: trimmed,
+        reasoningContent: thinking.reasoning,
+      );
+    }
+
+    if (!trimmed.contains('[TOOL_CALLS]')) {
+      try {
+        final parsedBareArray = _parseToolCallArray(trimmed);
+        if (parsedBareArray.isNotEmpty) {
+          return ChatParseResult(
+            content: '',
+            reasoningContent: thinking.reasoning,
+            toolCalls: parsedBareArray,
+          );
+        }
+      } catch (_) {
+        // Not a strict JSON array tool-call payload.
+      }
+
+      final bareNameJsonCall = _parseNameJsonSingleCall(trimmed);
+      if (bareNameJsonCall != null) {
+        return ChatParseResult(
+          content: '',
+          reasoningContent: thinking.reasoning,
+          toolCalls: [bareNameJsonCall],
+        );
+      }
+
+      return ChatParseResult(
+        content: trimmed,
+        reasoningContent: thinking.reasoning,
+      );
+    }
+
+    final markerIdx = trimmed.indexOf('[TOOL_CALLS]');
+    final contentBefore = trimmed.substring(0, markerIdx).trim();
+    final afterMarker = trimmed.substring(markerIdx).trim();
+
+    final argsCalls = _parseArgsToolCalls(afterMarker);
+    if (argsCalls.isNotEmpty) {
+      return ChatParseResult(
+        content: contentBefore,
+        reasoningContent: thinking.reasoning,
+        toolCalls: argsCalls,
+      );
+    }
+
+    final jsonArrayPayload = afterMarker
+        .substring('[TOOL_CALLS]'.length)
+        .trim();
+    try {
+      final toolCalls = _parseToolCallArray(jsonArrayPayload);
+      if (toolCalls.isNotEmpty) {
+        return ChatParseResult(
+          content: contentBefore,
+          reasoningContent: thinking.reasoning,
+          toolCalls: toolCalls,
+        );
+      }
+    } catch (_) {
+      // Not a JSON-array tool-call payload.
+    }
+
+    final markerlessNameJsonCall = _parseNameJsonSingleCall(jsonArrayPayload);
+    if (markerlessNameJsonCall != null) {
+      return ChatParseResult(
+        content: contentBefore,
+        reasoningContent: thinking.reasoning,
+        toolCalls: [markerlessNameJsonCall],
+      );
+    }
+
+    return ChatParseResult(
+      content: trimmed,
+      reasoningContent: thinking.reasoning,
+    );
+  }
+
+  List<LlamaCompletionChunkToolCall> _parseArgsToolCalls(String text) {
+    final toolCalls = <LlamaCompletionChunkToolCall>[];
+    final pattern = RegExp(r'(?:\[TOOL_CALLS\]\s*)?([A-Za-z0-9_\.-]+)\[ARGS\]');
+
+    for (final match in pattern.allMatches(text)) {
+      final name = match.group(1);
+      if (name == null || name.isEmpty) {
+        continue;
+      }
+
+      final jsonObj = _extractJsonObject(text, match.end);
+      if (jsonObj == null) {
+        continue;
+      }
+
+      final index = toolCalls.length;
+      toolCalls.add(
+        LlamaCompletionChunkToolCall(
+          index: index,
+          id: 'call_$index',
+          type: 'function',
+          function: LlamaCompletionChunkFunction(
+            name: name,
+            arguments: jsonObj,
+          ),
+        ),
+      );
+    }
+
+    return toolCalls;
+  }
+
+  String? _extractJsonObject(String input, int offset) {
+    var start = offset;
+    while (start < input.length) {
+      final ch = input[start];
+      if (ch != ' ' && ch != '\n' && ch != '\r' && ch != '\t') {
+        break;
+      }
+      start++;
+    }
+    if (start >= input.length || input[start] != '{') {
+      return null;
+    }
+
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+
+    for (var i = start; i < input.length; i++) {
+      final code = input.codeUnitAt(i);
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (code == 0x5C) {
+          escaped = true;
+          continue;
+        }
+        if (code == 0x22) {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (code == 0x22) {
+        inString = true;
+        continue;
+      }
+      if (code == 0x7B) {
+        depth++;
+        continue;
+      }
+      if (code == 0x7D) {
+        depth--;
+        if (depth == 0) {
+          final candidate = input.substring(start, i + 1);
+          try {
+            jsonDecode(candidate);
+            return candidate;
+          } catch (_) {
+            return null;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  List<LlamaCompletionChunkToolCall> _parseToolCallArray(String jsonText) {
+    final toolCalls = <LlamaCompletionChunkToolCall>[];
+    final list = jsonDecode(jsonText) as List<dynamic>;
+    for (var i = 0; i < list.length; i++) {
+      final item = list[i];
+      if (item is! Map) {
+        continue;
+      }
+
+      final call = Map<String, dynamic>.from(item);
+      final name = call['name'] as String?;
+      final args = call['arguments'];
+      final id = call['id'] as String?;
+      if (name == null || name.isEmpty) {
+        continue;
+      }
+
+      toolCalls.add(
+        LlamaCompletionChunkToolCall(
+          index: i,
+          id: id ?? 'call_$i',
+          type: 'function',
+          function: LlamaCompletionChunkFunction(
+            name: name,
+            arguments: args is String ? args : jsonEncode(args ?? {}),
+          ),
+        ),
+      );
+    }
+    return toolCalls;
+  }
+
+  LlamaCompletionChunkToolCall? _parseNameJsonSingleCall(String text) {
+    final match = RegExp(r'^([A-Za-z0-9_\.-]+)\s*').firstMatch(text);
+    if (match == null) {
+      return null;
+    }
+
+    final name = match.group(1);
+    if (name == null || name.isEmpty) {
+      return null;
+    }
+
+    final jsonObj = _extractJsonObject(text, match.end);
+    if (jsonObj == null) {
+      return null;
+    }
+
+    final jsonStart = text.indexOf(jsonObj, match.end);
+    if (jsonStart == -1) {
+      return null;
+    }
+
+    final suffix = text.substring(jsonStart + jsonObj.length).trim();
+    if (suffix.isNotEmpty) {
+      return null;
+    }
+
+    return LlamaCompletionChunkToolCall(
+      index: 0,
+      id: 'call_0',
+      type: 'function',
+      function: LlamaCompletionChunkFunction(name: name, arguments: jsonObj),
+    );
+  }
+
+  @override
+  String? buildGrammar(List<ToolDefinition>? tools) {
+    if (tools == null || tools.isEmpty) {
+      return null;
+    }
+
+    final converter = JsonSchemaConverter();
+    final toolRuleNames = <String>[];
+
+    for (var i = 0; i < tools.length; i++) {
+      final tool = tools[i];
+      final schema = tool.toJsonSchema();
+      converter.resolveRefs(schema, schema);
+      final argsRule = converter.visit(schema, 'tool-$i-args');
+
+      final ruleName = 'tool-$i-call';
+      converter.rules[ruleName] = '${_literal('${tool.name}[ARGS]')} $argsRule';
+      toolRuleNames.add(ruleName);
+    }
+
+    final buffer = StringBuffer()
+      ..writeln(
+        'root ::= "[TOOL_CALLS]" space tool-call (space "[TOOL_CALLS]" space tool-call)* space',
+      )
+      ..writeln('tool-call ::= ${toolRuleNames.join(' | ')}');
+
+    final otherRules = converter.rules.entries.toList(growable: false)
+      ..sort((a, b) => a.key.compareTo(b.key));
+    for (final entry in otherRules) {
+      if (entry.key == 'root' || entry.key == 'tool-call') {
+        continue;
+      }
+      buffer.writeln('${entry.key} ::= ${entry.value}');
+    }
+
+    return buffer.toString();
+  }
+
+  String _literal(String value) {
+    final escaped = value
+        .replaceAll('\\', r'\\')
+        .replaceAll('"', r'\"')
+        .replaceAll('\n', r'\n')
+        .replaceAll('\r', r'\r');
+    return '"$escaped"';
+  }
+}

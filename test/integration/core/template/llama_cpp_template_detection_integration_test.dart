@@ -22,7 +22,7 @@ void main() {
       'Kimi-K2-Thinking.jinja': ChatFormat.kimiK2,
       'MiMo-VL.jinja': ChatFormat.hermes,
       'MiniMax-M2.jinja': ChatFormat.minimaxM2,
-      'Mistral-Small-3.2-24B-Instruct-2506.jinja': ChatFormat.magistral,
+      'Mistral-Small-3.2-24B-Instruct-2506.jinja': ChatFormat.ministral,
       'NVIDIA-Nemotron-3-Nano-30B-A3B-BF16.jinja': ChatFormat.qwen3CoderXml,
       'NVIDIA-Nemotron-Nano-v2.jinja': ChatFormat.nemotronV2,
       'NousResearch-Hermes-2-Pro-Llama-3-8B-tool_use.jinja': ChatFormat.hermes,
@@ -46,12 +46,12 @@ void main() {
       'meta-llama-Llama-3.2-3B-Instruct.jinja': ChatFormat.llama3,
       'meta-llama-Llama-3.3-70B-Instruct.jinja': ChatFormat.llama3,
       'microsoft-Phi-3.5-mini-instruct.jinja': ChatFormat.generic,
-      'mistralai-Ministral-3-14B-Reasoning-2512.jinja': ChatFormat.magistral,
+      'mistralai-Ministral-3-14B-Reasoning-2512.jinja': ChatFormat.ministral,
       'mistralai-Mistral-Nemo-Instruct-2407.jinja': ChatFormat.mistralNemo,
       'moonshotai-Kimi-K2.jinja': ChatFormat.kimiK2,
       'openai-gpt-oss-120b.jinja': ChatFormat.gptOss,
       'unsloth-Apriel-1.5.jinja': ChatFormat.hermes,
-      'unsloth-mistral-Devstral-Small-2507.jinja': ChatFormat.magistral,
+      'unsloth-mistral-Devstral-Small-2507.jinja': ChatFormat.ministral,
       'upstage-Solar-Open-100B.jinja': ChatFormat.solarOpen,
     };
 

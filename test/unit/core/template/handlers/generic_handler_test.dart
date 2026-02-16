@@ -40,5 +40,31 @@ void main() {
       expect(result.additionalStops, contains('<|end|>'));
       expect(result.additionalStops, isNot(contains('<|im_end|>')));
     });
+
+    test('parses generic tool_call envelope JSON', () {
+      final handler = GenericHandler();
+
+      final parsed = handler.parse(
+        '{"tool_call":{"name":"get_weather","arguments":{"city":"Seoul"}}}',
+      );
+      expect(parsed.toolCalls, hasLength(1));
+      expect(parsed.toolCalls.first.function?.name, equals('get_weather'));
+    });
+
+    test('parses generic response envelope JSON', () {
+      final handler = GenericHandler();
+
+      final parsed = handler.parse('{"response":"hello"}');
+      expect(parsed.toolCalls, isEmpty);
+      expect(parsed.content, equals('hello'));
+    });
+
+    test('keeps invalid JSON as plain content', () {
+      final handler = GenericHandler();
+
+      final parsed = handler.parse('weatherlookup');
+      expect(parsed.toolCalls, isEmpty);
+      expect(parsed.content, equals('weatherlookup'));
+    });
   });
 }

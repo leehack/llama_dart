@@ -265,6 +265,12 @@ Map<String, dynamic> buildOpenApiSpec({
                 <String, dynamic>{'type': 'null'},
               ],
             },
+            'reasoning_content': <String, dynamic>{
+              'oneOf': <dynamic>[
+                <String, dynamic>{'type': 'string'},
+                <String, dynamic>{'type': 'null'},
+              ],
+            },
             'tool_call_id': <String, dynamic>{'type': 'string'},
             'tool_calls': <String, dynamic>{
               'type': 'array',
@@ -351,6 +357,12 @@ Map<String, dynamic> buildOpenApiSpec({
           'properties': <String, dynamic>{
             'role': <String, dynamic>{'type': 'string', 'example': 'assistant'},
             'content': <String, dynamic>{
+              'oneOf': <dynamic>[
+                <String, dynamic>{'type': 'string'},
+                <String, dynamic>{'type': 'null'},
+              ],
+            },
+            'reasoning_content': <String, dynamic>{
               'oneOf': <dynamic>[
                 <String, dynamic>{'type': 'string'},
                 <String, dynamic>{'type': 'null'},

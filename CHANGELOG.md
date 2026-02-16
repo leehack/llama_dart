@@ -1,5 +1,23 @@
 ## Unreleased
 
+## 0.5.4
+
+*   **llama.cpp parity hardening**:
+    *   `ChatTemplateEngine` now preserves handler-provided tokens even when grammar is attached via params, avoiding token-loss regressions in tool/thinking formats.
+    *   Native stop-sequence handling now skips preserved tokens so parser-critical markers are not terminated early.
+    *   Generic tool-instruction system injection now follows llama.cpp semantics more closely (replace first system content when supported, otherwise prepend to first message content).
+    *   LFM2 output parsing now extracts reasoning more consistently across tool and non-tool output shapes.
+*   **Chat example loop/lifecycle hardening**:
+    *   Improved tool-loop guards (first-turn force-only behavior, duplicate/equivalent call suppression, per-tool budget, and loop-stop messaging).
+    *   Added response fallback that can ground final answers from recent tool results when the model emits stale real-time disclaimers.
+    *   Added assistant debug badges (`fmt:*`, `think:*`, `content:json`, `fallback:tool-result`) and strengthened detach/exit disposal paths.
+*   **Parity/integration test robustness**:
+    *   `tool_calling_integration_test` now accepts both structured `tool_calls` deltas and XML-style `<tool_call>` payloads.
+    *   llama.cpp template-detection integration expectations were updated for current Ministral-family routing outcomes.
+*   **Documentation updates**:
+    *   Clarified chat app behavior when models return JSON-shaped assistant content (for example `{"response":"..."}`) and documented `content:json` diagnostics.
+    *   Documented example server sampling defaults (`penalty=1.0`, `top_p=0.95`, `min_p=0.05`) and added a CLI README batch parity-matrix usage example.
+
 *   **Chat app backend/status fixes**:
     *   Backend switching now preserves configured `gpuLayers` while still allowing load-time CPU enforcement.
     *   Runtime backend labeling and GPU activity diagnostics now follow effective user selection, preventing false "VULKAN active" status when CPU mode is selected.
