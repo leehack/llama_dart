@@ -2,14 +2,20 @@ import 'dart:convert';
 
 import 'package:relic/relic.dart';
 
-import 'openai_error.dart';
+import '../../../shared/shared.dart';
+
+const _bearerPrefix = 'Bearer ';
+
+final Headers _corsHeaders = Headers.build((MutableHeaders headers) {
+  _applyCorsHeaders(headers);
+});
 
 /// Creates CORS middleware for browser clients.
 Middleware createCorsMiddleware() {
   return (Handler next) {
     return (Request req) async {
       if (req.method == Method.options) {
-        return Response.noContent(headers: _corsHeaders());
+        return Response.noContent(headers: _corsHeaders);
       }
 
       final result = await next(req);
@@ -32,6 +38,12 @@ Middleware createApiKeyMiddleware(String? apiKey) {
     return (Handler next) => next;
   }
 
+  final unauthorizedPayload = jsonEncode(
+    OpenAiHttpException.authentication(
+      'Incorrect API key provided.',
+    ).toResponseBody(),
+  );
+
   return (Handler next) {
     return (Request req) async {
       if (req.method == Method.options) {
@@ -42,31 +54,18 @@ Middleware createApiKeyMiddleware(String? apiKey) {
       final token = _extractBearerToken(authHeader);
 
       if (token != apiKey) {
-        final error = OpenAiHttpException.authentication(
-          'Incorrect API key provided.',
-        );
-
         return Response.unauthorized(
           headers: Headers.build((MutableHeaders headers) {
             headers['WWW-Authenticate'] = ['Bearer'];
             _applyCorsHeaders(headers);
           }),
-          body: Body.fromString(
-            jsonEncode(error.toResponseBody()),
-            mimeType: MimeType.json,
-          ),
+          body: Body.fromString(unauthorizedPayload, mimeType: MimeType.json),
         );
       }
 
       return next(req);
     };
   };
-}
-
-Headers _corsHeaders() {
-  return Headers.build((MutableHeaders headers) {
-    _applyCorsHeaders(headers);
-  });
 }
 
 void _applyCorsHeaders(MutableHeaders headers) {
@@ -80,10 +79,9 @@ String? _extractBearerToken(String? authorizationHeader) {
     return null;
   }
 
-  const prefix = 'Bearer ';
-  if (!authorizationHeader.startsWith(prefix)) {
+  if (!authorizationHeader.startsWith(_bearerPrefix)) {
     return null;
   }
 
-  return authorizationHeader.substring(prefix.length).trim();
+  return authorizationHeader.substring(_bearerPrefix.length).trim();
 }

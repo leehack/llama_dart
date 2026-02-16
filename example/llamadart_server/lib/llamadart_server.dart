@@ -1,10 +1,8 @@
 /// Public entry point for the llamadart server example package.
 library;
 
-export 'src/model_service.dart';
-export 'src/openai_error.dart';
-export 'src/openai_mapper.dart';
-export 'src/server_engine.dart';
-export 'src/openapi_spec.dart';
-export 'src/openai_server.dart';
-export 'src/swagger_ui.dart';
+export 'src/features/model_management/model_management.dart';
+export 'src/features/shared/shared.dart';
+export 'src/features/chat_completion/chat_completion.dart';
+export 'src/features/server_engine/server_engine.dart';
+export 'src/features/openai_api/openai_api.dart';

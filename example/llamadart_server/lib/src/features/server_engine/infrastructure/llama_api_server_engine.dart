@@ -1,32 +1,6 @@
 import 'package:llamadart/llamadart.dart';
 
-/// Engine contract used by the OpenAI example server.
-abstract class ApiServerEngine {
-  /// Whether the engine is loaded and ready.
-  bool get isReady;
-
-  /// Applies the chat template and returns template metadata.
-  Future<LlamaChatTemplateResult> chatTemplate(
-    List<LlamaChatMessage> messages, {
-    bool addAssistant,
-    List<ToolDefinition>? tools,
-    ToolChoice toolChoice,
-  });
-
-  /// Starts streaming generation.
-  Stream<LlamaCompletionChunk> create(
-    List<LlamaChatMessage> messages, {
-    GenerationParams params,
-    List<ToolDefinition>? tools,
-    ToolChoice? toolChoice,
-  });
-
-  /// Computes token count for a text payload.
-  Future<int> getTokenCount(String text);
-
-  /// Cancels active generation.
-  void cancelGeneration();
-}
+import '../domain/api_server_engine.dart';
 
 /// Adapter that delegates to a real [LlamaEngine].
 class LlamaApiServerEngine implements ApiServerEngine {
