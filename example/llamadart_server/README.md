@@ -49,6 +49,18 @@ Optional flags:
 - `--max-tool-rounds` (default: `5`; used only when tool execution is enabled)
 - `--log` (enable verbose Dart + HTTP request logs; native logs stay error-only)
 
+### Sampling defaults
+
+When omitted in a request body, this example server applies a stable default
+`GenerationParams` baseline:
+
+- `penalty = 1.0`
+- `top_p = 0.95`
+- `min_p = 0.05`
+
+Request-provided sampling fields (for example `temperature`, `top_p`, `seed`,
+`max_tokens`) override these defaults per call.
+
 ## API Examples
 
 ### 0. OpenAPI and Swagger UI

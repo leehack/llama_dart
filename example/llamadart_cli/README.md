@@ -122,6 +122,30 @@ dart run tool/tool_call_parity.dart \
 
 Artifacts are written to `.parity_reports_tool/`.
 
+### Batch all local models (matrix)
+
+If you keep multiple GGUF files locally, run the harness in a loop and collect
+one report directory per model:
+
+```bash
+timestamp=$(date +"%Y%m%d_%H%M%S")
+run_root=".parity_reports_tool_all_models_${timestamp}"
+mkdir -p "$run_root"
+
+for model in /path/to/models/*.gguf; do
+  slug=$(basename "$model" .gguf | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')
+  dart run tool/tool_call_parity.dart \
+    --model "$model" \
+    --llama-server-path ./.parity_tools/llama.cpp/build/bin/llama-server \
+    --api-server-entry ../llamadart_server/bin/llamadart_server.dart \
+    --include-auto-scenario \
+    --report-dir "$run_root/$slug"
+done
+```
+
+Tip: add your own summary script (or CI step) to aggregate MATCH/DIFFERENT from
+each model report folder.
+
 ### Local parity gate test
 
 One-command local verification:

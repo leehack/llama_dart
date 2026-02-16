@@ -199,6 +199,11 @@ _(Add screenshots here when complete)_
 - Update to the latest package version and retry.
 - If using custom handlers, validate grammar strings and prefer Dart raw strings (`r'''...'''`) for multiline GBNF.
 
+**Assistant response appears as JSON (for example `{"response":"..."}`):**
+- This can be model/template behavior (notably in Ministral-family flows), not necessarily a UI rendering bug.
+- The chat app intentionally shows raw assistant content and adds a `content:json` debug badge when output looks JSON-shaped.
+- If you want plain-text UX, unwrap known response envelopes in app-level normalization before rendering.
+
 ## Tech Stack
 
 - **llamadart** - High-performance LLM inference
