@@ -59,13 +59,17 @@ class DeepseekV3Handler extends ChatTemplateHandler {
       return m;
     }).toList();
 
-    var prompt = template.render({
-      'messages': modifiedMessages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': bosToken,
-      'eos_token': eosToken,
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': modifiedMessages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': bosToken,
+        'eos_token': eosToken,
+      },
+    );
 
     // Handle enableThinking post-render logic
     var thinkingForcedOpen = false;

@@ -30,11 +30,10 @@ library;
 export 'src/core/engine/engine.dart' show LlamaEngine;
 export 'src/core/engine/chat_session.dart' show ChatSession;
 
-// Template extensibility
+// Template APIs
 export 'src/core/template/chat_format.dart' show ChatFormat;
 export 'src/core/template/chat_parse_result.dart' show ChatParseResult;
-export 'src/core/template/chat_template_engine.dart'
-    show ChatTemplateEngine, ChatTemplateMatcher, ChatTemplateRoutingContext;
+export 'src/core/template/chat_template_engine.dart' show ChatTemplateEngine;
 export 'src/core/template/chat_template_handler.dart' show ChatTemplateHandler;
 
 // Backend (interface only)

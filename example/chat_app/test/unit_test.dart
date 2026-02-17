@@ -380,6 +380,8 @@ class _JsonResponseEngine extends MockLlamaEngine {
     bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? templateNow,
   }) async* {
     yield LlamaCompletionChunk(
       id: 'json-id',
@@ -408,6 +410,8 @@ class _ThinkTaggedResponseEngine extends MockLlamaEngine {
     bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? templateNow,
   }) async* {
     yield LlamaCompletionChunk(
       id: 'think-id',
@@ -436,6 +440,8 @@ class _MinistralPlainReasoningEngine extends MockLlamaEngine {
     bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? templateNow,
   }) async* {
     yield LlamaCompletionChunk(
       id: 'ministral-plain-id',
@@ -468,6 +474,8 @@ class _FirstTurnToolChoiceEngine extends MockLlamaEngine {
     bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? templateNow,
   }) async* {
     receivedToolChoices.add(toolChoice);
 
@@ -527,6 +535,8 @@ class _InfiniteToolLoopEngine extends MockLlamaEngine {
     bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? templateNow,
   }) async* {
     createCallCount++;
 
@@ -569,6 +579,8 @@ class _ToolResultIgnoringEngine extends MockLlamaEngine {
     bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? templateNow,
   }) async* {
     if (_callIndex == 0) {
       _callIndex++;
@@ -629,6 +641,8 @@ class _VaryingArgsLoopEngine extends MockLlamaEngine {
     bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? templateNow,
   }) async* {
     createCallCount++;
 

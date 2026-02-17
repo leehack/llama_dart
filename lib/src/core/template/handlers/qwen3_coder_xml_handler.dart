@@ -51,13 +51,17 @@ class Qwen3CoderXmlHandler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<|im_start|>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|im_end|>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<|im_start|>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|im_end|>',
+      },
+    );
 
     final isNemotronV3 = _isNemotronV3Template(templateSource);
     final toolChoice = metadata[internalToolChoiceMetadataKey];

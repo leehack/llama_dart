@@ -282,11 +282,6 @@ ChatFormat detectChatFormat(String? templateSource) {
     return ChatFormat.mistralNemo;
   }
 
-  // FunctionGemma
-  if (templateSource.contains('<start_function_call>')) {
-    return ChatFormat.functionGemma;
-  }
-
   // Gemma 3/3n
   if (templateSource.contains('<start_of_turn>') &&
       !templateSource.contains('<|im_start|>')) {

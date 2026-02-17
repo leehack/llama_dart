@@ -51,13 +51,18 @@ class GraniteHandler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<|start_of_text|>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token':
+            metadata['tokenizer.ggml.bos_token'] ?? '<|start_of_text|>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
+      },
+    );
 
     var thinkingForcedOpen = false;
     if (isThinkingForcedOpen(prompt)) {

@@ -76,14 +76,18 @@ class Glm45Handler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '[gMASK]<sop>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|user|>',
-      'clear_thinking': false,
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '[gMASK]<sop>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|user|>',
+        'clear_thinking': false,
+      },
+    );
 
     // Handle enableThinking post-render logic
     var thinkingForcedOpen = false;

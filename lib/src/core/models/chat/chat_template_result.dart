@@ -31,9 +31,6 @@ class LlamaChatTemplateResult {
   /// The number of tokens in the formatted prompt.
   final int? tokenCount;
 
-  /// Optional custom handler ID used during render/parse routing.
-  final String? handlerId;
-
   /// Creates a new template result.
   const LlamaChatTemplateResult({
     required this.prompt,
@@ -46,7 +43,6 @@ class LlamaChatTemplateResult {
     this.grammarTriggers = const [],
     this.parser,
     this.tokenCount,
-    this.handlerId,
   });
 
   /// Creates a template result from a JSON map (from native).
@@ -73,7 +69,6 @@ class LlamaChatTemplateResult {
               .toList() ??
           [],
       parser: json['parser'] as String?,
-      handlerId: json['handler_id'] as String?,
     );
   }
 

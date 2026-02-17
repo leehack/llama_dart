@@ -63,14 +63,19 @@ class Llama3Handler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    final prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<|begin_of_text|>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
-      'date_string': DateTime.now().toIso8601String().split('T').first,
-    });
+    final prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token':
+            metadata['tokenizer.ggml.bos_token'] ?? '<|begin_of_text|>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
+        'date_string': _formatDateString(resolveTemplateNow(metadata)),
+      },
+    );
 
     final hasTools = tools != null && tools.isNotEmpty;
     final hasBuiltinTools =
@@ -388,6 +393,28 @@ class Llama3Handler extends ChatTemplateHandler {
     }
 
     return null;
+  }
+
+  String _formatDateString(DateTime value) {
+    final now = value.toLocal();
+    const months = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final day = now.day.toString().padLeft(2, '0');
+    final month = months[now.month - 1];
+    final year = now.year;
+    return '$day $month $year';
   }
 
   @override

@@ -85,13 +85,16 @@ current interface:
 - Update `applyChatTemplate(...)` signature/return type (string-based prompt
   rendering input/output).
 
-## 7) Template extensibility (new)
+## 7) Template routing in strict parity mode
 
-While migrating, you can adopt the new template routing hooks:
+Template/render/parse behavior is now strict llama.cpp parity:
 
-- `ChatTemplateEngine.registerHandler(...)`
-- `ChatTemplateEngine.registerTemplateOverride(...)`
-- per-call overrides via `customTemplate` / `customHandlerId`
+- `customTemplate` remains supported for per-call template overrides.
+- Legacy `customHandlerId`/parse `handlerId` routing was removed.
+- `ChatTemplateEngine.registerHandler(...)` and
+  `ChatTemplateEngine.registerTemplateOverride(...)` were removed.
+- Render/parse paths no longer silently downgrade to content-only fallback when
+  a handler/parser fails; failures are surfaced to the caller.
 
 ## 8) Quick migration checklist
 

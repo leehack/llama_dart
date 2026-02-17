@@ -56,13 +56,17 @@ class MinistralHandler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': _serializeMessages(messages),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((tool) => tool.toJson()).toList(growable: false),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': _serializeMessages(messages),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((tool) => tool.toJson()).toList(growable: false),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
+      },
+    );
 
     var thinkingForcedOpen = false;
     if (isThinkingForcedOpen(prompt, startTag: thinkingStartTag)) {

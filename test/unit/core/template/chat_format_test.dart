@@ -151,13 +151,13 @@ void main() {
       expect(format, equals(ChatFormat.granite));
     });
 
-    test('detects FunctionGemma format from start_function_call marker', () {
+    test('treats start_function_call marker as Gemma in strict detection', () {
       const source =
           '<start_of_turn>user\nhi<end_of_turn><start_of_turn>model\n'
           '<start_function_call>call:get_weather{"location":"Seoul"}'
           '<end_function_call>';
       final format = detectChatFormat(source);
-      expect(format, equals(ChatFormat.functionGemma));
+      expect(format, equals(ChatFormat.gemma));
     });
 
     test('detects Ministral format before Magistral', () {
@@ -183,13 +183,13 @@ void main() {
       expect(format, equals(ChatFormat.ministral));
     });
 
-    test('prefers FunctionGemma over Gemma when both markers are present', () {
+    test('keeps Gemma detection when both markers are present', () {
       const source =
           '<start_of_turn>user\nhi<end_of_turn>'
           '<start_function_call>call:get_weather{"location":"Paris"}'
           '<end_function_call>';
       final format = detectChatFormat(source);
-      expect(format, equals(ChatFormat.functionGemma));
+      expect(format, equals(ChatFormat.gemma));
     });
   });
 }

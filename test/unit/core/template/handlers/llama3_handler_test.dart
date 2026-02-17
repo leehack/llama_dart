@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:llamadart/src/core/template/chat_format.dart';
 import 'package:llamadart/src/core/template/handlers/llama3_handler.dart';
+import 'package:llamadart/src/core/template/template_internal_metadata.dart';
 import 'package:llamadart/src/core/models/chat/chat_message.dart';
 import 'package:llamadart/src/core/models/tools/tool_definition.dart';
 import 'package:llamadart/src/core/models/tools/tool_param.dart';
@@ -69,6 +70,27 @@ void main() {
     expect(result.grammar, isNotNull);
     expect(result.grammar, contains('name-kv'));
     expect(result.grammar, contains('parameters-kv'));
+  });
+
+  test('renders date_string in llama.cpp format', () {
+    final handler = Llama3Handler();
+    final result = handler.render(
+      templateSource: '{{ date_string }}',
+      messages: messages,
+      metadata: {
+        internalTemplateNowMetadataKey: DateTime(
+          2026,
+          2,
+          17,
+          13,
+          5,
+          9,
+        ).toIso8601String(),
+      },
+      tools: const [],
+    );
+
+    expect(result.prompt, equals('17 Feb 2026'));
   });
 
   test('parses strict llama3 json tool payload', () {

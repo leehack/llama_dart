@@ -87,7 +87,9 @@ class JinjaAnalyzer {
       ],
       tools: const <Map<String, dynamic>>[],
     );
-    if (systemRender != null) {
+    if (systemRender == null) {
+      supportsSystemRole = false;
+    } else {
       supportsSystemRole = systemRender.contains(_systemMarker);
     }
 

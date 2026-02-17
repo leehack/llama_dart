@@ -45,15 +45,19 @@ class CommandR7BHandler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token':
-          metadata['tokenizer.ggml.bos_token'] ?? '<|START_OF_TURN_TOKEN|>',
-      'eos_token':
-          metadata['tokenizer.ggml.eos_token'] ?? '<|END_OF_TURN_TOKEN|>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token':
+            metadata['tokenizer.ggml.bos_token'] ?? '<|START_OF_TURN_TOKEN|>',
+        'eos_token':
+            metadata['tokenizer.ggml.eos_token'] ?? '<|END_OF_TURN_TOKEN|>',
+      },
+    );
 
     // Handle enableThinking post-render logic
     var thinkingForcedOpen = false;

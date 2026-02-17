@@ -22,6 +22,12 @@ const Map<ChatFormat, String> _sampleOutputsByFormat = <ChatFormat, String>{
       '<|tool_calls_section_end|>',
   ChatFormat.apertus:
       '<|tools_prefix|>[{"get_weather":{"location":"Seoul"}}]<|tools_suffix|>',
+  ChatFormat.solarOpen:
+      '<|tool_calls|>'
+      '<|tool_call:begin|>0'
+      '<|tool_call:name|>get_weather'
+      '<|tool_call:args|>{"location":"Seoul"}'
+      '<|tool_call:end|>',
 };
 
 String sampleOutputForFormat(ChatFormat format) {

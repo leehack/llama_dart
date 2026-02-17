@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dinja/dinja.dart';
 
 import '../models/chat/chat_message.dart';
@@ -5,6 +7,7 @@ import '../models/chat/chat_template_result.dart';
 import '../models/tools/tool_definition.dart';
 import 'chat_format.dart';
 import 'chat_parse_result.dart';
+import 'template_internal_metadata.dart';
 
 /// Abstract base class for per-format chat template handlers.
 ///
@@ -90,6 +93,21 @@ abstract class ChatTemplateHandler {
   /// for Hermes, `[TOOL_CALLS]` prefix for Mistral).
   String? buildGrammar(List<ToolDefinition>? tools);
 
+  /// Renders [template] with [context] plus llama.cpp-style extra globals.
+  ///
+  /// This injects `chat_template_kwargs` values encoded by
+  /// [ChatTemplateEngine]/[LlamaEngine] through metadata.
+  String renderTemplate(
+    Template template, {
+    required Map<String, String> metadata,
+    required Map<String, dynamic> context,
+  }) {
+    return template.render(<String, dynamic>{
+      ..._templateContextFromMetadata(metadata),
+      ...context,
+    });
+  }
+
   /// Re-renders with content always in list-of-parts format.
   ///
   /// Some templates (e.g. SmolVLM) expect `content` to be
@@ -107,13 +125,17 @@ abstract class ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJsonMultimodal()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJsonMultimodal()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '',
+      },
+    );
 
     // Post-process: replace model-specific image placeholders with
     // the mtmd marker so the native tokenizer can match bitmaps to markers.
@@ -139,5 +161,38 @@ abstract class ChatTemplateHandler {
         enableThinking: enableThinking,
       ),
     );
+  }
+
+  Map<String, dynamic> _templateContextFromMetadata(
+    Map<String, String> metadata,
+  ) {
+    final context = <String, dynamic>{};
+
+    final rawKwargs = metadata[internalChatTemplateKwargsMetadataKey];
+    if (rawKwargs != null && rawKwargs.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawKwargs);
+        if (decoded is Map) {
+          context.addAll(Map<String, dynamic>.from(decoded));
+        }
+      } catch (_) {
+        // Ignore invalid internal metadata payloads and render without extras.
+      }
+    }
+
+    return context;
+  }
+
+  /// Resolves a caller-provided template `now` value or falls back to current
+  /// wall-clock time.
+  DateTime resolveTemplateNow(Map<String, String> metadata) {
+    final rawNow = metadata[internalTemplateNowMetadataKey];
+    if (rawNow != null && rawNow.trim().isNotEmpty) {
+      final parsed = DateTime.tryParse(rawNow);
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+    return DateTime.now();
   }
 }

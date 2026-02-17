@@ -52,15 +52,19 @@ class DeepseekR1Handler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token':
-          metadata['tokenizer.ggml.bos_token'] ?? '<｜begin▁of▁sentence｜>',
-      'eos_token':
-          metadata['tokenizer.ggml.eos_token'] ?? '<｜end▁of▁sentence｜>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token':
+            metadata['tokenizer.ggml.bos_token'] ?? '<｜begin▁of▁sentence｜>',
+        'eos_token':
+            metadata['tokenizer.ggml.eos_token'] ?? '<｜end▁of▁sentence｜>',
+      },
+    );
 
     // Handle enableThinking post-render logic
     var thinkingForcedOpen = false;

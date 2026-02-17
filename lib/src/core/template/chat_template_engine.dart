@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../grammar/tool_grammar_generator.dart' as grammar;
 import '../llama_logger.dart';
 import '../models/chat/chat_message.dart';
@@ -42,32 +44,6 @@ import 'handlers/xiaomi_mimo_handler.dart';
 import 'template_caps.dart';
 import 'template_internal_metadata.dart';
 import 'template_workarounds.dart';
-
-/// Predicate used to match a custom template handler or template override.
-typedef ChatTemplateMatcher = bool Function(ChatTemplateRoutingContext context);
-
-/// Context passed to custom handler/template matchers.
-class ChatTemplateRoutingContext {
-  /// The current template source selected from metadata.
-  final String? templateSource;
-
-  /// The model metadata for this render request.
-  final Map<String, String> metadata;
-
-  /// The messages that will be rendered.
-  final List<LlamaChatMessage> messages;
-
-  /// Whether this request includes tools.
-  final bool hasTools;
-
-  /// Creates a new routing context.
-  const ChatTemplateRoutingContext({
-    required this.templateSource,
-    required this.metadata,
-    required this.messages,
-    required this.hasTools,
-  });
-}
 
 /// Orchestrates chat template detection, rendering, and output parsing.
 ///
@@ -123,98 +99,6 @@ class ChatTemplateEngine {
     ChatFormat.mistralNemo,
   };
 
-  /// Custom handlers registered by user code.
-  static final Map<String, _RegisteredHandler> _customHandlers = {};
-
-  /// Custom template overrides registered by user code.
-  static final Map<String, _RegisteredTemplateOverride> _templateOverrides = {};
-
-  /// IDs of currently registered custom handlers.
-  static List<String> get customHandlerIds => _customHandlers.keys.toList();
-
-  /// IDs of currently registered template overrides.
-  static List<String> get templateOverrideIds =>
-      _templateOverrides.keys.toList();
-
-  /// Registers a custom chat template [handler].
-  ///
-  /// If [matcher] is provided, this handler can be selected automatically
-  /// during [render] when the matcher returns true.
-  ///
-  /// If a handler with the same [id] already exists, it is replaced.
-  static void registerHandler({
-    required String id,
-    required ChatTemplateHandler handler,
-    ChatTemplateMatcher? matcher,
-  }) {
-    final normalizedId = id.trim();
-    if (normalizedId.isEmpty) {
-      throw ArgumentError.value(id, 'id', 'Handler id must not be empty.');
-    }
-
-    _customHandlers[normalizedId] = _RegisteredHandler(
-      id: normalizedId,
-      handler: handler,
-      matcher: matcher,
-    );
-  }
-
-  /// Unregisters a custom handler by [id].
-  ///
-  /// Returns true if a handler was removed.
-  static bool unregisterHandler(String id) {
-    return _customHandlers.remove(id) != null;
-  }
-
-  /// Clears all registered custom handlers.
-  static void clearCustomHandlers() {
-    _customHandlers.clear();
-  }
-
-  /// Registers a custom template override.
-  ///
-  /// The [matcher] decides when this override applies. If omitted, the
-  /// override applies to all requests (unless a per-call custom template is
-  /// provided).
-  ///
-  /// If an override with the same [id] already exists, it is replaced.
-  static void registerTemplateOverride({
-    required String id,
-    required String templateSource,
-    ChatTemplateMatcher? matcher,
-  }) {
-    final normalizedId = id.trim();
-    if (normalizedId.isEmpty) {
-      throw ArgumentError.value(id, 'id', 'Override id must not be empty.');
-    }
-
-    if (templateSource.trim().isEmpty) {
-      throw ArgumentError.value(
-        templateSource,
-        'templateSource',
-        'Template source must not be empty.',
-      );
-    }
-
-    _templateOverrides[normalizedId] = _RegisteredTemplateOverride(
-      id: normalizedId,
-      templateSource: templateSource,
-      matcher: matcher ?? (_) => true,
-    );
-  }
-
-  /// Unregisters a template override by [id].
-  ///
-  /// Returns true if an override was removed.
-  static bool unregisterTemplateOverride(String id) {
-    return _templateOverrides.remove(id) != null;
-  }
-
-  /// Clears all registered template overrides.
-  static void clearTemplateOverrides() {
-    _templateOverrides.clear();
-  }
-
   /// Returns the handler for the given [format].
   static ChatTemplateHandler handlerFor(ChatFormat format) {
     return _handlers.putIfAbsent(format, () => _createHandler(format));
@@ -228,7 +112,6 @@ class ChatTemplateEngine {
   /// Full rendering pipeline: detect format → get handler → render.
   ///
   /// If the template source is null/empty, uses the ChatML fallback.
-  /// If rendering fails, falls back to basic prompt concatenation.
   static LlamaChatTemplateResult render({
     required String? templateSource,
     required List<LlamaChatMessage> messages,
@@ -240,7 +123,8 @@ class ChatTemplateEngine {
     bool enableThinking = true,
     Map<String, dynamic>? responseFormat,
     String? customTemplate,
-    String? customHandlerId,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? now,
   }) {
     // 1. Select template source (default vs tool_use variant)
     final hasTools = tools != null && tools.isNotEmpty;
@@ -253,90 +137,59 @@ class ChatTemplateEngine {
       );
     }
 
-    final metadataContext = ChatTemplateRoutingContext(
-      templateSource: metadataTemplate,
-      metadata: metadata,
-      messages: messages,
-      hasTools: hasTools,
-    );
-
     var effectiveTemplate = customTemplate;
     if (effectiveTemplate != null) {
       LlamaLogger.instance.debug(
         'ChatTemplateEngine: Using per-call custom template override',
       );
     } else {
-      final override = _resolveTemplateOverride(metadataContext);
-      if (override != null) {
-        effectiveTemplate = override.templateSource;
-        LlamaLogger.instance.debug(
-          'ChatTemplateEngine: Applied template override id=${override.id}',
-        );
-      } else {
-        effectiveTemplate = metadataTemplate;
-      }
+      effectiveTemplate = metadataTemplate;
     }
 
-    final routingContext = ChatTemplateRoutingContext(
-      templateSource: effectiveTemplate,
-      metadata: metadata,
-      messages: messages,
-      hasTools: hasTools,
-    );
-
-    final customHandler = _resolveCustomHandler(
-      routingContext,
-      explicitHandlerId: customHandlerId,
-    );
-
-    final selectedHandlerId = customHandler?.id;
-    final selectedHandler = customHandler?.handler;
     final hasSchemaResponseFormat = _hasSchemaResponseFormat(responseFormat);
 
+    final format = detectFormat(effectiveTemplate);
+    LlamaLogger.instance.debug(
+      'ChatTemplateEngine: Detected format=$format from template',
+    );
+
     ChatFormat effectiveFormat;
-    if (selectedHandler != null) {
-      effectiveFormat = selectedHandler.format;
-      LlamaLogger.instance.debug(
-        'ChatTemplateEngine: Selected custom handler id=$selectedHandlerId '
-        'format=$effectiveFormat',
-      );
+    // Match llama.cpp schema-aware routing: tools + schema falls back to
+    // generic routing, and some format handlers are disabled with schema.
+    if (hasTools && hasSchemaResponseFormat) {
+      effectiveFormat = ChatFormat.generic;
+    } else if (hasTools &&
+        toolChoice == ToolChoice.none &&
+        _toolChoiceNoneContentOnlyFormats.contains(format)) {
+      effectiveFormat = ChatFormat.contentOnly;
+    } else if (hasTools &&
+        toolChoice != ToolChoice.none &&
+        _toolCallGenericFormats.contains(format)) {
+      // Match llama.cpp server behavior: Gemma tool-call requests route
+      // through generic JSON tool-calling semantics.
+      effectiveFormat = ChatFormat.generic;
+    } else if (format == ChatFormat.gemma) {
+      // llama.cpp does not have a dedicated Gemma Jinja handler.
+      // Gemma routes to content-only (no tools) or generic (tools).
+      effectiveFormat = hasTools && toolChoice != ToolChoice.none
+          ? ChatFormat.generic
+          : ChatFormat.contentOnly;
+    } else if (hasSchemaResponseFormat &&
+        _schemaDisabledFormats.contains(format)) {
+      effectiveFormat = hasTools ? ChatFormat.generic : ChatFormat.contentOnly;
     } else {
-      final format = detectFormat(effectiveTemplate);
-      LlamaLogger.instance.debug(
-        'ChatTemplateEngine: Detected format=$format from template',
-      );
-
-      // Match llama.cpp schema-aware routing: tools + schema falls back to
-      // generic routing, and some format handlers are disabled with schema.
-      if (hasTools && hasSchemaResponseFormat) {
-        effectiveFormat = ChatFormat.generic;
-      } else if (hasTools &&
-          toolChoice == ToolChoice.none &&
-          _toolChoiceNoneContentOnlyFormats.contains(format)) {
-        effectiveFormat = ChatFormat.contentOnly;
-      } else if (hasTools && _toolCallGenericFormats.contains(format)) {
-        // Match llama.cpp server behavior: Gemma tool-call requests route
-        // through generic JSON tool-calling semantics.
-        effectiveFormat = ChatFormat.generic;
-      } else if (hasSchemaResponseFormat &&
-          _schemaDisabledFormats.contains(format)) {
-        effectiveFormat = hasTools
-            ? ChatFormat.generic
-            : ChatFormat.contentOnly;
-      } else {
-        effectiveFormat = format;
-      }
-
-      // Use generic handler fallback when template is missing, or when tool
-      // calling is requested for an unknown/unclassified template.
-      if (effectiveFormat == ChatFormat.contentOnly &&
-          (effectiveTemplate == null ||
-              (hasTools && toolChoice != ToolChoice.none))) {
-        effectiveFormat = ChatFormat.generic;
-      }
+      effectiveFormat = format;
     }
 
-    final handler = selectedHandler ?? handlerFor(effectiveFormat);
+    // Use generic handler fallback when template is missing, or when tool
+    // calling is requested for an unknown/unclassified template.
+    if (effectiveFormat == ChatFormat.contentOnly &&
+        (effectiveTemplate == null ||
+            (hasTools && toolChoice != ToolChoice.none))) {
+      effectiveFormat = ChatFormat.generic;
+    }
+
+    final handler = handlerFor(effectiveFormat);
 
     // 3. Apply workarounds matching llama.cpp
     final caps = TemplateCaps.detect(effectiveTemplate ?? '');
@@ -353,6 +206,8 @@ class ChatTemplateEngine {
       metadata,
       toolChoice: toolChoice,
       parallelToolCalls: effectiveParallelToolCalls,
+      chatTemplateKwargs: chatTemplateKwargs,
+      now: now,
     );
     var effectiveMessages = messages;
 
@@ -365,35 +220,31 @@ class ChatTemplateEngine {
     }
 
     // Workarounds mirror llama.cpp preprocessing chain.
-    // Apply only to built-in routing; custom handlers are expected to own
-    // their message preprocessing semantics.
-    if (selectedHandler == null) {
-      if (!caps.supportsSystemRole) {
-        effectiveMessages = TemplateWorkarounds.applySystemMessageWorkaround(
-          effectiveMessages,
-          caps,
-        );
-      }
+    if (!caps.supportsSystemRole) {
+      effectiveMessages = TemplateWorkarounds.applySystemMessageWorkaround(
+        effectiveMessages,
+        caps,
+      );
+    }
 
-      if (hasTools && effectiveFormat == ChatFormat.generic) {
-        effectiveMessages = _injectSystemInstructionLikeLlamaCpp(
-          effectiveMessages,
-          _genericToolSystemInstruction,
-          supportsSystemRole: caps.supportsSystemRole,
-        );
-      }
+    if (hasTools && effectiveFormat == ChatFormat.generic) {
+      effectiveMessages = _injectSystemInstructionLikeLlamaCpp(
+        effectiveMessages,
+        _genericToolSystemInstruction,
+        supportsSystemRole: caps.supportsSystemRole,
+      );
+    }
 
-      try {
-        effectiveMessages = TemplateWorkarounds.applyFormatWorkarounds(
-          effectiveMessages,
-          effectiveFormat,
-        );
-      } catch (e) {
-        LlamaLogger.instance.warning(
-          'ChatTemplateEngine: Format workarounds failed for '
-          '$effectiveFormat: $e. Continuing without them.',
-        );
-      }
+    try {
+      effectiveMessages = TemplateWorkarounds.applyFormatWorkarounds(
+        effectiveMessages,
+        effectiveFormat,
+      );
+    } catch (e) {
+      LlamaLogger.instance.warning(
+        'ChatTemplateEngine: Format workarounds failed for '
+        '$effectiveFormat: $e. Continuing without them.',
+      );
     }
 
     try {
@@ -411,16 +262,13 @@ class ChatTemplateEngine {
           'ChatTemplateEngine: Using multimodal content format '
           'for template that accesses content as list',
         );
-        var rendered = _withHandlerId(
-          handler.renderWithMultimodalContent(
-            templateSource: effectiveTemplate ?? GenericHandler.chatMlTemplate,
-            messages: effectiveMessages,
-            metadata: handlerMetadata,
-            addAssistant: addAssistant,
-            tools: tools,
-            enableThinking: enableThinking,
-          ),
-          selectedHandlerId,
+        var rendered = handler.renderWithMultimodalContent(
+          templateSource: effectiveTemplate ?? GenericHandler.chatMlTemplate,
+          messages: effectiveMessages,
+          metadata: handlerMetadata,
+          addAssistant: addAssistant,
+          tools: tools,
+          enableThinking: enableThinking,
         );
         if (effectiveFormat == ChatFormat.contentOnly) {
           rendered = _withFormat(rendered, ChatFormat.contentOnly.index);
@@ -435,16 +283,13 @@ class ChatTemplateEngine {
         return _normalizeGrammarLazyForToolChoice(withGrammar, toolChoice);
       }
 
-      var baseResult = _withHandlerId(
-        handler.render(
-          templateSource: effectiveTemplate ?? GenericHandler.chatMlTemplate,
-          messages: effectiveMessages,
-          metadata: handlerMetadata,
-          addAssistant: addAssistant,
-          tools: tools,
-          enableThinking: enableThinking,
-        ),
-        selectedHandlerId,
+      var baseResult = handler.render(
+        templateSource: effectiveTemplate ?? GenericHandler.chatMlTemplate,
+        messages: effectiveMessages,
+        metadata: handlerMetadata,
+        addAssistant: addAssistant,
+        tools: tools,
+        enableThinking: enableThinking,
       );
 
       if (effectiveFormat == ChatFormat.contentOnly) {
@@ -459,48 +304,8 @@ class ChatTemplateEngine {
         responseFormat,
       );
       return _normalizeGrammarLazyForToolChoice(withGrammar, toolChoice);
-    } catch (e) {
-      LlamaLogger.instance.warning(
-        'ChatTemplateEngine: Handler $effectiveFormat failed: $e, '
-        'falling back to generic handler',
-      );
-
-      // Fall back to generic handler with ChatML template
-      final fallback = handlerFor(ChatFormat.generic);
-      try {
-        final fallbackResult = _applyGrammar(
-          _withHandlerId(
-            fallback.render(
-              templateSource: GenericHandler.chatMlTemplate,
-              messages: effectiveMessages,
-              metadata: handlerMetadata,
-              addAssistant: addAssistant,
-              tools: tools,
-              enableThinking: enableThinking,
-            ),
-            null,
-          ),
-          tools,
-          toolChoice,
-          responseFormat,
-        );
-        return _normalizeGrammarLazyForToolChoice(fallbackResult, toolChoice);
-      } catch (e2) {
-        LlamaLogger.instance.warning(
-          'ChatTemplateEngine: Generic fallback also failed: $e2, '
-          'using simple concatenation',
-        );
-
-        // Ultimate fallback: simple concatenation
-        var prompt = effectiveMessages.map((m) => m.content).join('\n');
-        if (addAssistant) {
-          prompt += '\nAssistant:';
-        }
-        return LlamaChatTemplateResult(
-          prompt: prompt,
-          format: ChatFormat.contentOnly.index,
-        );
-      }
+    } catch (_) {
+      rethrow;
     }
   }
 
@@ -532,7 +337,6 @@ class ChatTemplateEngine {
             thinkingForcedOpen: result.thinkingForcedOpen,
             parser: result.parser,
             tokenCount: result.tokenCount,
-            handlerId: result.handlerId,
           );
         }
       } else if (type == 'json_object') {
@@ -550,7 +354,6 @@ class ChatTemplateEngine {
           thinkingForcedOpen: result.thinkingForcedOpen,
           parser: result.parser,
           tokenCount: result.tokenCount,
-          handlerId: result.handlerId,
         );
       }
     }
@@ -573,7 +376,6 @@ class ChatTemplateEngine {
         thinkingForcedOpen: result.thinkingForcedOpen,
         parser: result.parser,
         tokenCount: result.tokenCount,
-        handlerId: result.handlerId,
       );
     }
 
@@ -608,7 +410,6 @@ class ChatTemplateEngine {
           thinkingForcedOpen: result.thinkingForcedOpen,
           parser: result.parser,
           tokenCount: result.tokenCount,
-          handlerId: result.handlerId,
         );
       }
     }
@@ -645,7 +446,6 @@ class ChatTemplateEngine {
       thinkingForcedOpen: result.thinkingForcedOpen,
       parser: result.parser,
       tokenCount: result.tokenCount,
-      handlerId: result.handlerId,
     );
   }
 
@@ -659,12 +459,8 @@ class ChatTemplateEngine {
     bool parseToolCalls = true,
     bool thinkingForcedOpen = false,
     String? parser,
-    String? handlerId,
   }) {
-    final resolved = _resolveHandlerForParse(
-      formatIndex: formatIndex,
-      handlerId: handlerId,
-    );
+    final resolved = _resolveHandlerForParse(formatIndex: formatIndex);
     final handler = resolved.handler;
     final format = resolved.format;
 
@@ -701,28 +497,14 @@ class ChatTemplateEngine {
         parseToolCalls: parseToolCalls,
         thinkingForcedOpen: thinkingForcedOpen,
       );
-    } catch (e) {
-      // If parsing fails during streaming (partial), rethrow so caller handles it.
-      // If final parse fails, fall back to content-only parse.
-      if (isPartial) rethrow;
-
-      LlamaLogger.instance.warning(
-        'ChatTemplateEngine: Parse failed for $format: $e. '
-        'Falling back to content-only.',
-      );
-      return ChatParseResult(content: output.trim());
+    } catch (_) {
+      rethrow;
     }
   }
 
   /// Returns the thinking tags used by the selected parser handler.
-  static ({String startTag, String endTag}) thinkingTagsFor(
-    int formatIndex, {
-    String? handlerId,
-  }) {
-    final resolved = _resolveHandlerForParse(
-      formatIndex: formatIndex,
-      handlerId: handlerId,
-    );
+  static ({String startTag, String endTag}) thinkingTagsFor(int formatIndex) {
+    final resolved = _resolveHandlerForParse(formatIndex: formatIndex);
     return (
       startTag: resolved.handler.thinkingStartTag,
       endTag: resolved.handler.thinkingEndTag,
@@ -808,29 +590,6 @@ class ChatTemplateEngine {
     return type == 'json_schema' || type == 'json_object';
   }
 
-  static LlamaChatTemplateResult _withHandlerId(
-    LlamaChatTemplateResult result,
-    String? handlerId,
-  ) {
-    if (result.handlerId == handlerId) {
-      return result;
-    }
-
-    return LlamaChatTemplateResult(
-      prompt: result.prompt,
-      format: result.format,
-      grammar: result.grammar,
-      grammarLazy: result.grammarLazy,
-      thinkingForcedOpen: result.thinkingForcedOpen,
-      additionalStops: result.additionalStops,
-      preservedTokens: result.preservedTokens,
-      grammarTriggers: result.grammarTriggers,
-      parser: result.parser,
-      tokenCount: result.tokenCount,
-      handlerId: handlerId,
-    );
-  }
-
   static LlamaChatTemplateResult _withFormat(
     LlamaChatTemplateResult result,
     int format,
@@ -850,63 +609,11 @@ class ChatTemplateEngine {
       grammarTriggers: result.grammarTriggers,
       parser: result.parser,
       tokenCount: result.tokenCount,
-      handlerId: result.handlerId,
     );
   }
 
-  static _RegisteredTemplateOverride? _resolveTemplateOverride(
-    ChatTemplateRoutingContext context,
-  ) {
-    for (final entry in _templateOverrides.values.toList().reversed) {
-      if (entry.matcher(context)) {
-        return entry;
-      }
-    }
-
-    return null;
-  }
-
-  static _RegisteredHandler? _resolveCustomHandler(
-    ChatTemplateRoutingContext context, {
-    String? explicitHandlerId,
-  }) {
-    if (explicitHandlerId != null) {
-      final explicit = _customHandlers[explicitHandlerId];
-      if (explicit == null) {
-        throw ArgumentError.value(
-          explicitHandlerId,
-          'customHandlerId',
-          'No custom handler is registered with this id.',
-        );
-      }
-
-      return explicit;
-    }
-
-    for (final entry in _customHandlers.values.toList().reversed) {
-      final matcher = entry.matcher;
-      if (matcher != null && matcher(context)) {
-        return entry;
-      }
-    }
-
-    return null;
-  }
-
   static ({ChatTemplateHandler handler, ChatFormat format})
-  _resolveHandlerForParse({required int formatIndex, String? handlerId}) {
-    if (handlerId != null) {
-      final custom = _customHandlers[handlerId];
-      if (custom != null) {
-        return (handler: custom.handler, format: custom.handler.format);
-      }
-
-      LlamaLogger.instance.warning(
-        'ChatTemplateEngine: Unknown custom handler id=$handlerId. '
-        'Falling back to format index parsing.',
-      );
-    }
-
+  _resolveHandlerForParse({required int formatIndex}) {
     final format = formatIndex < ChatFormat.values.length
         ? ChatFormat.values[formatIndex]
         : ChatFormat.generic;
@@ -928,19 +635,40 @@ class ChatTemplateEngine {
     Map<String, String> metadata, {
     required ToolChoice toolChoice,
     required bool parallelToolCalls,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? now,
   }) {
     final toolChoiceValue = toolChoice.name;
     final parallelToolCallsValue = parallelToolCalls.toString();
+    final chatTemplateKwargsValue =
+        (chatTemplateKwargs == null || chatTemplateKwargs.isEmpty)
+        ? null
+        : jsonEncode(chatTemplateKwargs);
+    final nowValue = now?.toUtc().toIso8601String();
     if (metadata[internalToolChoiceMetadataKey] == toolChoiceValue &&
         metadata[internalParallelToolCallsMetadataKey] ==
-            parallelToolCallsValue) {
+            parallelToolCallsValue &&
+        metadata[internalChatTemplateKwargsMetadataKey] ==
+            chatTemplateKwargsValue &&
+        metadata[internalTemplateNowMetadataKey] == nowValue) {
       return metadata;
     }
-    return <String, String>{
+    final merged = <String, String>{
       ...metadata,
       internalToolChoiceMetadataKey: toolChoiceValue,
       internalParallelToolCallsMetadataKey: parallelToolCallsValue,
     };
+    if (chatTemplateKwargsValue != null) {
+      merged[internalChatTemplateKwargsMetadataKey] = chatTemplateKwargsValue;
+    } else {
+      merged.remove(internalChatTemplateKwargsMetadataKey);
+    }
+    if (nowValue != null) {
+      merged[internalTemplateNowMetadataKey] = nowValue;
+    } else {
+      merged.remove(internalTemplateNowMetadataKey);
+    }
+    return merged;
   }
 
   static List<LlamaChatMessage> _injectSystemInstructionLikeLlamaCpp(
@@ -987,28 +715,4 @@ class ChatTemplateEngine {
       ...messages.skip(1),
     ];
   }
-}
-
-class _RegisteredHandler {
-  final String id;
-  final ChatTemplateHandler handler;
-  final ChatTemplateMatcher? matcher;
-
-  const _RegisteredHandler({
-    required this.id,
-    required this.handler,
-    required this.matcher,
-  });
-}
-
-class _RegisteredTemplateOverride {
-  final String id;
-  final String templateSource;
-  final ChatTemplateMatcher matcher;
-
-  const _RegisteredTemplateOverride({
-    required this.id,
-    required this.templateSource,
-    required this.matcher,
-  });
 }

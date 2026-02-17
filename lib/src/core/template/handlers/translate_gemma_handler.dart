@@ -47,13 +47,17 @@ class TranslateGemmaHandler extends ChatTemplateHandler {
         )
         .toList();
 
-    final prompt = template.render({
-      'messages': normalizedMessages,
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
-    });
+    final prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': normalizedMessages,
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
+      },
+    );
 
     return LlamaChatTemplateResult(prompt: prompt, format: format.index);
   }

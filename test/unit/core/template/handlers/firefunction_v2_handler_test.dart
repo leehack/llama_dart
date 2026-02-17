@@ -61,6 +61,29 @@ void main() {
       expect(result.prompt, contains('GMT'));
     });
 
+    test('renders datetime with llama.cpp localtime formatting', () {
+      const template = '{{ datetime }}\n functools[';
+      final result = ChatTemplateEngine.render(
+        templateSource: template,
+        messages: const [
+          LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+        ],
+        metadata: const {},
+        tools: [
+          ToolDefinition(
+            name: 'get_weather',
+            description: 'Get weather',
+            parameters: [ToolParam.string('city')],
+            handler: _noopHandler,
+          ),
+        ],
+        addAssistant: false,
+        now: DateTime(2026, 2, 17, 13, 5, 9),
+      );
+
+      expect(result.prompt, startsWith('Feb 17 2026 13:05:09 GMT'));
+    });
+
     test('falls back to content-only format when tools are absent', () {
       const template = '{{ functions }}\n{{ datetime }}\n functools[';
       final result = ChatTemplateEngine.render(

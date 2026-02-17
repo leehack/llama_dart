@@ -46,15 +46,20 @@ class FirefunctionV2Handler extends ChatTemplateHandler {
           ).convert(tools.map((tool) => tool.toJson()).toList())
         : '';
 
-    final prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'functions': toolJson,
-      'datetime': _formatNowUtc(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<|begin_of_text|>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
-    });
+    final prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'functions': toolJson,
+        'datetime': _formatNowLikeLlamaCpp(resolveTemplateNow(metadata)),
+        'bos_token':
+            metadata['tokenizer.ggml.bos_token'] ?? '<|begin_of_text|>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
+      },
+    );
 
     return LlamaChatTemplateResult(
       prompt: prompt,
@@ -198,8 +203,9 @@ class FirefunctionV2Handler extends ChatTemplateHandler {
     return null;
   }
 
-  String _formatNowUtc() {
-    final now = DateTime.now().toUtc();
+  String _formatNowLikeLlamaCpp(DateTime value) {
+    // llama.cpp formats this with std::localtime while still appending GMT.
+    final now = value.toLocal();
     const months = <String>[
       'Jan',
       'Feb',

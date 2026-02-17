@@ -61,15 +61,12 @@ void main() {
       expect(result.toolCalls, isEmpty);
     });
 
-    test('falls back to content-only parse when parser is missing', () {
-      final result = ChatTemplateEngine.parse(
-        ChatFormat.pegNative.index,
-        'raw-output',
+    test('throws when parser is missing for PEG formats', () {
+      expect(
+        () =>
+            ChatTemplateEngine.parse(ChatFormat.pegNative.index, 'raw-output'),
+        throwsA(isA<StateError>()),
       );
-
-      expect(result.content, equals('raw-output'));
-      expect(result.toolCalls, isEmpty);
-      expect(result.reasoningContent, isNull);
     });
 
     test('rethrows parse failures for partial PEG parse', () {

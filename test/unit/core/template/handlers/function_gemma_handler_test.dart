@@ -33,7 +33,7 @@ void main() {
       );
     });
 
-    test('renders tool response without falling back to generic', () {
+    test('renders template but keeps strict Gemma/content-only routing', () {
       final source = File(
         'test/fixtures/templates/functiongemma-270m-it.jinja',
       ).readAsStringSync();
@@ -71,7 +71,7 @@ void main() {
         addAssistant: true,
       );
 
-      expect(result.format, equals(ChatFormat.functionGemma.index));
+      expect(result.format, equals(ChatFormat.contentOnly.index));
       expect(
         result.prompt,
         contains('<start_function_response>response:get_current_time{'),

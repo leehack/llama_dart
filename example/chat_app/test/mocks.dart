@@ -138,9 +138,10 @@ class MockLlamaEngine extends LlamaEngine {
     bool parallelToolCalls = false,
     Map<String, dynamic>? responseFormat,
     String? customTemplate,
-    String? customHandlerId,
     String? sourceLangCode,
     String? targetLangCode,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? templateNow,
   }) async {
     return const LlamaChatTemplateResult(
       prompt: "mock prompt",
@@ -158,6 +159,8 @@ class MockLlamaEngine extends LlamaEngine {
     bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? templateNow,
   }) async* {
     yield LlamaCompletionChunk(
       id: "mock-id",

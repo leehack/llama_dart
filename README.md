@@ -230,79 +230,31 @@ Notes:
 - Some handlers use lazy grammar activation (triggered when a tool-call prefix appears) to match llama.cpp behavior.
 - If you implement a custom handler grammar, prefer Dart raw strings (`r'''...'''`) for GBNF blocks to avoid escaping bugs.
 
-### 3.5 Custom Template Handlers and Overrides (Advanced)
+### 3.5 Template Routing (Strict llama.cpp parity)
 
-If you need behavior for a model-specific template that is not built in yet,
-you can register your own handler and/or template override.
+Template/render/parse routing is intentionally strict to match llama.cpp:
+
+- Built-in format detection and built-in handlers are always used.
+- `customTemplate` is supported per call.
+- Legacy custom handler/override registry APIs were removed.
+
+If you need deterministic template customization, use `customTemplate`,
+`chatTemplateKwargs`, and `templateNow`:
 
 ```dart
-import 'package:llamadart/llamadart.dart';
+final result = await engine.chatTemplate(
+  [
+    const LlamaChatMessage.fromText(
+      role: LlamaChatRole.user,
+      text: 'hello',
+    ),
+  ],
+  customTemplate: '{{ "CUSTOM:" ~ messages[0]["content"] }}',
+  chatTemplateKwargs: {'my_flag': true, 'tenant': 'demo'},
+  templateNow: DateTime.utc(2026, 1, 1),
+);
 
-class MyHandler extends ChatTemplateHandler {
-  @override
-  ChatFormat get format => ChatFormat.generic;
-
-  @override
-  List<String> get additionalStops => const [];
-
-  @override
-  LlamaChatTemplateResult render({
-    required String templateSource,
-    required List<LlamaChatMessage> messages,
-    required Map<String, String> metadata,
-    bool addAssistant = true,
-    List<ToolDefinition>? tools,
-    bool enableThinking = true,
-  }) {
-    final prompt = messages.map((m) => m.content).join('\n');
-    return LlamaChatTemplateResult(prompt: prompt, format: format.index);
-  }
-
-  @override
-  ChatParseResult parse(
-    String output, {
-    bool isPartial = false,
-    bool parseToolCalls = true,
-    bool thinkingForcedOpen = false,
-  }) {
-    return ChatParseResult(content: output.trim());
-  }
-
-  @override
-  String? buildGrammar(List<ToolDefinition>? tools) => null;
-}
-
-void configureTemplateRouting() {
-  // 1) Register a custom handler
-  ChatTemplateEngine.registerHandler(
-    id: 'my-handler',
-    handler: MyHandler(),
-    matcher: (ctx) =>
-        (ctx.metadata['general.name'] ?? '').contains('MyModel'),
-  );
-
-  // 2) Register a global template override
-  ChatTemplateEngine.registerTemplateOverride(
-    id: 'my-template-override',
-    templateSource: '{{ messages[0]["content"] }}',
-    matcher: (ctx) => ctx.hasTools,
-  );
-}
-
-Future<void> usePerCallOverride(LlamaEngine engine) async {
-  final template = await engine.chatTemplate(
-    [
-      const LlamaChatMessage.fromText(
-        role: LlamaChatRole.user,
-        text: 'hello',
-      ),
-    ],
-    customTemplate: '{{ "CUSTOM:" ~ messages[0]["content"] }}',
-    customHandlerId: 'my-handler',
-  );
-
-  print(template.prompt);
-}
+print(result.prompt);
 ```
 
 ### 3.6 Logging Control

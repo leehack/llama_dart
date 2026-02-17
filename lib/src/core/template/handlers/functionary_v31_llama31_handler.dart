@@ -55,13 +55,18 @@ class FunctionaryV31Llama31Handler extends ChatTemplateHandler {
       hasRawPython: hasRawPython,
     );
 
-    final prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<|begin_of_text|>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
-    });
+    final prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token':
+            metadata['tokenizer.ggml.bos_token'] ?? '<|begin_of_text|>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
+      },
+    );
 
     return LlamaChatTemplateResult(
       prompt: prompt,

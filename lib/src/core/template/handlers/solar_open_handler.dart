@@ -62,13 +62,17 @@ class SolarOpenHandler extends ChatTemplateHandler {
     }).toList();
 
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': renderedMessages,
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': renderedMessages,
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
+      },
+    );
 
     var thinkingForcedOpen = false;
     if (isThinkingForcedOpen(prompt, startTag: thinkingStartTag)) {
