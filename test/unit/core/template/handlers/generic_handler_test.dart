@@ -131,7 +131,10 @@ void main() {
 
       expect(parsed.toolCalls, hasLength(1));
       expect(parsed.toolCalls.first.function?.name, equals('outer'));
-      expect(parsed.toolCalls.first.function?.arguments, equals('{"city":"Se"'));
+      expect(
+        parsed.toolCalls.first.function?.arguments,
+        equals('{"city":"Se"'),
+      );
       expect(parsed.content, isEmpty);
     });
 
