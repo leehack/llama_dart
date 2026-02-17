@@ -63,11 +63,10 @@ void main() {
       '[{"name":"get_weather","arguments":{"city":"Seoul"}}]',
     );
 
-    expect(parsed.toolCalls, hasLength(1));
-    expect(parsed.toolCalls.first.function?.name, equals('get_weather'));
+    expect(parsed.toolCalls, isEmpty);
     expect(
-      jsonDecode(parsed.toolCalls.first.function!.arguments!),
-      containsPair('city', 'Seoul'),
+      parsed.content,
+      equals('[{"name":"get_weather","arguments":{"city":"Seoul"}}]'),
     );
   });
 }

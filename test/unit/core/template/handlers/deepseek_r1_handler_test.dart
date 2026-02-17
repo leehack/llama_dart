@@ -45,7 +45,7 @@ void main() {
     final parsed = handler.parse(
       '<think>reasoning</think>answer '
       '<｜tool▁calls▁begin｜>'
-      '<｜tool▁call▁begin｜>get_weather<｜tool▁sep｜>{"city":"Seoul"}<｜tool▁call▁end｜>'
+      '<｜tool▁call▁begin｜>function<｜tool▁sep｜>get_weather\n```json\n{"city":"Seoul"}\n```<｜tool▁call▁end｜>'
       '<｜tool▁calls▁end｜>',
     );
 
@@ -77,6 +77,14 @@ void main() {
       '<｜tool▁call▁end｜>',
     );
     expect(functionStylePayload.toolCalls, isEmpty);
+
+    final malformedBlock = handler.parse(
+      '<｜tool▁calls▁begin｜>'
+      '<｜tool▁call▁begin｜>get_weather<｜tool▁sep｜>{"city":"Seoul"}<｜tool▁call▁end｜>'
+      '<｜tool▁calls▁end｜>',
+    );
+    expect(malformedBlock.toolCalls, isEmpty);
+    expect(malformedBlock.content, contains('<｜tool▁calls▁begin｜>'));
   });
 }
 

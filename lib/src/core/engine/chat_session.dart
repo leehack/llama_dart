@@ -88,6 +88,9 @@ class ChatSession {
   /// - [ToolChoice.auto]: Model can choose (default when tools present)
   /// - [ToolChoice.required]: Model must call at least one tool
   ///
+  /// Set [parallelToolCalls] to allow multiple tool calls in one response for
+  /// templates that support it.
+  ///
   /// Example with tools:
   /// ```dart
   /// final response = await session.create(
@@ -106,6 +109,7 @@ class ChatSession {
     GenerationParams? params,
     List<ToolDefinition>? tools,
     ToolChoice? toolChoice,
+    bool parallelToolCalls = false,
     void Function(LlamaChatMessage message)? onMessageAdded,
   }) async* {
     // Add user message if parts provided
@@ -139,6 +143,7 @@ class ChatSession {
       params: params,
       tools: tools,
       toolChoice: toolChoice,
+      parallelToolCalls: parallelToolCalls,
     )) {
       final delta = chunk.choices.first.delta;
       if (delta.content != null) fullContent += delta.content!;

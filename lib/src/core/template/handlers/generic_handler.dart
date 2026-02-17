@@ -117,8 +117,14 @@ class GenericHandler extends ChatTemplateHandler {
       );
     }
 
-    final toolCalls = _extractToolCalls(decoded);
-    if (toolCalls.isNotEmpty) {
+    if (decoded.containsKey('tool_calls')) {
+      final toolCalls = _extractToolCalls(decoded['tool_calls']);
+      if (toolCalls == null) {
+        return ChatParseResult(
+          content: trimmed,
+          reasoningContent: thinking.reasoning,
+        );
+      }
       return ChatParseResult(
         content: '',
         reasoningContent: thinking.reasoning,
@@ -126,10 +132,27 @@ class GenericHandler extends ChatTemplateHandler {
       );
     }
 
-    final response = decoded['response'];
-    if (response != null) {
+    if (decoded.containsKey('tool_call')) {
+      final toolCall = _toToolCall(decoded['tool_call'], 0);
+      if (toolCall == null) {
+        return ChatParseResult(
+          content: trimmed,
+          reasoningContent: thinking.reasoning,
+        );
+      }
       return ChatParseResult(
-        content: response is String ? response : jsonEncode(response),
+        content: '',
+        reasoningContent: thinking.reasoning,
+        toolCalls: [toolCall],
+      );
+    }
+
+    final response = decoded['response'];
+    if (decoded.containsKey('response')) {
+      return ChatParseResult(
+        content: response is String
+            ? response
+            : const JsonEncoder.withIndent('  ').convert(response),
         reasoningContent: thinking.reasoning,
       );
     }
@@ -160,81 +183,53 @@ class GenericHandler extends ChatTemplateHandler {
     return null;
   }
 
-  List<LlamaCompletionChunkToolCall> _extractToolCalls(
-    Map<String, dynamic> root,
-  ) {
+  List<LlamaCompletionChunkToolCall>? _extractToolCalls(Object? value) {
+    if (value is! List) {
+      return null;
+    }
     final calls = <LlamaCompletionChunkToolCall>[];
-
-    final single = root['tool_call'];
-    if (single is Map) {
-      final toolCall = _toToolCall(Map<String, dynamic>.from(single), 0);
-      if (toolCall != null) {
-        calls.add(toolCall);
+    for (var i = 0; i < value.length; i++) {
+      final toolCall = _toToolCall(value[i], i);
+      if (toolCall == null) {
+        return null;
       }
+      calls.add(toolCall);
     }
-
-    final multi = root['tool_calls'];
-    if (multi is List) {
-      for (var i = 0; i < multi.length; i++) {
-        final item = multi[i];
-        if (item is! Map) {
-          continue;
-        }
-        final toolCall = _toToolCall(Map<String, dynamic>.from(item), i);
-        if (toolCall != null) {
-          calls.add(toolCall);
-        }
-      }
-    }
-
     return calls;
   }
 
-  LlamaCompletionChunkToolCall? _toToolCall(
-    Map<String, dynamic> value,
-    int index,
-  ) {
-    String? name;
-    Object? arguments;
-    String? id;
-
-    if (value['function'] is Map) {
-      final function = Map<String, dynamic>.from(value['function'] as Map);
-      final fnName = function['name'];
-      if (fnName is String && fnName.isNotEmpty) {
-        name = fnName;
-      }
-      arguments = function['arguments'];
-      final rawId = value['id'];
-      if (rawId is String && rawId.isNotEmpty) {
-        id = rawId;
-      }
-    } else {
-      final rawName = value['name'];
-      if (rawName is String && rawName.isNotEmpty) {
-        name = rawName;
-      }
-      arguments = value['arguments'];
-      final rawId = value['id'];
-      if (rawId is String && rawId.isNotEmpty) {
-        id = rawId;
-      }
+  LlamaCompletionChunkToolCall? _toToolCall(Object? value, int index) {
+    if (value is! Map) {
+      return null;
     }
+    final map = Map<String, dynamic>.from(value);
 
-    if (name == null) {
+    final rawName = map['name'];
+    if (rawName is! String || rawName.isEmpty) {
       return null;
     }
 
-    final encodedArguments = arguments is String
-        ? arguments
-        : jsonEncode(arguments ?? const <String, dynamic>{});
+    final rawId = map['id'];
+    final id = rawId is String && rawId.isNotEmpty ? rawId : null;
+
+    var encodedArguments = '';
+    if (map.containsKey('arguments')) {
+      final arguments = map['arguments'];
+      if (arguments == null) {
+        encodedArguments = '';
+      } else {
+        encodedArguments = arguments is String
+            ? arguments
+            : jsonEncode(arguments);
+      }
+    }
 
     return LlamaCompletionChunkToolCall(
       index: index,
       id: id ?? 'call_$index',
       type: 'function',
       function: LlamaCompletionChunkFunction(
-        name: name,
+        name: rawName,
         arguments: encodedArguments,
       ),
     );

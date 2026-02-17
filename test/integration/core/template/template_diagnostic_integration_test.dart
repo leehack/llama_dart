@@ -47,8 +47,6 @@ void main() {
       test('detects format for $name', () {
         final source = file.readAsStringSync();
         final format = detectChatFormat(source);
-        print('  $name → $format');
-        // At minimum, ensure we get a non-null format
         expect(format, isNotNull);
       });
     }
@@ -59,24 +57,12 @@ void main() {
       final name = file.path.split('/').last.replaceAll('.jinja', '');
       test('renders $name with simple messages', () {
         final source = file.readAsStringSync();
-        final format = detectChatFormat(source);
-        print('  Format: $format');
-
-        try {
-          final result = ChatTemplateEngine.render(
-            templateSource: source,
-            messages: simpleMessages,
-            metadata: metadata,
-          );
-          print('  ✅ Prompt length: ${result.prompt.length}');
-          print(
-            '  Prompt preview: ${result.prompt.substring(0, result.prompt.length.clamp(0, 200))}',
-          );
-          expect(result.prompt, isNotEmpty);
-        } catch (e) {
-          print('  ❌ FAILED: $e');
-          fail('$name render failed: $e');
-        }
+        final result = ChatTemplateEngine.render(
+          templateSource: source,
+          messages: simpleMessages,
+          metadata: metadata,
+        );
+        expect(result.prompt, isNotEmpty);
       });
     }
   });
@@ -86,19 +72,13 @@ void main() {
       final name = file.path.split('/').last.replaceAll('.jinja', '');
       test('renders $name with system messages', () {
         final source = file.readAsStringSync();
-        try {
-          final result = ChatTemplateEngine.render(
-            templateSource: source,
-            messages: systemMessages,
-            metadata: metadata,
-          );
-          print('  ✅ Prompt length: ${result.prompt.length}');
-          // Verify the system message content appears somewhere
-          expect(result.prompt, contains('helpful assistant'));
-        } catch (e) {
-          print('  ❌ FAILED: $e');
-          fail('$name render failed: $e');
-        }
+        final result = ChatTemplateEngine.render(
+          templateSource: source,
+          messages: systemMessages,
+          metadata: metadata,
+        );
+        // Verify the system message content appears somewhere
+        expect(result.prompt, contains('helpful assistant'));
       });
     }
   });
@@ -108,21 +88,15 @@ void main() {
       final name = file.path.split('/').last.replaceAll('.jinja', '');
       test('renders $name with multi-turn messages', () {
         final source = file.readAsStringSync();
-        try {
-          final result = ChatTemplateEngine.render(
-            templateSource: source,
-            messages: multiTurnMessages,
-            metadata: metadata,
-          );
-          print('  ✅ Prompt length: ${result.prompt.length}');
-          expect(result.prompt, isNotEmpty);
-          // Verify both user messages appear
-          expect(result.prompt, contains('2+2'));
-          expect(result.prompt, contains('3+3'));
-        } catch (e) {
-          print('  ❌ FAILED: $e');
-          fail('$name render failed: $e');
-        }
+        final result = ChatTemplateEngine.render(
+          templateSource: source,
+          messages: multiTurnMessages,
+          metadata: metadata,
+        );
+        expect(result.prompt, isNotEmpty);
+        // Verify both user messages appear
+        expect(result.prompt, contains('2+2'));
+        expect(result.prompt, contains('3+3'));
       });
     }
   });
@@ -132,19 +106,13 @@ void main() {
       final name = file.path.split('/').last.replaceAll('.jinja', '');
       test('renders $name with enableThinking=false', () {
         final source = file.readAsStringSync();
-        try {
-          final result = ChatTemplateEngine.render(
-            templateSource: source,
-            messages: simpleMessages,
-            metadata: metadata,
-            enableThinking: false,
-          );
-          print('  ✅ Prompt length: ${result.prompt.length}');
-          expect(result.prompt, isNotEmpty);
-        } catch (e) {
-          print('  ❌ FAILED: $e');
-          fail('$name render with enableThinking=false failed: $e');
-        }
+        final result = ChatTemplateEngine.render(
+          templateSource: source,
+          messages: simpleMessages,
+          metadata: metadata,
+          enableThinking: false,
+        );
+        expect(result.prompt, isNotEmpty);
       });
     }
   });
@@ -155,18 +123,11 @@ void main() {
       test('parses simple content for $name', () {
         final source = file.readAsStringSync();
         final format = detectChatFormat(source);
-
-        try {
-          final result = ChatTemplateEngine.parse(
-            format.index,
-            'I am fine, thank you!',
-          );
-          print('  ✅ Content: "${result.content}"');
-          expect(result.content, contains('fine'));
-        } catch (e) {
-          print('  ❌ FAILED: $e');
-          fail('$name parse failed: $e');
-        }
+        final result = ChatTemplateEngine.parse(
+          format.index,
+          'I am fine, thank you!',
+        );
+        expect(result.content, contains('fine'));
       });
     }
   });
@@ -189,25 +150,17 @@ void main() {
         );
         final source = file.readAsStringSync();
         final format = detectChatFormat(source);
-
-        try {
-          final result = ChatTemplateEngine.parse(format.index, entry.value);
-          print('  Content: "${result.content}"');
-          print('  Reasoning: "${result.reasoningContent}"');
-          expect(result.content, contains('42'));
-          expect(result.reasoningContent, contains('reason'));
-        } catch (e) {
-          print('  ❌ FAILED: $e');
-          fail('${entry.key} thinking parse failed: $e');
-        }
+        final result = ChatTemplateEngine.parse(format.index, entry.value);
+        expect(result.content, contains('42'));
+        expect(result.reasoningContent, contains('reason'));
       });
     }
   });
 
   group('Regression Tests', () {
-    test('Llama 3 tool call fallback for "function" key', () {
+    test('Llama 3 parses name+parameters tool call object', () {
       const output =
-          '{"type": "function", "function": "get_current_time", "parameters": {}}';
+          '{"type": "function", "name": "get_current_time", "parameters": {}}';
       final result = ChatTemplateEngine.parse(ChatFormat.llama3.index, output);
       expect(result.toolCalls, hasLength(1));
       expect(result.toolCalls.first.function?.name, equals('get_current_time'));

@@ -5,10 +5,13 @@ import 'package:dinja/dinja.dart';
 import '../../models/chat/chat_message.dart';
 import '../../models/chat/chat_template_result.dart';
 import '../../models/chat/completion_chunk.dart';
+import '../../models/inference/tool_choice.dart';
 import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
+import '../template_internal_metadata.dart';
+import '../tool_call_grammar_utils.dart';
 
 /// Handler for FireFunction v2 templates.
 ///
@@ -16,6 +19,9 @@ import '../chat_template_handler.dart';
 /// `functools[{"name":"tool","arguments":{...}}]`.
 class FirefunctionV2Handler extends ChatTemplateHandler {
   static const String _prefix = ' functools[';
+  static const List<String> _firefunctionPreservedTokens = <String>[
+    ' functools[',
+  ];
 
   @override
   ChatFormat get format => ChatFormat.firefunctionV2;
@@ -53,12 +59,21 @@ class FirefunctionV2Handler extends ChatTemplateHandler {
     return LlamaChatTemplateResult(
       prompt: prompt,
       format: hasTools ? format.index : ChatFormat.contentOnly.index,
-      grammar: buildGrammar(tools),
-      grammarLazy: hasTools,
+      grammar: hasTools
+          ? _buildGrammarWithOptions(
+              tools,
+              parallelToolCalls:
+                  metadata[internalParallelToolCallsMetadataKey] == 'true',
+            )
+          : null,
+      grammarLazy:
+          hasTools &&
+          metadata[internalToolChoiceMetadataKey] != ToolChoice.required.name,
       additionalStops: getStops(
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
+      preservedTokens: hasTools ? _firefunctionPreservedTokens : const [],
       grammarTriggers: hasTools
           ? [const GrammarTrigger(type: 0, value: _prefix)]
           : const [],
@@ -81,80 +96,58 @@ class FirefunctionV2Handler extends ChatTemplateHandler {
       return ChatParseResult(content: output.trim());
     }
 
-    final contentBefore = output.substring(0, prefixIdx).trim();
-    final arrayStart = output.indexOf('[', prefixIdx);
-    if (arrayStart == -1) {
+    final contentBefore = output.substring(0, prefixIdx);
+    final arrayStart = prefixIdx + _prefix.length - 1;
+    if (arrayStart < 0 ||
+        arrayStart >= output.length ||
+        output.codeUnitAt(arrayStart) != 0x5B) {
       return ChatParseResult(content: output.trim());
     }
 
-    var extracted = _extractJsonArray(output, arrayStart);
-    if (extracted == null && isPartial) {
-      final healed = '${output.substring(arrayStart)}]';
-      extracted = _JsonExtraction(json: healed, end: output.length);
+    final extracted = _extractJsonArray(output, arrayStart);
+    if (extracted == null || extracted.end != output.length) {
+      return ChatParseResult(content: output.trim());
     }
 
-    if (extracted == null) {
+    Object? decoded;
+    try {
+      decoded = jsonDecode(extracted.json);
+    } catch (_) {
+      return ChatParseResult(content: output.trim());
+    }
+    if (decoded is! List) {
       return ChatParseResult(content: output.trim());
     }
 
     final toolCalls = <LlamaCompletionChunkToolCall>[];
-    try {
-      final decoded = jsonDecode(extracted.json);
-      if (decoded is List) {
-        for (final item in decoded) {
-          if (item is! Map) continue;
-          final call = Map<String, dynamic>.from(item);
-          final name = call['name'] as String?;
-          if (name == null || name.isEmpty) continue;
-
-          final rawArguments = call['arguments'] ?? call['parameters'] ?? {};
-          final id = call['id']?.toString();
-          toolCalls.add(
-            LlamaCompletionChunkToolCall(
-              index: toolCalls.length,
-              id: id ?? 'call_${toolCalls.length}',
-              type: 'function',
-              function: LlamaCompletionChunkFunction(
-                name: name,
-                arguments: _normalizeArguments(rawArguments),
-              ),
-            ),
-          );
-        }
+    for (final item in decoded) {
+      if (item is! Map) {
+        return ChatParseResult(content: output.trim());
       }
-    } catch (_) {
-      return ChatParseResult(content: output.trim());
-    }
-
-    final trailing = extracted.end < output.length
-        ? output.substring(extracted.end).trim()
-        : '';
-    final mergedContent = [
-      if (contentBefore.isNotEmpty) contentBefore,
-      if (trailing.isNotEmpty) trailing,
-    ].join('\n').trim();
-
-    return ChatParseResult(content: mergedContent, toolCalls: toolCalls);
-  }
-
-  String _normalizeArguments(Object? arguments) {
-    if (arguments is String) {
-      try {
-        final decoded = jsonDecode(arguments);
-        if (decoded is Map) {
-          return jsonEncode(Map<String, dynamic>.from(decoded));
-        }
-        return jsonEncode({'value': decoded});
-      } catch (_) {
-        return arguments;
+      final call = Map<String, dynamic>.from(item);
+      final name = call['name'] as String?;
+      if (name == null || name.isEmpty) {
+        return ChatParseResult(content: output.trim());
       }
+      final rawArguments = call['arguments'];
+      final arguments = rawArguments is String
+          ? rawArguments
+          : (call.containsKey('arguments') ? jsonEncode(rawArguments) : '');
+      final id = call['id']?.toString();
+      toolCalls.add(
+        LlamaCompletionChunkToolCall(
+          index: toolCalls.length,
+          id: (id == null || id.isEmpty) ? null : id,
+          type: 'function',
+          function: LlamaCompletionChunkFunction(
+            name: name,
+            arguments: arguments,
+          ),
+        ),
+      );
     }
 
-    if (arguments is Map) {
-      return jsonEncode(Map<String, dynamic>.from(arguments));
-    }
-
-    return jsonEncode(arguments ?? {});
+    return ChatParseResult(content: contentBefore.trim(), toolCalls: toolCalls);
   }
 
   _JsonExtraction? _extractJsonArray(String input, int startIndex) {
@@ -235,11 +228,46 @@ class FirefunctionV2Handler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    return _buildGrammarWithOptions(tools, parallelToolCalls: true);
+  }
+
+  String? _buildGrammarWithOptions(
+    List<ToolDefinition>? tools, {
+    required bool parallelToolCalls,
+  }) {
+    if (tools == null || tools.isEmpty) {
+      return null;
+    }
+
+    final base = ToolCallGrammarUtils.buildWrappedArrayGrammar(
+      tools: tools,
+      prefix: '',
+      suffix: '',
+      nameKey: 'name',
+      argumentsKey: 'arguments',
+      idKey: 'id',
+      allowParallelToolCalls: parallelToolCalls,
+    );
+    if (base == null) {
+      return null;
+    }
+    return _rewriteRootWithOptionalPrefix(base, ' functools');
+  }
+
+  String _rewriteRootWithOptionalPrefix(String grammar, String prefix) {
+    final lines = grammar.trimRight().split('\n');
+    final rootIndex = lines.indexWhere((line) => line.startsWith('root ::= '));
+    if (rootIndex == -1) {
+      return grammar;
+    }
+    final rootExpr = lines[rootIndex].substring('root ::= '.length).trim();
+    lines[rootIndex] =
+        'root ::= (${ToolCallGrammarUtils.literal(prefix)})? $rootExpr';
+    return '${lines.join('\n')}\n';
   }
 }
 
-class _JsonExtraction {
+final class _JsonExtraction {
   final String json;
   final int end;
 

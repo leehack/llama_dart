@@ -10,7 +10,7 @@ void main() {
     expect(handler.format, isA<ChatFormat>());
   });
 
-  test('Apriel15Handler emits wrapped array grammar for tools', () {
+  test('Apriel15Handler emits xml-style grammar for tools', () {
     final handler = Apriel15Handler();
     final tools = [
       ToolDefinition(
@@ -24,8 +24,8 @@ void main() {
     final grammar = handler.buildGrammar(tools);
     expect(grammar, isNotNull);
     expect(grammar, contains('root ::='));
-    expect(grammar, contains('"<tool_calls>"'));
-    expect(grammar, contains('"</tool_calls>"'));
+    expect(grammar, contains('"<tool_calls>["'));
+    expect(grammar, contains('"]</tool_calls>"'));
   });
 }
 

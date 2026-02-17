@@ -51,6 +51,19 @@ void main() {
       expect(parsed.toolCalls.first.function?.name, equals('get_weather'));
     });
 
+    test('keeps non-native tool_call shape as plain content', () {
+      final handler = GenericHandler();
+
+      final parsed = handler.parse(
+        '{"tool_call":{"function":{"name":"get_weather","arguments":{"city":"Seoul"}}}}',
+      );
+      expect(parsed.toolCalls, isEmpty);
+      expect(
+        parsed.content,
+        '{"tool_call":{"function":{"name":"get_weather","arguments":{"city":"Seoul"}}}}',
+      );
+    });
+
     test('parses generic response envelope JSON', () {
       final handler = GenericHandler();
 

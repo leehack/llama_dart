@@ -30,12 +30,17 @@ void main() {
     );
 
     expect(handler.format, isA<ChatFormat>());
-    expect(rendered.grammar, isNull);
+    expect(rendered.grammar, isNotNull);
     expect(rendered.grammarLazy, isTrue);
-    expect(rendered.grammarTriggers.first.value, equals('<tool_call>'));
+    expect(
+      rendered.grammarTriggers.first.value,
+      equals('<tool_call>\n{"name": "'),
+    );
 
     final parsed = handler.parse(
-      '<tool_call>{"name":"weather","arguments":{"city":"Seoul"}}</tool_call> tail',
+      '<tool_call>\n'
+      '{"name": "weather", "arguments": {"city": "Seoul"}\n'
+      '</tool_call> tail',
     );
     expect(parsed.content, equals('tail'));
     expect(parsed.toolCalls, hasLength(1));

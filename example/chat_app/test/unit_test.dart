@@ -377,6 +377,7 @@ class _JsonResponseEngine extends MockLlamaEngine {
     GenerationParams? params,
     List<ToolDefinition>? tools,
     ToolChoice? toolChoice,
+    bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
   }) async* {
@@ -404,6 +405,7 @@ class _ThinkTaggedResponseEngine extends MockLlamaEngine {
     GenerationParams? params,
     List<ToolDefinition>? tools,
     ToolChoice? toolChoice,
+    bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
   }) async* {
@@ -431,6 +433,7 @@ class _MinistralPlainReasoningEngine extends MockLlamaEngine {
     GenerationParams? params,
     List<ToolDefinition>? tools,
     ToolChoice? toolChoice,
+    bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
   }) async* {
@@ -462,6 +465,7 @@ class _FirstTurnToolChoiceEngine extends MockLlamaEngine {
     GenerationParams? params,
     List<ToolDefinition>? tools,
     ToolChoice? toolChoice,
+    bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
   }) async* {
@@ -520,6 +524,7 @@ class _InfiniteToolLoopEngine extends MockLlamaEngine {
     GenerationParams? params,
     List<ToolDefinition>? tools,
     ToolChoice? toolChoice,
+    bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
   }) async* {
@@ -561,6 +566,7 @@ class _ToolResultIgnoringEngine extends MockLlamaEngine {
     GenerationParams? params,
     List<ToolDefinition>? tools,
     ToolChoice? toolChoice,
+    bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
   }) async* {
@@ -620,6 +626,7 @@ class _VaryingArgsLoopEngine extends MockLlamaEngine {
     GenerationParams? params,
     List<ToolDefinition>? tools,
     ToolChoice? toolChoice,
+    bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
   }) async* {

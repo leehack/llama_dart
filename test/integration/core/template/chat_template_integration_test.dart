@@ -49,7 +49,10 @@ void main() {
       final finalOutput =
           "<think>\nThinking done.\n</think>\n"
           "<｜tool▁calls▁begin｜>"
-          "<｜tool▁call▁begin｜>calculator<｜tool▁sep｜>{\"op\": \"add\", \"a\": 2, \"b\": 2}<｜tool▁call▁end｜>"
+          "<｜tool▁call▁begin｜>function<｜tool▁sep｜>calculator\n"
+          "```json\n"
+          "{\"op\": \"add\", \"a\": 2, \"b\": 2}\n"
+          "```<｜tool▁call▁end｜>"
           "<｜tool▁calls▁end｜>";
 
       final parseResult2 = ChatTemplateEngine.parse(
@@ -95,12 +98,12 @@ void main() {
       expect(result.format, equals(ChatFormat.granite.index));
       // GraniteHandler appends grammar trigger for tools if they exist
       expect(result.grammarTriggers, isNotEmpty);
-      expect(result.grammarTriggers[0].value, equals('{'));
+      expect(result.grammarTriggers[0].value, equals('<|tool_call|>'));
 
       // 3. Simulate Output (JSON Tool Call)
       // Granite might output thinking first if enabled, then JSON
       final output =
-          "I need to check the weather.\n[{\"name\": \"weather\", \"arguments\": {}}]";
+          "I need to check the weather.\n<|tool_call|>[{\"name\": \"weather\", \"arguments\": {}}]";
 
       final parseResult = ChatTemplateEngine.parse(
         result.format,

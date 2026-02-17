@@ -32,25 +32,40 @@ void main() {
       );
     });
 
-    test('parses function syntax and normalizes location alias', () {
+    test('parses function syntax and preserves location argument key', () {
       final parsed = parseToolCallsFromLooseText(
         'weather_tool.get_weather_and_local_time(location="Seoul")',
       );
 
       expect(parsed.toolCalls, hasLength(1));
-      expect(parsed.toolCalls.first.function?.name, equals('get_weather'));
+      expect(
+        parsed.toolCalls.first.function?.name,
+        equals('weather_tool.get_weather_and_local_time'),
+      );
       expect(
         jsonDecode(parsed.toolCalls.first.function!.arguments!),
-        containsPair('city', 'Seoul'),
+        containsPair('location', 'Seoul'),
       );
     });
 
-    test('maps bare weather alias to get_weather', () {
+    test('does not coerce bare weather-like alias', () {
       final parsed = parseToolCallsFromLooseText('weatherlookup');
 
+      expect(parsed.toolCalls, isEmpty);
+      expect(parsed.content, equals('weatherlookup'));
+    });
+
+    test('preserves explicit location key from json arguments', () {
+      final parsed = parseToolCallsFromLooseText(
+        '{"name":"weather_lookup","arguments":{"location":"Seoul"}}',
+      );
+
       expect(parsed.toolCalls, hasLength(1));
-      expect(parsed.toolCalls.first.function?.name, equals('get_weather'));
-      expect(parsed.toolCalls.first.function?.arguments, equals('{}'));
+      expect(parsed.toolCalls.first.function?.name, equals('weather_lookup'));
+      expect(
+        jsonDecode(parsed.toolCalls.first.function!.arguments!),
+        containsPair('location', 'Seoul'),
+      );
     });
 
     test('parses semicolon-separated JSON tool objects', () {

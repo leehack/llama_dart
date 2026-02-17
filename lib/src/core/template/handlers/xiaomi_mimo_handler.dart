@@ -1,15 +1,12 @@
-import 'dart:convert';
-
 import 'package:dinja/dinja.dart';
 
 import '../../models/chat/chat_message.dart';
 import '../../models/chat/chat_template_result.dart';
-import '../../models/chat/completion_chunk.dart';
 import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
-import '../thinking_utils.dart';
+import '../xml_tool_call_format.dart';
 
 /// Handler for Xiaomi MiMo format.
 ///
@@ -50,7 +47,7 @@ class XiaomiMimoHandler extends ChatTemplateHandler {
         enableThinking: enableThinking,
       ),
       grammarTriggers: hasTools
-          ? [const GrammarTrigger(type: 0, value: '<tool_call>')]
+          ? [const GrammarTrigger(type: 0, value: '<tool_call>\n{"name": "')]
           : [],
     );
   }
@@ -62,74 +59,20 @@ class XiaomiMimoHandler extends ChatTemplateHandler {
     bool parseToolCalls = true,
     bool thinkingForcedOpen = false,
   }) {
-    final thinking = extractThinking(
+    final parsed = parseXmlToolCalls(
       output,
-      thinkingForcedOpen: thinkingForcedOpen,
+      XmlToolCallFormat.xiaomiMimo,
+      parseToolCalls: parseToolCalls,
     );
-    final text = thinking.content;
-
-    if (!parseToolCalls) {
-      return ChatParseResult(
-        content: text.trim(),
-        reasoningContent: thinking.reasoning,
-      );
-    }
-
-    final toolCalls = <LlamaCompletionChunkToolCall>[];
-    var contentText = text;
-
-    final regex = RegExp(
-      r'<tool_call>\s*(\{.*?\})\s*</tool_call>',
-      dotAll: true,
-    );
-    final matches = regex.allMatches(text);
-    for (final match in matches) {
-      final payload = match.group(1);
-      if (payload == null) {
-        continue;
-      }
-
-      try {
-        final decoded = jsonDecode(payload);
-        if (decoded is! Map) {
-          continue;
-        }
-        final mapped = Map<String, dynamic>.from(decoded);
-        final name = mapped['name'] as String?;
-        if (name == null || name.isEmpty) {
-          continue;
-        }
-
-        final arguments = mapped['arguments'];
-        toolCalls.add(
-          LlamaCompletionChunkToolCall(
-            index: toolCalls.length,
-            id: mapped['id'] as String?,
-            type: (mapped['type'] as String?) ?? 'function',
-            function: LlamaCompletionChunkFunction(
-              name: name,
-              arguments: arguments is String
-                  ? arguments
-                  : jsonEncode(arguments ?? <String, dynamic>{}),
-            ),
-          ),
-        );
-
-        contentText = contentText.replaceFirst(match.group(0)!, '');
-      } catch (_) {
-        // Keep malformed tool blocks as plain content.
-      }
-    }
-
     return ChatParseResult(
-      content: contentText.trim(),
-      reasoningContent: thinking.reasoning,
-      toolCalls: toolCalls,
+      content: parsed.content.trim(),
+      reasoningContent: parsed.reasoningContent,
+      toolCalls: parsed.toolCalls,
     );
   }
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    return buildXmlToolCallGrammar(tools, XmlToolCallFormat.xiaomiMimo);
   }
 }

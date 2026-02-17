@@ -38,7 +38,7 @@ void main() {
     final parsed = handler.parse(
       '<|START_THINKING|>reasoning<|END_THINKING|>'
       'answer '
-      '<|START_ACTION|>{"tool_name":"get_weather","parameters":{"city":"Seoul"}}<|END_ACTION|>',
+      '<|START_ACTION|>[{"tool_name":"get_weather","parameters":{"city":"Seoul"}}]<|END_ACTION|>',
     );
 
     expect(parsed.reasoningContent, contains('reasoning'));
@@ -51,11 +51,25 @@ void main() {
     );
 
     final noToolParse = handler.parse(
-      '<|START_ACTION|>{"tool_name":"noop","parameters":{}}<|END_ACTION|>',
+      '<|START_ACTION|>[{"tool_name":"noop","parameters":{}}]<|END_ACTION|>',
       parseToolCalls: false,
     );
     expect(noToolParse.toolCalls, isEmpty);
     expect(noToolParse.content, contains('<|START_ACTION|>'));
+  });
+
+  test('parses action block with whitespace before end marker', () {
+    final handler = CommandR7BHandler();
+    final parsed = handler.parse(
+      '<|START_ACTION|>[{"tool_name":"get_weather","parameters":{"city":"Seoul"}}]\n<|END_ACTION|>',
+    );
+
+    expect(parsed.toolCalls, hasLength(1));
+    expect(parsed.toolCalls.first.function?.name, equals('get_weather'));
+    expect(
+      jsonDecode(parsed.toolCalls.first.function!.arguments!),
+      containsPair('city', 'Seoul'),
+    );
   });
 }
 

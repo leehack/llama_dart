@@ -77,6 +77,7 @@ void main() {
       expect(message.containsKey('tool_calls'), isFalse);
       expect(message['content'], contains('prefix:'));
       expect(message['content'], contains('"tool_calls"'));
+      expect(message['content'], contains('\n  "tool_calls"'));
       expect(message['content'], contains('"weather"'));
     });
 

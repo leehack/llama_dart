@@ -104,45 +104,213 @@ class CommandR7BHandler extends ChatTemplateHandler {
       );
     }
 
-    final toolCalls = <LlamaCompletionChunkToolCall>[];
-    var contentText = text;
+    const startAction = '<|START_ACTION|>';
+    const endAction = '<|END_ACTION|>';
+    const startResponse = '<|START_RESPONSE|>';
+    const endResponse = '<|END_RESPONSE|>';
 
-    // Parse <|START_ACTION|>...<|END_ACTION|>
-    final regex = RegExp(
-      r'<\|START_ACTION\|>(.*?)<\|END_ACTION\|>',
-      dotAll: true,
-    );
+    final actionStart = text.indexOf(startAction);
+    if (actionStart != -1) {
+      final prelude = text.substring(0, actionStart);
+      final afterStart = text.substring(actionStart + startAction.length);
+      final jsonSlice = _extractLeadingJsonValue(afterStart, 0);
+      if (jsonSlice == null || jsonSlice.value is! List) {
+        return ChatParseResult(
+          content: text.trim(),
+          reasoningContent: thinking.reasoning,
+        );
+      }
 
-    final matches = regex.allMatches(text);
-    for (var i = 0; i < matches.length; i++) {
-      final match = matches.elementAt(i);
-      try {
-        final json = jsonDecode(match.group(1)!) as Map<String, dynamic>;
-        // Command R7B uses "tool_name" instead of "name"
-        final name = json['tool_name'] as String?;
-        final args = json['parameters'] ?? json['arguments'];
-        if (name != null) {
-          toolCalls.add(
-            LlamaCompletionChunkToolCall(
-              index: i,
-              id: 'call_$i',
-              type: 'function',
-              function: LlamaCompletionChunkFunction(
-                name: name,
-                arguments: args is String ? args : jsonEncode(args ?? {}),
-              ),
-            ),
+      final toolCalls = <LlamaCompletionChunkToolCall>[];
+      for (final item in jsonSlice.value as List<dynamic>) {
+        if (item is! Map) {
+          return ChatParseResult(
+            content: text.trim(),
+            reasoningContent: thinking.reasoning,
           );
         }
-      } catch (_) {}
-      contentText = contentText.replaceAll(match.group(0)!, '');
+        final call = Map<String, dynamic>.from(item);
+        final name = call['tool_name'] as String?;
+        if (name == null || name.isEmpty) {
+          return ChatParseResult(
+            content: text.trim(),
+            reasoningContent: thinking.reasoning,
+          );
+        }
+
+        final argumentsValue = call.containsKey('parameters')
+            ? call['parameters']
+            : '';
+        final arguments = argumentsValue is String
+            ? argumentsValue
+            : jsonEncode(argumentsValue);
+        final toolId = call['tool_call_id']?.toString() ?? '';
+        toolCalls.add(
+          LlamaCompletionChunkToolCall(
+            index: toolCalls.length,
+            id: toolId.isEmpty ? null : toolId,
+            type: 'function',
+            function: LlamaCompletionChunkFunction(
+              name: name,
+              arguments: arguments,
+            ),
+          ),
+        );
+      }
+
+      final actionEndOffset = jsonSlice.end;
+      var endCursor = actionEndOffset;
+      while (endCursor < afterStart.length &&
+          afterStart.codeUnitAt(endCursor) <= 0x20) {
+        endCursor++;
+      }
+      if (!afterStart.startsWith(endAction, endCursor)) {
+        return ChatParseResult(
+          content: text.trim(),
+          reasoningContent: thinking.reasoning,
+        );
+      }
+
+      final trailing = afterStart.substring(endCursor + endAction.length);
+      if (trailing.isNotEmpty) {
+        return ChatParseResult(
+          content: text.trim(),
+          reasoningContent: thinking.reasoning,
+        );
+      }
+
+      return ChatParseResult(
+        content: prelude.trim(),
+        reasoningContent: thinking.reasoning,
+        toolCalls: toolCalls,
+      );
+    }
+
+    final responseStart = text.indexOf(startResponse);
+    if (responseStart != -1) {
+      final prelude = text.substring(0, responseStart);
+      final responseBodyStart = responseStart + startResponse.length;
+      final responseEnd = text.indexOf(endResponse, responseBodyStart);
+      if (responseEnd == -1) {
+        return ChatParseResult(
+          content: text.trim(),
+          reasoningContent: thinking.reasoning,
+        );
+      }
+
+      final trailing = text.substring(responseEnd + endResponse.length);
+      if (trailing.isNotEmpty) {
+        return ChatParseResult(
+          content: text.trim(),
+          reasoningContent: thinking.reasoning,
+        );
+      }
+
+      final responseBody = text.substring(responseBodyStart, responseEnd);
+      return ChatParseResult(
+        content: '$prelude$responseBody'.trim(),
+        reasoningContent: thinking.reasoning,
+      );
     }
 
     return ChatParseResult(
-      content: contentText.trim(),
+      content: text.trim(),
       reasoningContent: thinking.reasoning,
-      toolCalls: toolCalls,
     );
+  }
+
+  _JsonValueSlice? _extractLeadingJsonValue(String input, int offset) {
+    if (offset >= input.length) {
+      return null;
+    }
+
+    int? end;
+    final first = input.codeUnitAt(offset);
+    if (first == 0x7B || first == 0x5B) {
+      end = _findStructuredJsonEnd(input, offset);
+    } else if (first == 0x22) {
+      end = _findJsonStringEnd(input, offset);
+    } else {
+      final scalar = RegExp(
+        r'(?:-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)',
+      ).matchAsPrefix(input, offset);
+      if (scalar != null) {
+        end = scalar.end;
+      }
+    }
+
+    if (end == null || end <= offset) {
+      return null;
+    }
+
+    try {
+      return _JsonValueSlice(
+        value: jsonDecode(input.substring(offset, end)),
+        end: end,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int? _findStructuredJsonEnd(String input, int start) {
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+
+    for (var i = start; i < input.length; i++) {
+      final ch = input.codeUnitAt(i);
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch == 0x5C) {
+          escaped = true;
+          continue;
+        }
+        if (ch == 0x22) {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch == 0x22) {
+        inString = true;
+        continue;
+      }
+      if (ch == 0x7B || ch == 0x5B) {
+        depth++;
+        continue;
+      }
+      if (ch == 0x7D || ch == 0x5D) {
+        depth--;
+        if (depth == 0) {
+          return i + 1;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  int? _findJsonStringEnd(String input, int start) {
+    var escaped = false;
+    for (var i = start + 1; i < input.length; i++) {
+      final ch = input.codeUnitAt(i);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch == 0x5C) {
+        escaped = true;
+        continue;
+      }
+      if (ch == 0x22) {
+        return i + 1;
+      }
+    }
+    return null;
   }
 
   @override
@@ -222,4 +390,11 @@ value ::= string | number | boolean | null | arr | obj
 arr ::= "[" space (value ("," space value)*)? space "]"
 obj ::= "{" space (string ":" space value ("," space string ":" space value)*)? space "}"''';
   }
+}
+
+final class _JsonValueSlice {
+  final Object? value;
+  final int end;
+
+  const _JsonValueSlice({required this.value, required this.end});
 }

@@ -47,6 +47,19 @@ void main() {
       );
     });
 
+    test('keeps non-matching function name format unchanged', () {
+      const output =
+          '<|tool_calls_section_begin|><|tool_call_begin|>functions.special_function<|tool_call_argument_begin|>{"arg1": 1}<|tool_call_end|><|tool_calls_section_end|>';
+
+      final result = ChatTemplateEngine.parse(ChatFormat.kimiK2.index, output);
+
+      expect(result.toolCalls, hasLength(1));
+      expect(
+        result.toolCalls.first.function?.name,
+        equals('functions.special_function'),
+      );
+    });
+
     test('parses thinking, tool call, and trailing content together', () {
       const output =
           '<think>I\'m\nthinking</think><|tool_calls_section_begin|><|tool_call_begin|>functions.special_function:0<|tool_call_argument_begin|>{"arg1": 1}<|tool_call_end|><|tool_calls_section_end|>Hello, world!\nWhat\'s up?';

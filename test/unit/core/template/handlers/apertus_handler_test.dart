@@ -38,7 +38,7 @@ void main() {
     expect(rendered.grammarTriggers, hasLength(1));
 
     final parsed = handler.parse(
-      '<|tools_prefix|>[{"name":"get_weather","arguments":{"city":"Seoul"}}]<|tools_suffix|> tail',
+      '<|tools_prefix|>[{"get_weather":{"city":"Seoul"}}]<|tools_suffix|> tail',
     );
     expect(parsed.content, equals('tail'));
     expect(parsed.toolCalls, hasLength(1));

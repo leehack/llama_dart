@@ -108,89 +108,172 @@ class MagistralHandler extends ChatTemplateHandler {
       );
     }
 
-    // Require the explicit [TOOL_CALLS] marker to parse tool calls.
-    // Note: when [TOOL_CALLS] is configured as a grammar trigger, the native
-    // sampler may consume the marker before it reaches the output buffer.
-    // This is a known limitation — the proper fix belongs in the engine layer
-    // (e.g. prepending the trigger text to the buffer after grammar activation).
-    if (!trimmed.contains('[TOOL_CALLS]')) {
-      try {
-        final parsedBareArray = _parseToolCallArray(trimmed);
-        if (parsedBareArray.isNotEmpty) {
-          return ChatParseResult(
-            content: '',
-            reasoningContent: thinking.reasoning,
-            toolCalls: parsedBareArray,
-          );
-        }
-      } catch (_) {
-        // Not a strict JSON array tool-call payload.
-      }
-
+    const prefix = '[TOOL_CALLS]';
+    final markerIdx = text.indexOf(prefix);
+    if (markerIdx == -1) {
       return ChatParseResult(
         content: trimmed,
         reasoningContent: thinking.reasoning,
       );
     }
 
-    final markerIdx = trimmed.indexOf('[TOOL_CALLS]');
-    final contentBefore = trimmed.substring(0, markerIdx).trim();
-    final afterMarker = trimmed
-        .substring(markerIdx + '[TOOL_CALLS]'.length)
-        .trim();
-
-    // Magistral tool-calls: [TOOL_CALLS][{...}, ...]
-    try {
-      final toolCalls = _parseToolCallArray(afterMarker);
-      if (toolCalls.isNotEmpty) {
-        return ChatParseResult(
-          content: contentBefore,
-          reasoningContent: thinking.reasoning,
-          toolCalls: toolCalls,
-        );
-      }
-    } catch (_) {
-      // Not a JSON array, fall through
+    final contentBefore = text.substring(0, markerIdx);
+    final payload = text.substring(markerIdx + prefix.length);
+    var cursor = 0;
+    while (cursor < payload.length && payload.codeUnitAt(cursor) <= 0x20) {
+      cursor++;
+    }
+    final jsonSlice = _extractLeadingJsonValue(payload, cursor);
+    if (jsonSlice == null || jsonSlice.value is! List) {
+      return ChatParseResult(
+        content: trimmed,
+        reasoningContent: thinking.reasoning,
+      );
     }
 
-    // Marker present but could not parse tool calls
-    return ChatParseResult(
-      content: trimmed,
-      reasoningContent: thinking.reasoning,
-    );
-  }
-
-  List<LlamaCompletionChunkToolCall> _parseToolCallArray(String jsonText) {
     final toolCalls = <LlamaCompletionChunkToolCall>[];
-    final list = jsonDecode(jsonText) as List<dynamic>;
+    final list = jsonSlice.value as List<dynamic>;
     for (var i = 0; i < list.length; i++) {
       final item = list[i];
       if (item is! Map) {
-        continue;
+        return ChatParseResult(
+          content: trimmed,
+          reasoningContent: thinking.reasoning,
+        );
       }
 
       final call = Map<String, dynamic>.from(item);
       final name = call['name'] as String?;
       if (name == null || name.isEmpty) {
-        continue;
+        return ChatParseResult(
+          content: trimmed,
+          reasoningContent: thinking.reasoning,
+        );
       }
 
       final args = call['arguments'];
-      final id = call['id'] as String?;
+      final id = call['id']?.toString();
       toolCalls.add(
         LlamaCompletionChunkToolCall(
           index: i,
-          id: id ?? 'call_$i',
+          id: (id == null || id.isEmpty) ? null : id,
           type: 'function',
           function: LlamaCompletionChunkFunction(
             name: name,
-            arguments: args is String ? args : jsonEncode(args ?? {}),
+            arguments: args is String
+                ? args
+                : (call.containsKey('arguments') ? jsonEncode(args) : ''),
           ),
         ),
       );
     }
 
-    return toolCalls;
+    final trailing = payload.substring(jsonSlice.end);
+    if (trailing.isNotEmpty) {
+      return ChatParseResult(
+        content: trimmed,
+        reasoningContent: thinking.reasoning,
+      );
+    }
+
+    return ChatParseResult(
+      content: contentBefore.trim(),
+      reasoningContent: thinking.reasoning,
+      toolCalls: toolCalls,
+    );
+  }
+
+  _JsonValueSlice? _extractLeadingJsonValue(String input, int offset) {
+    if (offset >= input.length) {
+      return null;
+    }
+
+    int? end;
+    final first = input.codeUnitAt(offset);
+    if (first == 0x7B || first == 0x5B) {
+      end = _findStructuredJsonEnd(input, offset);
+    } else if (first == 0x22) {
+      end = _findJsonStringEnd(input, offset);
+    } else {
+      final scalar = RegExp(
+        r'(?:-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)',
+      ).matchAsPrefix(input, offset);
+      if (scalar != null) {
+        end = scalar.end;
+      }
+    }
+
+    if (end == null || end <= offset) {
+      return null;
+    }
+
+    try {
+      return _JsonValueSlice(
+        value: jsonDecode(input.substring(offset, end)),
+        end: end,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int? _findStructuredJsonEnd(String input, int start) {
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+
+    for (var i = start; i < input.length; i++) {
+      final ch = input.codeUnitAt(i);
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch == 0x5C) {
+          escaped = true;
+          continue;
+        }
+        if (ch == 0x22) {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch == 0x22) {
+        inString = true;
+        continue;
+      }
+      if (ch == 0x7B || ch == 0x5B) {
+        depth++;
+        continue;
+      }
+      if (ch == 0x7D || ch == 0x5D) {
+        depth--;
+        if (depth == 0) {
+          return i + 1;
+        }
+      }
+    }
+    return null;
+  }
+
+  int? _findJsonStringEnd(String input, int start) {
+    var escaped = false;
+    for (var i = start + 1; i < input.length; i++) {
+      final ch = input.codeUnitAt(i);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch == 0x5C) {
+        escaped = true;
+        continue;
+      }
+      if (ch == 0x22) {
+        return i + 1;
+      }
+    }
+    return null;
   }
 
   @override
@@ -203,4 +286,11 @@ class MagistralHandler extends ChatTemplateHandler {
       idPattern: r'^[a-zA-Z0-9]{9}$',
     );
   }
+}
+
+final class _JsonValueSlice {
+  final Object? value;
+  final int end;
+
+  const _JsonValueSlice({required this.value, required this.end});
 }

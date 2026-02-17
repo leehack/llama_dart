@@ -90,29 +90,16 @@ class SeedOssHandler extends ChatTemplateHandler {
     bool parseToolCalls = true,
     bool thinkingForcedOpen = false,
   }) {
-    final thinking = extractThinking(
-      output,
-      thinkingForcedOpen: thinkingForcedOpen,
-      startTag: thinkingStartTag,
-      endTag: thinkingEndTag,
-    );
-    final text = thinking.content;
-
-    if (!parseToolCalls) {
-      return ChatParseResult(
-        content: text.trim(),
-        reasoningContent: thinking.reasoning,
-      );
-    }
-
     final parsed = parseXmlToolCalls(
-      text,
+      output,
       XmlToolCallFormat.seedOss,
-      parseToolCalls: true,
+      startThink: thinkingStartTag,
+      endThink: thinkingEndTag,
+      parseToolCalls: parseToolCalls,
     );
     return ChatParseResult(
       content: parsed.content.trim(),
-      reasoningContent: thinking.reasoning,
+      reasoningContent: parsed.reasoningContent,
       toolCalls: parsed.toolCalls,
     );
   }

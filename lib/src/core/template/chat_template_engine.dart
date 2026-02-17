@@ -8,6 +8,7 @@ import '../models/inference/tool_choice.dart';
 import '../models/tools/tool_definition.dart';
 import 'chat_format.dart';
 import 'chat_parse_result.dart';
+import 'peg_chat_parser.dart';
 import 'chat_template_handler.dart';
 import 'handlers/command_r7b_handler.dart';
 import 'handlers/deepseek_r1_handler.dart';
@@ -39,6 +40,7 @@ import 'handlers/solar_open_handler.dart';
 import 'handlers/translate_gemma_handler.dart';
 import 'handlers/xiaomi_mimo_handler.dart';
 import 'template_caps.dart';
+import 'template_internal_metadata.dart';
 import 'template_workarounds.dart';
 
 /// Predicate used to match a custom template handler or template override.
@@ -117,6 +119,7 @@ class ChatTemplateEngine {
   // jinja dispatcher, unless a response schema forces generic routing.
   static const Set<ChatFormat> _toolChoiceNoneContentOnlyFormats = {
     ChatFormat.contentOnly,
+    ChatFormat.generic,
     ChatFormat.mistralNemo,
   };
 
@@ -233,6 +236,7 @@ class ChatTemplateEngine {
     bool addAssistant = true,
     List<ToolDefinition>? tools,
     ToolChoice toolChoice = ToolChoice.auto,
+    bool parallelToolCalls = false,
     bool enableThinking = true,
     Map<String, dynamic>? responseFormat,
     String? customTemplate,
@@ -336,6 +340,20 @@ class ChatTemplateEngine {
 
     // 3. Apply workarounds matching llama.cpp
     final caps = TemplateCaps.detect(effectiveTemplate ?? '');
+    final effectiveParallelToolCalls =
+        parallelToolCalls && caps.supportsParallelToolCalls;
+    if (parallelToolCalls && !effectiveParallelToolCalls) {
+      LlamaLogger.instance.debug(
+        'ChatTemplateEngine: Disabling parallelToolCalls because template '
+        'does not support parallel tool calls.',
+      );
+    }
+
+    final handlerMetadata = _withInternalMetadata(
+      metadata,
+      toolChoice: toolChoice,
+      parallelToolCalls: effectiveParallelToolCalls,
+    );
     var effectiveMessages = messages;
 
     if (hasTools && caps.supportsToolCalls && !caps.supportsTools) {
@@ -397,7 +415,7 @@ class ChatTemplateEngine {
           handler.renderWithMultimodalContent(
             templateSource: effectiveTemplate ?? GenericHandler.chatMlTemplate,
             messages: effectiveMessages,
-            metadata: metadata,
+            metadata: handlerMetadata,
             addAssistant: addAssistant,
             tools: tools,
             enableThinking: enableThinking,
@@ -421,7 +439,7 @@ class ChatTemplateEngine {
         handler.render(
           templateSource: effectiveTemplate ?? GenericHandler.chatMlTemplate,
           messages: effectiveMessages,
-          metadata: metadata,
+          metadata: handlerMetadata,
           addAssistant: addAssistant,
           tools: tools,
           enableThinking: enableThinking,
@@ -455,7 +473,7 @@ class ChatTemplateEngine {
             fallback.render(
               templateSource: GenericHandler.chatMlTemplate,
               messages: effectiveMessages,
-              metadata: metadata,
+              metadata: handlerMetadata,
               addAssistant: addAssistant,
               tools: tools,
               enableThinking: enableThinking,
@@ -640,6 +658,7 @@ class ChatTemplateEngine {
     bool isPartial = false,
     bool parseToolCalls = true,
     bool thinkingForcedOpen = false,
+    String? parser,
     String? handlerId,
   }) {
     final resolved = _resolveHandlerForParse(
@@ -650,6 +669,32 @@ class ChatTemplateEngine {
     final format = resolved.format;
 
     try {
+      final hasPegParser = parser != null && parser.trim().isNotEmpty;
+      final isPegFormat =
+          format == ChatFormat.pegSimple ||
+          format == ChatFormat.pegNative ||
+          format == ChatFormat.pegConstructed;
+      final pegFormat = switch (format) {
+        ChatFormat.pegSimple => ChatFormat.pegSimple,
+        ChatFormat.pegNative => ChatFormat.pegNative,
+        ChatFormat.pegConstructed => ChatFormat.pegConstructed,
+        ChatFormat.ministral => hasPegParser ? ChatFormat.pegNative : null,
+        ChatFormat.solarOpen => hasPegParser ? ChatFormat.pegNative : null,
+        ChatFormat.qwen3CoderXml =>
+          hasPegParser ? ChatFormat.pegConstructed : null,
+        _ => null,
+      };
+
+      if (pegFormat != null && (isPegFormat || hasPegParser)) {
+        return PegChatParser.parse(
+          parser: parser ?? '',
+          format: pegFormat,
+          output: output,
+          isPartial: isPartial,
+          parseToolCalls: parseToolCalls,
+        );
+      }
+
       return handler.parse(
         output,
         isPartial: isPartial,
@@ -877,6 +922,25 @@ class ChatTemplateEngine {
       case ToolChoice.auto:
         return grammar.ToolChoice.auto;
     }
+  }
+
+  static Map<String, String> _withInternalMetadata(
+    Map<String, String> metadata, {
+    required ToolChoice toolChoice,
+    required bool parallelToolCalls,
+  }) {
+    final toolChoiceValue = toolChoice.name;
+    final parallelToolCallsValue = parallelToolCalls.toString();
+    if (metadata[internalToolChoiceMetadataKey] == toolChoiceValue &&
+        metadata[internalParallelToolCallsMetadataKey] ==
+            parallelToolCallsValue) {
+      return metadata;
+    }
+    return <String, String>{
+      ...metadata,
+      internalToolChoiceMetadataKey: toolChoiceValue,
+      internalParallelToolCallsMetadataKey: parallelToolCallsValue,
+    };
   }
 
   static List<LlamaChatMessage> _injectSystemInstructionLikeLlamaCpp(

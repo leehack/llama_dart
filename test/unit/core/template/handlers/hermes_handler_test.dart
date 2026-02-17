@@ -52,36 +52,55 @@ void main() {
     expect(parsed.content, equals('tail'));
   });
 
-  test('parses wrapped double-brace with nested args via outer unwrap', () {
-    // Qwen-style outer-doubled braces wrapping normal nested JSON.
-    // Stage 2 (outer unwrap) should handle this without corrupting inner objects.
+  test('parses <function=name> JSON </function> tool call', () {
     final handler = HermesHandler();
-    final input =
-        '<tool_call>{{"name":"f","arguments":{"user":{"id":1}}}}</tool_call>';
-    final parsed = handler.parse(input);
+    final parsed = handler.parse(
+      '<function=get_current_weather>{"location":"Seoul"}</function>',
+    );
 
     expect(parsed.toolCalls, hasLength(1));
-    expect(parsed.toolCalls.first.function?.name, equals('f'));
-    final args =
-        jsonDecode(parsed.toolCalls.first.function!.arguments!)
-            as Map<String, dynamic>;
-    final user = args['user'] as Map<String, dynamic>;
-    expect(user['id'], equals(1));
-  });
-
-  test('parses fully doubled braces via _normalizeDoubleBraces fallback', () {
-    // All braces consistently doubled — stage 3 (full normalization) kicks in.
-    final handler = HermesHandler();
-    final input =
-        '<tool_call>{{"name":"g","arguments":{{"location":"Seoul"}}}}</tool_call>';
-    final parsed = handler.parse(input);
-
-    expect(parsed.toolCalls, hasLength(1));
-    expect(parsed.toolCalls.first.function?.name, equals('g'));
+    expect(
+      parsed.toolCalls.first.function?.name,
+      equals('get_current_weather'),
+    );
     expect(
       jsonDecode(parsed.toolCalls.first.function!.arguments!),
       containsPair('location', 'Seoul'),
     );
+  });
+
+  test('parses <function name="..."> JSON </function> tool call', () {
+    final handler = HermesHandler();
+    final parsed = handler.parse(
+      '<function name="get_current_weather">{"location":"Seoul"}</function>',
+    );
+
+    expect(parsed.toolCalls, hasLength(1));
+    expect(
+      parsed.toolCalls.first.function?.name,
+      equals('get_current_weather'),
+    );
+    expect(
+      jsonDecode(parsed.toolCalls.first.function!.arguments!),
+      containsPair('location', 'Seoul'),
+    );
+  });
+
+  test('parses fenced <tool_call> JSON block', () {
+    final handler = HermesHandler();
+    final parsed = handler.parse(
+      '```xml\n'
+      '<tool_call>{"name":"bad","arguments":{"k":"v"}}</tool_call>\n'
+      '```',
+    );
+
+    expect(parsed.toolCalls, hasLength(1));
+    expect(parsed.toolCalls.first.function?.name, equals('bad'));
+    expect(
+      jsonDecode(parsed.toolCalls.first.function!.arguments!),
+      containsPair('k', 'v'),
+    );
+    expect(parsed.content, isEmpty);
   });
 
   test('keeps non-tagged payload as content', () {

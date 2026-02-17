@@ -2,13 +2,17 @@ import 'dart:convert';
 
 import 'package:dinja/dinja.dart';
 
+import '../../grammar/json_schema_converter.dart';
 import '../../models/chat/chat_message.dart';
 import '../../models/chat/chat_template_result.dart';
 import '../../models/chat/completion_chunk.dart';
+import '../../models/inference/tool_choice.dart';
 import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
+import '../template_internal_metadata.dart';
+import '../tool_call_grammar_utils.dart';
 
 /// Handler for GPT-OSS format.
 ///
@@ -19,6 +23,13 @@ class GptOssHandler extends ChatTemplateHandler {
   static const String _assistantStart = '<|start|>assistant';
   static const String _messageTag = '<|message|>';
   static const String _endTag = '<|end|>';
+  static const List<String> _gptOssPreservedTokens = <String>[
+    '<|channel|>',
+    '<|constrain|>',
+    '<|message|>',
+    '<|start|>',
+    '<|end|>',
+  ];
 
   @override
   ChatFormat get format => ChatFormat.gptOss;
@@ -55,15 +66,31 @@ class GptOssHandler extends ChatTemplateHandler {
     });
 
     final hasTools = tools != null && tools.isNotEmpty;
+    final toolChoice = metadata[internalToolChoiceMetadataKey];
+    final toolChoiceRequired = toolChoice == ToolChoice.required.name;
     return LlamaChatTemplateResult(
       prompt: prompt,
       format: format.index,
-      grammar: buildGrammar(tools),
-      grammarLazy: hasTools,
+      grammar: _buildGrammarWithOptions(
+        tools,
+        toolCallsRequired: toolChoiceRequired,
+      ),
+      grammarLazy: hasTools && !toolChoiceRequired,
       additionalStops: getStops(
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
+      preservedTokens: _gptOssPreservedTokens,
+      grammarTriggers: hasTools
+          ? const <GrammarTrigger>[
+              GrammarTrigger(type: 0, value: '<|channel|>commentary'),
+              GrammarTrigger(type: 0, value: '<|channel|>analysis'),
+              GrammarTrigger(
+                type: 0,
+                value: '<|start|>assistant to=functions.',
+              ),
+            ]
+          : const <GrammarTrigger>[],
     );
   }
 
@@ -210,6 +237,62 @@ class GptOssHandler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    return _buildGrammarWithOptions(tools, toolCallsRequired: false);
+  }
+
+  String? _buildGrammarWithOptions(
+    List<ToolDefinition>? tools, {
+    required bool toolCallsRequired,
+  }) {
+    if (tools == null || tools.isEmpty) {
+      return null;
+    }
+
+    final converter = JsonSchemaConverter();
+    final roleRules = <String>[];
+    final channelRules = <String>[];
+
+    converter.rules['channel'] =
+        '${ToolCallGrammarUtils.literal('commentary')} | ${ToolCallGrammarUtils.literal('analysis')}';
+
+    for (var i = 0; i < tools.length; i++) {
+      final tool = tools[i];
+      final schema = tool.toJsonSchema();
+      converter.resolveRefs(schema, schema);
+      final argsRule = converter.visit(schema, 'tool-$i-args');
+
+      final roleRule = 'tool-$i-role-call';
+      converter.rules[roleRule] =
+          '${ToolCallGrammarUtils.literal('<|start|>assistant to=functions.${tool.name}<|channel|>')} channel ${ToolCallGrammarUtils.literal('<|message|>')} space $argsRule ${ToolCallGrammarUtils.literal('<|end|>')}';
+      roleRules.add(roleRule);
+
+      final channelRule = 'tool-$i-channel-call';
+      converter.rules[channelRule] =
+          '${ToolCallGrammarUtils.literal('<|channel|>')} channel ${ToolCallGrammarUtils.literal(' to=functions.${tool.name}<|message|>')} space $argsRule ${ToolCallGrammarUtils.literal('<|end|>')}';
+      channelRules.add(channelRule);
+    }
+
+    final buffer = StringBuffer()
+      ..writeln('tool-call-role ::= ${roleRules.join(' | ')}')
+      ..writeln('tool-call-channel ::= ${channelRules.join(' | ')}');
+
+    if (toolCallsRequired) {
+      buffer.writeln('root ::= tool-call-role | tool-call-channel');
+    } else {
+      buffer.writeln('root ::= tool-call-role | tool-call-channel');
+    }
+
+    final otherRules = converter.rules.entries.toList(growable: false)
+      ..sort((a, b) => a.key.compareTo(b.key));
+    for (final entry in otherRules) {
+      if (entry.key == 'root' ||
+          entry.key == 'tool-call-role' ||
+          entry.key == 'tool-call-channel') {
+        continue;
+      }
+      buffer.writeln('${entry.key} ::= ${entry.value}');
+    }
+
+    return buffer.toString();
   }
 }

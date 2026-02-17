@@ -115,8 +115,7 @@ enum ChatFormat {
 /// for signature tokens, following llama.cpp's priority order.
 ///
 /// Returns [ChatFormat.contentOnly] if `templateSource` is null or empty.
-/// Falls back to [ChatFormat.generic] if no specific pattern is matched
-/// but ChatML tokens are present.
+/// Falls back to [ChatFormat.contentOnly] if no specific pattern is matched.
 ChatFormat detectChatFormat(String? templateSource) {
   if (templateSource == null || templateSource.isEmpty) {
     return ChatFormat.contentOnly;
@@ -211,8 +210,7 @@ ChatFormat detectChatFormat(String? templateSource) {
   }
 
   // MiniMax M2
-  if ((templateSource.contains(']~!b[') && templateSource.contains(']~b]')) ||
-      templateSource.contains('<minimax:tool_call>')) {
+  if (templateSource.contains(']~!b[') && templateSource.contains(']~b]')) {
     return ChatFormat.minimaxM2;
   }
 
@@ -293,18 +291,6 @@ ChatFormat detectChatFormat(String? templateSource) {
   if (templateSource.contains('<start_of_turn>') &&
       !templateSource.contains('<|im_start|>')) {
     return ChatFormat.gemma;
-  }
-
-  // ChatML fallback
-  if (templateSource.contains('<|im_start|>')) {
-    return ChatFormat.generic;
-  }
-
-  // Phi-style chat templates (e.g. <|user|>...<|end|><|assistant|>)
-  if (templateSource.contains('<|user|>') &&
-      templateSource.contains('<|assistant|>') &&
-      templateSource.contains('<|end|>')) {
-    return ChatFormat.generic;
   }
 
   // No recognized pattern

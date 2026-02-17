@@ -5,20 +5,32 @@ import 'package:dinja/dinja.dart';
 import '../../models/chat/chat_message.dart';
 import '../../models/chat/chat_template_result.dart';
 import '../../models/chat/completion_chunk.dart';
+import '../../models/inference/tool_choice.dart';
 import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
+import '../template_internal_metadata.dart';
 import '../thinking_utils.dart';
+import '../tool_call_grammar_utils.dart';
 
 /// Handler for IBM Granite models.
-///
-/// Granite 3.0 explicitly supports tool calling via JSON.
-/// It typically uses `<|start_of_role|>tool_response<|end_of_role|>` for tool outputs.
-///
-/// Tool calls are often just JSON objects or lists of objects in the
-/// content, sometimes wrapped in code blocks or just raw JSON.
 class GraniteHandler extends ChatTemplateHandler {
+  static const List<String> _toolPreservedTokens = <String>[
+    '<think>',
+    '</think>',
+    '<response>',
+    '</response>',
+    '<|tool_call|>',
+  ];
+
+  static const List<String> _thinkingPreservedTokens = <String>[
+    '<think>',
+    '</think>',
+    '<response>',
+    '</response>',
+  ];
+
   @override
   ChatFormat get format => ChatFormat.granite;
 
@@ -47,7 +59,6 @@ class GraniteHandler extends ChatTemplateHandler {
       'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
     });
 
-    // Handle enableThinking post-render logic (custom logic if Granite supports it)
     var thinkingForcedOpen = false;
     if (isThinkingForcedOpen(prompt)) {
       if (!enableThinking) {
@@ -58,20 +69,31 @@ class GraniteHandler extends ChatTemplateHandler {
     }
 
     final hasTools = tools != null && tools.isNotEmpty;
-    // Granite tool calling varies, but let's assume it might output
-    // JSON that lists tool calls.
+    final toolChoice = metadata[internalToolChoiceMetadataKey];
+    final toolChoiceRequired = toolChoice == ToolChoice.required.name;
+    final parallelToolCalls =
+        metadata[internalParallelToolCallsMetadataKey] == 'true';
     return LlamaChatTemplateResult(
       prompt: prompt,
       format: format.index,
-      grammar: buildGrammar(tools),
-      grammarLazy: hasTools,
+      grammar: hasTools
+          ? _buildGraniteToolGrammar(
+              tools,
+              thinkingForcedOpen: thinkingForcedOpen,
+              parallelToolCalls: parallelToolCalls,
+            )
+          : (thinkingForcedOpen ? _buildThinkingOnlyGrammar() : null),
+      grammarLazy: hasTools && !toolChoiceRequired,
       thinkingForcedOpen: thinkingForcedOpen,
       additionalStops: getStops(
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
+      preservedTokens: hasTools
+          ? _toolPreservedTokens
+          : (thinkingForcedOpen ? _thinkingPreservedTokens : const []),
       grammarTriggers: hasTools
-          ? [const GrammarTrigger(type: 0, value: '{')]
+          ? [const GrammarTrigger(type: 0, value: '<|tool_call|>')]
           : [],
     );
   }
@@ -87,91 +109,244 @@ class GraniteHandler extends ChatTemplateHandler {
       output,
       thinkingForcedOpen: thinkingForcedOpen,
     );
-    final text = thinking.content.trim();
+    final text = thinking.content;
 
     if (!parseToolCalls) {
       return ChatParseResult(
-        content: text,
+        content: text.trim(),
+        reasoningContent: thinking.reasoning,
+      );
+    }
+
+    const toolCallPrefix = '<|tool_call|>';
+    final toolCallIndex = text.indexOf(toolCallPrefix);
+    if (toolCallIndex == -1) {
+      return ChatParseResult(
+        content: text.trim(),
+        reasoningContent: thinking.reasoning,
+      );
+    }
+
+    final prelude = text.substring(0, toolCallIndex);
+    final payload = text.substring(toolCallIndex + toolCallPrefix.length);
+    var payloadOffset = 0;
+    while (payloadOffset < payload.length &&
+        payload.codeUnitAt(payloadOffset) <= 0x20) {
+      payloadOffset++;
+    }
+    final jsonSlice = _extractLeadingJsonValue(payload, payloadOffset);
+    if (jsonSlice == null || jsonSlice.value is! List) {
+      return ChatParseResult(
+        content: text.trim(),
+        reasoningContent: thinking.reasoning,
+      );
+    }
+
+    final trailing = payload.substring(jsonSlice.end);
+    if (trailing.isNotEmpty) {
+      return ChatParseResult(
+        content: text.trim(),
         reasoningContent: thinking.reasoning,
       );
     }
 
     final toolCalls = <LlamaCompletionChunkToolCall>[];
+    for (final item in jsonSlice.value as List<dynamic>) {
+      if (item is! Map) {
+        return ChatParseResult(
+          content: text.trim(),
+          reasoningContent: thinking.reasoning,
+        );
+      }
+      final map = Map<String, dynamic>.from(item);
+      final name = map['name'] as String?;
+      if (name == null || name.isEmpty) {
+        return ChatParseResult(
+          content: text.trim(),
+          reasoningContent: thinking.reasoning,
+        );
+      }
 
-    var jsonStart = -1;
-    var isList = false;
-
-    // Try to find start of JSON
-    final listStart = text.indexOf('[');
-    final objStart = text.indexOf('{');
-
-    if (listStart != -1 && (objStart == -1 || listStart < objStart)) {
-      jsonStart = listStart;
-      isList = true;
-    } else if (objStart != -1) {
-      jsonStart = objStart;
-    }
-
-    if (jsonStart != -1) {
-      final jsonText = text.substring(jsonStart).trim();
-      // Simple heuristic: try to parse from jsonStart to end, or find matching bracket
-      // For now, try parsing the whole substring
-      try {
-        if (isList) {
-          // Try to find matching ']'
-          final end = jsonText.lastIndexOf(']');
-          if (end != -1) {
-            final candidate = jsonText.substring(0, end + 1);
-            final list = jsonDecode(candidate) as List<dynamic>;
-            for (var i = 0; i < list.length; i++) {
-              final call = list[i] as Map<String, dynamic>;
-              if (call.containsKey('name')) {
-                toolCalls.add(_createToolCall(i, call));
-              }
-            }
-          }
-        } else {
-          // Try to find matching '}'
-          final end = jsonText.lastIndexOf('}');
-          if (end != -1) {
-            final candidate = jsonText.substring(0, end + 1);
-            final json = jsonDecode(candidate) as Map<String, dynamic>;
-            if (json.containsKey('name')) {
-              toolCalls.add(_createToolCall(0, json));
-            }
-          }
-        }
-      } catch (_) {}
+      final args = map['arguments'];
+      final arguments = args is String
+          ? args
+          : (map.containsKey('arguments') ? jsonEncode(args) : '');
+      final id = map['id']?.toString();
+      toolCalls.add(
+        LlamaCompletionChunkToolCall(
+          index: toolCalls.length,
+          id: (id == null || id.isEmpty) ? null : id,
+          type: 'function',
+          function: LlamaCompletionChunkFunction(
+            name: name,
+            arguments: arguments,
+          ),
+        ),
+      );
     }
 
     return ChatParseResult(
-      content: jsonStart != -1 ? text.substring(0, jsonStart).trim() : text,
+      content: prelude.trim(),
       reasoningContent: thinking.reasoning,
       toolCalls: toolCalls,
     );
   }
 
-  LlamaCompletionChunkToolCall _createToolCall(
-    int index,
-    Map<String, dynamic> json,
-  ) {
-    final name = json['name'] as String;
-    final args = json['arguments'];
-    return LlamaCompletionChunkToolCall(
-      index: index,
-      id: 'call_$index',
-      type: 'function',
-      function: LlamaCompletionChunkFunction(
-        name: name,
-        arguments: args is String ? args : jsonEncode(args ?? {}),
-      ),
-    );
+  _JsonValueSlice? _extractLeadingJsonValue(String input, int offset) {
+    if (offset >= input.length) {
+      return null;
+    }
+
+    int? end;
+    final first = input.codeUnitAt(offset);
+    if (first == 0x7B || first == 0x5B) {
+      end = _findStructuredJsonEnd(input, offset);
+    } else if (first == 0x22) {
+      end = _findJsonStringEnd(input, offset);
+    } else {
+      final scalar = RegExp(
+        r'(?:-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)',
+      ).matchAsPrefix(input, offset);
+      if (scalar != null) {
+        end = scalar.end;
+      }
+    }
+
+    if (end == null || end <= offset) {
+      return null;
+    }
+
+    try {
+      return _JsonValueSlice(
+        value: jsonDecode(input.substring(offset, end)),
+        end: end,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int? _findStructuredJsonEnd(String input, int start) {
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+
+    for (var i = start; i < input.length; i++) {
+      final ch = input.codeUnitAt(i);
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch == 0x5C) {
+          escaped = true;
+          continue;
+        }
+        if (ch == 0x22) {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch == 0x22) {
+        inString = true;
+        continue;
+      }
+      if (ch == 0x7B || ch == 0x5B) {
+        depth++;
+        continue;
+      }
+      if (ch == 0x7D || ch == 0x5D) {
+        depth--;
+        if (depth == 0) {
+          return i + 1;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  int? _findJsonStringEnd(String input, int start) {
+    var escaped = false;
+    for (var i = start + 1; i < input.length; i++) {
+      final ch = input.codeUnitAt(i);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch == 0x5C) {
+        escaped = true;
+        continue;
+      }
+      if (ch == 0x22) {
+        return i + 1;
+      }
+    }
+    return null;
   }
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    // If we wanted strict JSON output, we could build a grammar here,
-    // but Granite is usually steered by system prompt.
-    return null;
+    return _buildGraniteToolGrammar(
+      tools,
+      thinkingForcedOpen: false,
+      parallelToolCalls: true,
+    );
   }
+
+  String? _buildGraniteToolGrammar(
+    List<ToolDefinition>? tools, {
+    required bool thinkingForcedOpen,
+    required bool parallelToolCalls,
+  }) {
+    final base = ToolCallGrammarUtils.buildWrappedArrayGrammar(
+      tools: tools,
+      prefix: '<|tool_call|>',
+      suffix: '',
+      nameKey: 'name',
+      argumentsKey: 'arguments',
+      allowParallelToolCalls: parallelToolCalls,
+    );
+    if (base == null) {
+      return null;
+    }
+    if (!thinkingForcedOpen) {
+      return base;
+    }
+    return _rewriteRootForThinkingPrelude(base);
+  }
+
+  String _rewriteRootForThinkingPrelude(String grammar) {
+    final lines = grammar.trimRight().split('\n');
+    final rootIndex = lines.indexWhere((line) => line.startsWith('root ::= '));
+    if (rootIndex == -1) {
+      return grammar;
+    }
+    final rootExpr = lines[rootIndex].substring('root ::= '.length).trim();
+    lines[rootIndex] =
+        'root ::= "</think>" space "<response>" space response-body "</response>" space $rootExpr';
+    final hasResponseRule = lines.any(
+      (line) => line.startsWith('response-body ::= '),
+    );
+    if (!hasResponseRule) {
+      lines.add('response-body ::= [^<]*');
+    }
+    return '${lines.join('\n')}\n';
+  }
+
+  String _buildThinkingOnlyGrammar() {
+    return '''
+root ::= "</think>" space "<response>" space response-body "</response>" space
+response-body ::= [^<]*
+space ::= "" | " " | "\\n"{1,2} [ \\t]{0,20}
+''';
+  }
+}
+
+final class _JsonValueSlice {
+  final Object? value;
+  final int end;
+
+  const _JsonValueSlice({required this.value, required this.end});
 }

@@ -262,6 +262,9 @@ class LlamaEngine {
   /// - [ToolChoice.auto]: Model can choose (default when tools present)
   /// - [ToolChoice.required]: Model must call at least one tool
   ///
+  /// Set [parallelToolCalls] to allow multiple tool calls in one response for
+  /// templates that support it.
+  ///
   /// For TranslateGemma-style templates, set [sourceLangCode] and
   /// [targetLangCode] to control language metadata injected into user
   /// content blocks.
@@ -280,20 +283,22 @@ class LlamaEngine {
     GenerationParams? params,
     List<ToolDefinition>? tools,
     ToolChoice? toolChoice,
+    bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
   }) async* {
     _ensureReady();
 
-    // Build messages with tool system prompt if tools provided
-    // Skip tool injection if toolChoice is none
-    final effectiveTools = toolChoice == ToolChoice.none ? null : tools;
+    // Keep tools available to template routing even with toolChoice.none,
+    // matching llama.cpp behavior.
+    final effectiveTools = tools;
 
     // Apply chat template with tools - returns grammar for constraining
     final result = await chatTemplate(
       messages,
       tools: effectiveTools,
       toolChoice: toolChoice ?? ToolChoice.auto,
+      parallelToolCalls: parallelToolCalls,
       sourceLangCode: sourceLangCode,
       targetLangCode: targetLangCode,
     );
@@ -553,6 +558,7 @@ class LlamaEngine {
       result.format,
       fullOutput,
       thinkingForcedOpen: result.thinkingForcedOpen,
+      parser: result.parser,
       handlerId: result.handlerId,
     );
 
@@ -620,6 +626,7 @@ class LlamaEngine {
     Map<String, dynamic>? jsonSchema,
     List<ToolDefinition>? tools,
     ToolChoice toolChoice = ToolChoice.auto,
+    bool parallelToolCalls = false,
     Map<String, dynamic>? responseFormat,
     String? customTemplate,
     String? customHandlerId,
@@ -666,6 +673,7 @@ class LlamaEngine {
         addAssistant: addAssistant,
         tools: tools,
         toolChoice: toolChoice,
+        parallelToolCalls: parallelToolCalls,
         responseFormat: effectiveResponseFormat,
         customTemplate: customTemplate,
         customHandlerId: customHandlerId,
