@@ -16,6 +16,11 @@ import '../thinking_utils.dart';
 /// Uses `<tool_call>` / `</tool_call>` XML tags with JSON payloads.
 /// Tool call format: `<tool_call>{"name": "fn", "arguments": {...}}</tool_call>`
 class HermesHandler extends ChatTemplateHandler {
+  static final RegExp _openRegex = RegExp(
+    r'(?:(```(?:xml|json)?\n\s*)?((?:<tool_call>|<function_call>|<tool>|<tools>|<response>|<json>|<xml>|<JSON>)?)(\s*\{\s*"name"))|<function=([^>]+)>|<function name="([^"]+)">',
+    dotAll: true,
+  );
+
   @override
   ChatFormat get format => ChatFormat.hermes;
 
@@ -35,13 +40,17 @@ class HermesHandler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
+      },
+    );
 
     // Handle enableThinking post-render logic
     var thinkingForcedOpen = false;
@@ -92,61 +101,118 @@ class HermesHandler extends ChatTemplateHandler {
     }
 
     final toolCalls = <LlamaCompletionChunkToolCall>[];
-    final toolCallRegex = RegExp(
-      r'<tool_call>\s*(.*?)\s*</tool_call>',
-      dotAll: true,
-    );
+    final content = StringBuffer();
+    var cursor = 0;
+    var parseFailed = false;
 
-    var contentText = text;
-    final matches = toolCallRegex.allMatches(text);
-
-    for (var i = 0; i < matches.length; i++) {
-      final match = matches.elementAt(i);
-      try {
-        final jsonStr = match.group(1)!.trim();
-
-        // Try parsing as-is first. Only attempt double-brace recovery
-        // if the initial parse fails and the input looks like a Qwen quirk.
-        // This avoids corrupting valid nested JSON like {"a": {"b": 1}}.
-        Map<String, dynamic> json;
-        try {
-          json = jsonDecode(jsonStr) as Map<String, dynamic>;
-        } on FormatException {
-          if (!(jsonStr.startsWith('{{') && jsonStr.endsWith('}}'))) rethrow;
-
-          try {
-            json =
-                jsonDecode(jsonStr.substring(1, jsonStr.length - 1))
-                    as Map<String, dynamic>;
-          } on FormatException {
-            json =
-                jsonDecode(_normalizeDoubleBraces(jsonStr))
-                    as Map<String, dynamic>;
-          }
-        }
-        final name = json['name'] as String?;
-        final args = json['arguments'];
-        if (name != null) {
-          toolCalls.add(
-            LlamaCompletionChunkToolCall(
-              index: i,
-              id: 'call_$i',
-              type: 'function',
-              function: LlamaCompletionChunkFunction(
-                name: name,
-                arguments: args is String ? args : jsonEncode(args ?? {}),
-              ),
-            ),
-          );
-        }
-      } catch (_) {
-        // Skip malformed tool calls
+    while (true) {
+      final match = _firstMatchFrom(text, cursor);
+      if (match == null) {
+        break;
       }
-      contentText = contentText.replaceAll(match.group(0)!, '');
+      if (match.start > cursor) {
+        content.write(text.substring(cursor, match.start));
+      }
+
+      final blockStart = match.group(1) ?? '';
+      final openTag = match.group(2) ?? '';
+      final namedToolStart = match.group(3);
+      var functionName = match.group(4) ?? '';
+      functionName = functionName.isEmpty
+          ? (match.group(5) ?? '')
+          : functionName;
+
+      if (namedToolStart != null) {
+        final matchText = match.group(0)!;
+        final startOffset = matchText.lastIndexOf(namedToolStart);
+        if (startOffset < 0) {
+          parseFailed = true;
+          break;
+        }
+        final jsonStart = match.start + startOffset;
+        final jsonRange = _extractJsonObject(text, jsonStart);
+        if (jsonRange == null) {
+          parseFailed = true;
+          break;
+        }
+        final jsonValue = _decodeJsonObject(jsonRange.json);
+        final toolCall = _toNamedToolCall(jsonValue, toolCalls.length);
+        if (toolCall == null) {
+          parseFailed = true;
+          break;
+        }
+        toolCalls.add(toolCall);
+        cursor = _consumeWhitespaces(text, jsonRange.end);
+
+        if (openTag.isNotEmpty) {
+          final closeTag = '</${openTag.substring(1)}';
+          if (!text.startsWith(closeTag, cursor)) {
+            parseFailed = true;
+            break;
+          }
+          cursor = _consumeWhitespaces(text, cursor + closeTag.length);
+        }
+        if (blockStart.isNotEmpty) {
+          if (!text.startsWith('```', cursor)) {
+            parseFailed = true;
+            break;
+          }
+          cursor = _consumeWhitespaces(text, cursor + 3);
+        }
+        continue;
+      }
+
+      if (functionName.isEmpty) {
+        cursor = match.end;
+        continue;
+      }
+
+      final jsonRange = _extractJsonObject(text, match.end);
+      if (jsonRange == null) {
+        parseFailed = true;
+        break;
+      }
+      toolCalls.add(
+        LlamaCompletionChunkToolCall(
+          index: toolCalls.length,
+          id: 'call_${toolCalls.length}',
+          type: 'function',
+          function: LlamaCompletionChunkFunction(
+            name: functionName,
+            arguments: _normalizeArguments(jsonRange.json),
+          ),
+        ),
+      );
+
+      cursor = _consumeWhitespaces(text, jsonRange.end);
+      if (!text.startsWith('</function>', cursor)) {
+        parseFailed = true;
+        break;
+      }
+      cursor = _consumeWhitespaces(text, cursor + '</function>'.length);
+
+      if (blockStart.isNotEmpty) {
+        if (!text.startsWith('```', cursor)) {
+          parseFailed = true;
+          break;
+        }
+        cursor = _consumeWhitespaces(text, cursor + 3);
+      }
+    }
+
+    if (parseFailed && !isPartial) {
+      return ChatParseResult(
+        content: text.trim(),
+        reasoningContent: thinking.reasoning,
+      );
+    }
+
+    if (cursor < text.length) {
+      content.write(text.substring(cursor));
     }
 
     return ChatParseResult(
-      content: contentText.trim(),
+      content: content.toString().trim(),
       reasoningContent: thinking.reasoning,
       toolCalls: toolCalls,
     );
@@ -179,67 +245,132 @@ class HermesHandler extends ChatTemplateHandler {
     return [root, choiceRule, ...toolRules, _commonGbnfRules()].join('\n');
   }
 
-  /// Collapses every `{{` → `{` and `}}` → `}` outside quoted strings.
-  ///
-  /// This is a last-resort normalizer for Qwen-style outputs where **all**
-  /// braces are consistently doubled (e.g. `{{"name":"f","arguments":{{"k":"v"}}}}`).
-  /// It is only safe when brace doubling is uniform — mixed payloads (outer
-  /// wrapper doubled, inner objects single) must be handled by the outer-unwrap
-  /// stage before reaching this path.
-  ///
-  /// As a safety gate, the function first verifies that every brace outside
-  /// quoted strings appears as a doubled pair. If any single brace is found,
-  /// the input is returned unchanged to avoid corrupting mixed-style payloads.
-  String _normalizeDoubleBraces(String input) {
-    if (!input.contains('{{') && !input.contains('}}')) return input;
-
-    // Verify all braces outside strings are consistently doubled.
-    var inString = false;
-    for (var i = 0; i < input.length; i++) {
-      final c = input[i];
-      if (c == '"' && (i == 0 || input[i - 1] != r'\')) {
-        inString = !inString;
-        continue;
-      }
-      if (!inString && (c == '{' || c == '}')) {
-        if (i + 1 >= input.length || input[i + 1] != c) {
-          // Single brace found — mixed style, bail out.
-          return input;
-        }
-        i++; // skip the paired brace
-      }
+  RegExpMatch? _firstMatchFrom(String text, int from) {
+    final matches = _openRegex.allMatches(text, from);
+    if (matches.isEmpty) {
+      return null;
     }
-
-    // All braces are doubled — collapse them.
-    final buf = StringBuffer();
-    inString = false;
-    for (var i = 0; i < input.length; i++) {
-      final c = input[i];
-
-      if (c == '"' && (i == 0 || input[i - 1] != r'\')) {
-        inString = !inString;
-        buf.write(c);
-        continue;
-      }
-
-      if (!inString && i + 1 < input.length) {
-        final next = input[i + 1];
-        if (c == '{' && next == '{') {
-          buf.write('{');
-          i++;
-          continue;
-        }
-        if (c == '}' && next == '}') {
-          buf.write('}');
-          i++;
-          continue;
-        }
-      }
-
-      buf.write(c);
-    }
-    return buf.toString();
+    return matches.first;
   }
+
+  _JsonRange? _extractJsonObject(String text, int start) {
+    if (start >= text.length || text.codeUnitAt(start) != 0x7B) {
+      return null;
+    }
+
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+
+    for (var i = start; i < text.length; i++) {
+      final codeUnit = text.codeUnitAt(i);
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (codeUnit == 0x5C) {
+          escaped = true;
+          continue;
+        }
+        if (codeUnit == 0x22) {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (codeUnit == 0x22) {
+        inString = true;
+        continue;
+      }
+
+      if (codeUnit == 0x7B) {
+        depth++;
+        continue;
+      }
+      if (codeUnit == 0x7D) {
+        depth--;
+        if (depth == 0) {
+          return _JsonRange(json: text.substring(start, i + 1), end: i + 1);
+        }
+      }
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? _decodeJsonObject(String jsonText) {
+    try {
+      final decoded = jsonDecode(jsonText);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  LlamaCompletionChunkToolCall? _toNamedToolCall(
+    Map<String, dynamic>? jsonValue,
+    int index,
+  ) {
+    if (jsonValue == null) {
+      return null;
+    }
+    final name = jsonValue['name'];
+    if (name is! String || name.isEmpty) {
+      return null;
+    }
+
+    final rawId = jsonValue['id'];
+    final id = rawId is String && rawId.isNotEmpty ? rawId : 'call_$index';
+
+    var arguments = '';
+    if (jsonValue.containsKey('arguments')) {
+      final rawArguments = jsonValue['arguments'];
+      if (rawArguments == null) {
+        arguments = '';
+      } else {
+        arguments = rawArguments is String
+            ? rawArguments
+            : jsonEncode(rawArguments);
+      }
+    }
+
+    return LlamaCompletionChunkToolCall(
+      index: index,
+      id: id,
+      type: 'function',
+      function: LlamaCompletionChunkFunction(name: name, arguments: arguments),
+    );
+  }
+
+  String _normalizeArguments(String jsonText) {
+    try {
+      final decoded = jsonDecode(jsonText);
+      return jsonEncode(decoded);
+    } catch (_) {
+      return jsonText;
+    }
+  }
+
+  int _consumeWhitespaces(String text, int start) {
+    var pos = start;
+    while (pos < text.length && _isWhitespace(text.codeUnitAt(pos))) {
+      pos++;
+    }
+    return pos;
+  }
+
+  bool _isWhitespace(int codeUnit) =>
+      codeUnit == 0x20 ||
+      codeUnit == 0x0A ||
+      codeUnit == 0x0D ||
+      codeUnit == 0x09;
 
   String _sanitizeName(String name) =>
       name.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '-').toLowerCase();
@@ -291,4 +422,11 @@ value ::= string | number | boolean | null | arr | obj
 arr ::= "[" space (value ("," space value)*)? space "]"
 obj ::= "{" space (string ":" space value ("," space string ":" space value)*)? space "}"''';
   }
+}
+
+final class _JsonRange {
+  final String json;
+  final int end;
+
+  const _JsonRange({required this.json, required this.end});
 }

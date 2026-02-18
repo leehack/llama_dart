@@ -10,6 +10,7 @@ import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
 import '../thinking_utils.dart';
+import '../tool_call_grammar_utils.dart';
 
 /// Handler for Kimi K2 format.
 ///
@@ -52,13 +53,17 @@ class KimiK2Handler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
+      },
+    );
 
     var thinkingForcedOpen = false;
     if (isThinkingForcedOpen(prompt)) {
@@ -238,31 +243,26 @@ class KimiK2Handler extends ChatTemplateHandler {
   String _normalizeArguments(String rawJson) {
     try {
       final decoded = jsonDecode(rawJson);
-      if (decoded is Map) {
-        return jsonEncode(Map<String, dynamic>.from(decoded));
-      }
-      return jsonEncode({'value': decoded});
+      return jsonEncode(decoded);
     } catch (_) {
       return rawJson;
     }
   }
 
   String? _normalizeToolName(String rawName) {
-    var name = rawName.trim();
+    final name = rawName.trim();
     if (name.isEmpty) {
       return null;
     }
-
-    if (name.startsWith('functions.')) {
-      name = name.substring('functions.'.length);
+    final kimiMatch = RegExp(r'^functions\.(.+):\d+$').firstMatch(name);
+    if (kimiMatch == null) {
+      return name;
     }
-
-    final indexSeparator = name.indexOf(':');
-    if (indexSeparator != -1) {
-      name = name.substring(0, indexSeparator);
+    final normalized = kimiMatch.group(1);
+    if (normalized == null || normalized.isEmpty) {
+      return null;
     }
-
-    return name.isEmpty ? null : name;
+    return normalized;
   }
 
   _JsonExtraction? _extractJsonObject(String input, int startIndex) {
@@ -320,26 +320,17 @@ class KimiK2Handler extends ChatTemplateHandler {
     }
 
     final toolNames = tools
-        .map((tool) => _literal(tool.name))
+        .map((tool) => ToolCallGrammarUtils.literal(tool.name))
         .toSet()
         .toList(growable: false);
     final toolNameRule = toolNames.join(' | ');
 
     return '''
 root ::= "<|tool_calls_section_begin|>" tool-call+ "<|tool_calls_section_end|>"
-tool-call ::= "<|tool_call_begin|>" ( "functions." )? tool-name ( ":" [0-9]+ )? "<|tool_call_argument_begin|>" obj "<|tool_call_end|>"
+tool-call ::= "<|tool_call_begin|>" "functions." tool-name ":" [0-9]+ "<|tool_call_argument_begin|>" obj "<|tool_call_end|>"
 tool-name ::= $toolNameRule
 ${_commonGbnfRules()}
 ''';
-  }
-
-  String _literal(String value) {
-    final escaped = value
-        .replaceAll('\\', r'\\')
-        .replaceAll('"', r'\"')
-        .replaceAll('\n', r'\n')
-        .replaceAll('\r', r'\r');
-    return '"$escaped"';
   }
 
   String _commonGbnfRules() {

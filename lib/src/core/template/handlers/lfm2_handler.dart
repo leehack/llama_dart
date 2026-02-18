@@ -66,13 +66,17 @@ class Lfm2Handler extends ChatTemplateHandler {
         ? _stripForceJsonSchemaMarker(messages)
         : messages;
 
-    final prompt = template.render({
-      'messages': effectiveMessages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': _serializeToolsForTemplate(tools),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '',
-    });
+    final prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': effectiveMessages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': _serializeToolsForTemplate(tools),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '',
+      },
+    );
 
     return LlamaChatTemplateResult(
       prompt: prompt,

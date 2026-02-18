@@ -1,5 +1,28 @@
 ## Unreleased
 
+*   **llama.cpp parity expansion (Dart-native template/parser pipeline)**:
+    *   Reworked template detection/render/parse routing to align with llama.cpp semantics across supported chat formats, including format-specific tool-call parsing and fallback behavior.
+    *   Added PEG parity components in Dart (`peg_parser_builder`, `peg_chat_parser`) and integrated parser-carrying render/parse flow for PEG-native/constructed formats.
+    *   Removed brittle fallback coercions that could mutate valid tool names/argument keys, preserving model-emitted tool payloads for dispatch parity.
+    *   Hardened template capability detection with Jinja AST + execution probing, while preventing typed-content false positives caused by raw content stringification.
+    *   **[BREAKING]** Removed legacy custom template-handler APIs:
+        `ChatTemplateMatcher`, `ChatTemplateRoutingContext`,
+        `ChatTemplateEngine.registerHandler(...)`,
+        `ChatTemplateEngine.unregisterHandler(...)`,
+        `ChatTemplateEngine.clearCustomHandlers(...)`,
+        `ChatTemplateEngine.registerTemplateOverride(...)`,
+        `ChatTemplateEngine.unregisterTemplateOverride(...)`,
+        `ChatTemplateEngine.clearTemplateOverrides(...)`, and
+        per-call `customHandlerId` / parse `handlerId` routing.
+    *   Removed silent render/parse fallback paths so handler/parser failures are surfaced instead of downgraded to content-only output.
+    *   Added llama.cpp-equivalent per-call template globals/time injection via `chatTemplateKwargs` and `templateNow`.
+*   **Parity test coverage and tooling**:
+    *   Added vendored llama.cpp template parity integration coverage for detection + render + parse paths.
+    *   Added upstream llama.cpp chat/template suite runners and local E2E harness (`run_llama_cpp_chat_tests.sh`, `run_template_parity_suites.sh`).
+    *   Added mirrored unit tests for new internal template components (`peg_parser_builder`, `template_internal_metadata`) to satisfy structure guards.
+*   **Test cleanup and maintainability**:
+    *   Reduced noisy diagnostics in template integration tests and centralized format sample parse payload fixtures for easier parity maintenance.
+
 ## 0.5.4
 
 *   **llama.cpp parity hardening**:

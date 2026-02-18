@@ -48,13 +48,17 @@ class SeedOssHandler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
+      },
+    );
 
     var thinkingForcedOpen = false;
     if (isThinkingForcedOpen(prompt, startTag: thinkingStartTag)) {
@@ -90,29 +94,16 @@ class SeedOssHandler extends ChatTemplateHandler {
     bool parseToolCalls = true,
     bool thinkingForcedOpen = false,
   }) {
-    final thinking = extractThinking(
-      output,
-      thinkingForcedOpen: thinkingForcedOpen,
-      startTag: thinkingStartTag,
-      endTag: thinkingEndTag,
-    );
-    final text = thinking.content;
-
-    if (!parseToolCalls) {
-      return ChatParseResult(
-        content: text.trim(),
-        reasoningContent: thinking.reasoning,
-      );
-    }
-
     final parsed = parseXmlToolCalls(
-      text,
+      output,
       XmlToolCallFormat.seedOss,
-      parseToolCalls: true,
+      startThink: thinkingStartTag,
+      endThink: thinkingEndTag,
+      parseToolCalls: parseToolCalls,
     );
     return ChatParseResult(
       content: parsed.content.trim(),
-      reasoningContent: thinking.reasoning,
+      reasoningContent: parsed.reasoningContent,
       toolCalls: parsed.toolCalls,
     );
   }

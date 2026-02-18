@@ -57,14 +57,14 @@ void main() {
       );
     });
 
-    test('normalizes placeholder tool name using argument hints', () {
+    test('preserves placeholder tool name from model output', () {
       final handler = GemmaHandler();
       final parsed = handler.parse(
         '{"tool_call":{"name":"call","arguments":{"city":"Seoul","unit":"celsius"}}}',
       );
 
       expect(parsed.toolCalls, hasLength(1));
-      expect(parsed.toolCalls.first.function?.name, 'get_weather');
+      expect(parsed.toolCalls.first.function?.name, 'call');
       expect(
         jsonDecode(parsed.toolCalls.first.function!.arguments!),
         <String, dynamic>{'city': 'Seoul', 'unit': 'celsius'},

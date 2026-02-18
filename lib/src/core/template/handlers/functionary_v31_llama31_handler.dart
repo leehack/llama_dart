@@ -2,13 +2,17 @@ import 'dart:convert';
 
 import 'package:dinja/dinja.dart';
 
+import '../../grammar/json_schema_converter.dart';
 import '../../models/chat/chat_message.dart';
 import '../../models/chat/chat_template_result.dart';
 import '../../models/chat/completion_chunk.dart';
+import '../../models/inference/tool_choice.dart';
 import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
+import '../template_internal_metadata.dart';
+import '../tool_call_grammar_utils.dart';
 
 /// Handler for Functionary v3.1 Llama 3.1 templates.
 ///
@@ -36,21 +40,39 @@ class FunctionaryV31Llama31Handler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    final hasTools = tools != null && tools.isNotEmpty;
+    final activeTools = tools ?? const <ToolDefinition>[];
+    final hasTools = activeTools.isNotEmpty;
+    final toolChoice = metadata[internalToolChoiceMetadataKey];
+    final toolChoiceRequired = toolChoice == ToolChoice.required.name;
+    final parallelToolCalls =
+        metadata[internalParallelToolCallsMetadataKey] == 'true';
+    final hasRawPython = activeTools.any(
+      (tool) => tool.name == 'python' || tool.name == 'ipython',
+    );
+    final grammar = _buildGrammarWithOptions(
+      tools,
+      parallelToolCalls: parallelToolCalls,
+      hasRawPython: hasRawPython,
+    );
 
-    final prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<|begin_of_text|>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
-    });
+    final prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token':
+            metadata['tokenizer.ggml.bos_token'] ?? '<|begin_of_text|>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
+      },
+    );
 
     return LlamaChatTemplateResult(
       prompt: prompt,
       format: hasTools ? format.index : ChatFormat.contentOnly.index,
-      grammar: buildGrammar(tools),
-      grammarLazy: hasTools,
+      grammar: grammar,
+      grammarLazy: hasTools && !toolChoiceRequired,
       additionalStops: getStops(
         hasTools: hasTools,
         enableThinking: enableThinking,
@@ -59,7 +81,8 @@ class FunctionaryV31Llama31Handler extends ChatTemplateHandler {
       grammarTriggers: hasTools
           ? [
               const GrammarTrigger(type: 0, value: '<function='),
-              const GrammarTrigger(type: 0, value: _pythonTag),
+              if (hasRawPython)
+                const GrammarTrigger(type: 0, value: _pythonTag),
             ]
           : const [],
     );
@@ -170,6 +193,59 @@ class FunctionaryV31Llama31Handler extends ChatTemplateHandler {
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    final hasRawPython = (tools ?? const <ToolDefinition>[]).any(
+      (tool) => tool.name == 'python' || tool.name == 'ipython',
+    );
+    return _buildGrammarWithOptions(
+      tools,
+      parallelToolCalls: true,
+      hasRawPython: hasRawPython,
+    );
+  }
+
+  String? _buildGrammarWithOptions(
+    List<ToolDefinition>? tools, {
+    required bool parallelToolCalls,
+    required bool hasRawPython,
+  }) {
+    if (tools == null || tools.isEmpty) {
+      return null;
+    }
+
+    final converter = JsonSchemaConverter();
+    final toolRules = <String>[];
+
+    for (var i = 0; i < tools.length; i++) {
+      final tool = tools[i];
+      final schema = tool.toJsonSchema();
+      converter.resolveRefs(schema, schema);
+      final argsRule = converter.visit(schema, 'tool-$i-args');
+      final ruleName = 'tool-$i-call';
+      converter.rules[ruleName] =
+          '${ToolCallGrammarUtils.literal('<function=${tool.name}>')} $argsRule ${ToolCallGrammarUtils.literal('</function>')}';
+      toolRules.add(ruleName);
+    }
+
+    if (hasRawPython) {
+      converter.rules['raw-python-call'] =
+          '${ToolCallGrammarUtils.literal(_pythonTag)} raw-python-code';
+      converter.rules['raw-python-code'] = '[^\\x00]*';
+      toolRules.add('raw-python-call');
+    }
+
+    final buffer = StringBuffer()
+      ..writeln('tool-call ::= ${toolRules.join(' | ')}')
+      ..writeln('root ::= ${parallelToolCalls ? 'tool-call+' : 'tool-call'}');
+
+    final otherRules = converter.rules.entries.toList(growable: false)
+      ..sort((a, b) => a.key.compareTo(b.key));
+    for (final entry in otherRules) {
+      if (entry.key == 'root' || entry.key == 'tool-call') {
+        continue;
+      }
+      buffer.writeln('${entry.key} ::= ${entry.value}');
+    }
+
+    return buffer.toString();
   }
 }

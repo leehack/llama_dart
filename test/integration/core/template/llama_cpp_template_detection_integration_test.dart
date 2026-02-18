@@ -3,12 +3,32 @@ library;
 
 import 'dart:io';
 
+import 'package:llamadart/src/core/models/chat/chat_message.dart';
+import 'package:llamadart/src/core/models/chat/chat_role.dart';
+import 'package:llamadart/src/core/models/tools/tool_definition.dart';
+import 'package:llamadart/src/core/models/tools/tool_param.dart';
 import 'package:llamadart/src/core/template/chat_format.dart';
+import 'package:llamadart/src/core/template/chat_template_engine.dart';
 import 'package:test/test.dart';
+
+import 'llama_cpp_template_parse_samples.dart';
 
 void main() {
   final templatesDir = Directory('third_party/llama_cpp/models/templates');
   final hasVendoredLlamaCppTemplates = templatesDir.existsSync();
+  const metadata = <String, String>{
+    'tokenizer.ggml.bos_token': '<s>',
+    'tokenizer.ggml.eos_token': '</s>',
+  };
+  final tool = ToolDefinition(
+    name: 'get_weather',
+    description: 'Get weather',
+    parameters: [ToolParam.string('location')],
+    handler: (_) async => null,
+  );
+  const messages = <LlamaChatMessage>[
+    LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hello'),
+  ];
 
   group('llama.cpp template detection parity', () {
     final expected = <String, ChatFormat>{
@@ -45,7 +65,7 @@ void main() {
       'meta-llama-Llama-3.1-8B-Instruct.jinja': ChatFormat.llama3,
       'meta-llama-Llama-3.2-3B-Instruct.jinja': ChatFormat.llama3,
       'meta-llama-Llama-3.3-70B-Instruct.jinja': ChatFormat.llama3,
-      'microsoft-Phi-3.5-mini-instruct.jinja': ChatFormat.generic,
+      'microsoft-Phi-3.5-mini-instruct.jinja': ChatFormat.contentOnly,
       'mistralai-Ministral-3-14B-Reasoning-2512.jinja': ChatFormat.ministral,
       'mistralai-Mistral-Nemo-Instruct-2407.jinja': ChatFormat.mistralNemo,
       'moonshotai-Kimi-K2.jinja': ChatFormat.kimiK2,
@@ -98,6 +118,75 @@ void main() {
           reason:
               'Unmapped llama.cpp templates detected. Add expectations for: ${missing.join(', ')}',
         );
+      },
+      skip: hasVendoredLlamaCppTemplates
+          ? false
+          : 'Requires local third_party llama.cpp template fixtures.',
+    );
+
+    test(
+      'renders and parses every vendored llama.cpp template',
+      () {
+        expect(templatesDir.existsSync(), isTrue);
+
+        final files =
+            templatesDir
+                .listSync()
+                .whereType<File>()
+                .where((f) => f.path.endsWith('.jinja'))
+                .toList()
+              ..sort((a, b) => a.path.compareTo(b.path));
+
+        for (final file in files) {
+          final source = file.readAsStringSync();
+          final detected = detectChatFormat(source);
+
+          final rendered = ChatTemplateEngine.render(
+            templateSource: source,
+            messages: messages,
+            metadata: metadata,
+            tools: [tool],
+            parallelToolCalls: true,
+          );
+
+          expect(
+            rendered.prompt.trim(),
+            isNotEmpty,
+            reason: 'Empty prompt for ${file.uri.pathSegments.last}',
+          );
+
+          final parseInput = sampleOutputForFormat(detected);
+          final parsed = ChatTemplateEngine.parse(
+            rendered.format,
+            parseInput,
+            parser: rendered.parser,
+            thinkingForcedOpen: rendered.thinkingForcedOpen,
+          );
+
+          final hasAnyPayload =
+              parsed.content.isNotEmpty ||
+              parsed.toolCalls.isNotEmpty ||
+              (parsed.reasoningContent?.isNotEmpty ?? false);
+          expect(
+            hasAnyPayload,
+            isTrue,
+            reason:
+                'Parse produced empty payload for ${file.uri.pathSegments.last}',
+          );
+
+          if (parseInput.contains('get_weather')) {
+            final parsedToolName = parsed.toolCalls.isNotEmpty
+                ? parsed.toolCalls.first.function?.name
+                : null;
+            final preservedInContent = parsed.content.contains('get_weather');
+            expect(
+              parsedToolName == 'get_weather' || preservedInContent,
+              isTrue,
+              reason:
+                  'Tool payload was neither parsed nor preserved for ${file.uri.pathSegments.last}',
+            );
+          }
+        }
       },
       skip: hasVendoredLlamaCppTemplates
           ? false

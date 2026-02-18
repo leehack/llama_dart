@@ -45,14 +45,6 @@ ToolCallFallbackParseResult parseToolCallsFromLooseText(String input) {
     );
   }
 
-  final bareAlias = _parseBareAliasToolCall(normalized);
-  if (bareAlias != null) {
-    return ToolCallFallbackParseResult(
-      content: '',
-      toolCalls: <LlamaCompletionChunkToolCall>[bareAlias],
-    );
-  }
-
   return ToolCallFallbackParseResult(
     content: trimmed,
     toolCalls: const <LlamaCompletionChunkToolCall>[],
@@ -98,14 +90,6 @@ Map<String, dynamic> normalizeFallbackToolArguments(
       ..clear()
       ..addAll(wrappedArguments);
   }
-
-  if (!normalized.containsKey('city')) {
-    final location = normalized['location'];
-    if (location is String && location.trim().isNotEmpty) {
-      normalized['city'] = location.trim();
-      normalized.remove('location');
-    }
-  }
   return normalized;
 }
 
@@ -128,59 +112,8 @@ String normalizeFallbackToolName(
   String rawName, {
   Map<String, dynamic>? arguments,
 }) {
+  // Preserve model-emitted tool name for llama.cpp parity.
   final trimmed = rawName.trim();
-  if (trimmed.isEmpty) {
-    return trimmed;
-  }
-
-  final lower = trimmed.toLowerCase();
-  final args = arguments ?? const <String, dynamic>{};
-
-  if (lower == 'get_weather') {
-    return 'get_weather';
-  }
-
-  if (lower == 'get_time') {
-    return 'get_time';
-  }
-
-  if (lower.endsWith('.get_weather') || lower.contains('get_weather_and_')) {
-    return 'get_weather';
-  }
-
-  if (lower.endsWith('.get_time') || lower.contains('get_time_and_')) {
-    return 'get_time';
-  }
-
-  if (_isPlaceholderToolName(lower)) {
-    if (args.containsKey('unit')) {
-      return 'get_weather';
-    }
-    if (args.containsKey('city') || args.containsKey('location')) {
-      return 'get_weather';
-    }
-    if (args.containsKey('timezone') || args.containsKey('time')) {
-      return 'get_time';
-    }
-  }
-
-  if (lower.startsWith('get_')) {
-    return trimmed;
-  }
-
-  if (lower == 'weather' ||
-      lower.contains('weatherlookup') ||
-      lower.contains('weather_tool') ||
-      lower.contains('weather')) {
-    return 'get_weather';
-  }
-
-  if (lower == 'time' ||
-      lower.contains('local_time') ||
-      lower.endsWith('time')) {
-    return 'get_time';
-  }
-
   return trimmed;
 }
 
@@ -431,10 +364,7 @@ LlamaCompletionChunkToolCall? _parseFunctionCallSyntax(String input) {
     return null;
   }
 
-  if (rawArgs.isEmpty &&
-      normalizedName == nameRaw &&
-      normalizedName != 'get_weather' &&
-      normalizedName != 'get_time') {
+  if (rawArgs.isEmpty && normalizedName == nameRaw) {
     return null;
   }
 
@@ -511,29 +441,6 @@ Map<String, dynamic>? _parseFunctionArguments(String raw) {
   }
 
   return result;
-}
-
-LlamaCompletionChunkToolCall? _parseBareAliasToolCall(String input) {
-  final trimmed = input.trim();
-  final isBare = RegExp(r'^[A-Za-z_][A-Za-z0-9_\.-]*$').hasMatch(trimmed);
-  if (!isBare) {
-    return null;
-  }
-
-  final normalizedName = normalizeFallbackToolName(trimmed);
-  if (normalizedName == trimmed) {
-    return null;
-  }
-
-  return LlamaCompletionChunkToolCall(
-    index: 0,
-    id: 'call_0',
-    type: 'function',
-    function: LlamaCompletionChunkFunction(
-      name: normalizedName,
-      arguments: '{}',
-    ),
-  );
 }
 
 String _stripToolFence(String input) {
@@ -625,8 +532,4 @@ Map<String, dynamic>? _decodeJsonObject(String input) {
   }
 
   return null;
-}
-
-bool _isPlaceholderToolName(String name) {
-  return name == 'call' || name == 'tool' || name == 'function';
 }

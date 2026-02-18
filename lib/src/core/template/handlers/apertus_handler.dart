@@ -14,9 +14,6 @@ import '../thinking_utils.dart';
 import '../tool_call_grammar_utils.dart';
 
 /// Handler for Apertus format.
-///
-/// Uses `<|inner_prefix|>`/`<|inner_suffix|>` for reasoning and
-/// `<|tools_prefix|>[...]<|tools_suffix|>` for tool calls.
 class ApertusHandler extends ChatTemplateHandler {
   @override
   ChatFormat get format => ChatFormat.apertus;
@@ -56,13 +53,17 @@ class ApertusHandler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
+      },
+    );
 
     var thinkingForcedOpen = false;
     if (isThinkingForcedOpen(prompt, startTag: thinkingStartTag)) {
@@ -116,86 +117,170 @@ class ApertusHandler extends ChatTemplateHandler {
       );
     }
 
+    const prefix = '<|tools_prefix|>';
+    const suffix = '<|tools_suffix|>';
+
+    final start = text.indexOf(prefix);
+    if (start == -1) {
+      return ChatParseResult(
+        content: text.trim(),
+        reasoningContent: thinking.reasoning,
+      );
+    }
+
+    final prelude = text.substring(0, start);
+    final payload = text.substring(start + prefix.length);
+    final jsonSlice = _extractLeadingJsonValue(payload, 0);
+    if (jsonSlice == null || jsonSlice.value is! List) {
+      return ChatParseResult(
+        content: text.trim(),
+        reasoningContent: thinking.reasoning,
+      );
+    }
+
+    var cursor = jsonSlice.end;
+    while (cursor < payload.length && payload.codeUnitAt(cursor) <= 0x20) {
+      cursor++;
+    }
+    if (!payload.startsWith(suffix, cursor)) {
+      return ChatParseResult(
+        content: text.trim(),
+        reasoningContent: thinking.reasoning,
+      );
+    }
+
     final toolCalls = <LlamaCompletionChunkToolCall>[];
-    var contentText = text;
-
-    final regex = RegExp(
-      r'<\|tools_prefix\|>\s*(.*?)\s*<\|tools_suffix\|>',
-      dotAll: true,
-    );
-    final matches = regex.allMatches(text);
-
-    for (final match in matches) {
-      final payload = match.group(1);
-      if (payload == null) {
+    for (final value in jsonSlice.value as List<dynamic>) {
+      if (value is! Map) {
+        continue;
+      }
+      final map = Map<String, dynamic>.from(value);
+      if (map.length != 1) {
         continue;
       }
 
-      try {
-        final decoded = jsonDecode(payload);
-        if (decoded is! List) {
-          continue;
-        }
-
-        for (final item in decoded) {
-          final toolCall = _toToolCall(item, toolCalls.length);
-          if (toolCall != null) {
-            toolCalls.add(toolCall);
-          }
-        }
-
-        contentText = contentText.replaceFirst(match.group(0)!, '');
-      } catch (_) {
-        // Keep malformed block in content.
+      final entry = map.entries.first;
+      final name = entry.key;
+      if (name.isEmpty) {
+        continue;
       }
+      final args = entry.value;
+      final arguments = args is String
+          ? args
+          : (args == null ? '' : jsonEncode(args));
+      toolCalls.add(
+        LlamaCompletionChunkToolCall(
+          index: toolCalls.length,
+          id: null,
+          type: 'function',
+          function: LlamaCompletionChunkFunction(
+            name: name,
+            arguments: arguments,
+          ),
+        ),
+      );
     }
 
+    final trailing = payload.substring(cursor + suffix.length);
     return ChatParseResult(
-      content: contentText.trim(),
+      content: '$prelude$trailing'.trim(),
       reasoningContent: thinking.reasoning,
       toolCalls: toolCalls,
     );
   }
 
-  LlamaCompletionChunkToolCall? _toToolCall(Object? data, int index) {
-    if (data is! Map) {
+  _JsonValueSlice? _extractLeadingJsonValue(String input, int offset) {
+    if (offset >= input.length) {
       return null;
     }
-    final map = Map<String, dynamic>.from(data);
 
-    if (map['name'] is String) {
-      final name = map['name'] as String;
-      final arguments = map['arguments'];
-      return LlamaCompletionChunkToolCall(
-        index: index,
-        id: map['id'] as String?,
-        type: (map['type'] as String?) ?? 'function',
-        function: LlamaCompletionChunkFunction(
-          name: name,
-          arguments: arguments is String
-              ? arguments
-              : jsonEncode(arguments ?? <String, dynamic>{}),
-        ),
+    int? end;
+    final first = input.codeUnitAt(offset);
+    if (first == 0x7B || first == 0x5B) {
+      end = _findStructuredJsonEnd(input, offset);
+    } else if (first == 0x22) {
+      end = _findJsonStringEnd(input, offset);
+    } else {
+      final scalar = RegExp(
+        r'(?:-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)',
+      ).matchAsPrefix(input, offset);
+      if (scalar != null) {
+        end = scalar.end;
+      }
+    }
+
+    if (end == null || end <= offset) {
+      return null;
+    }
+
+    try {
+      return _JsonValueSlice(
+        value: jsonDecode(input.substring(offset, end)),
+        end: end,
       );
-    }
-
-    if (map.length != 1) {
+    } catch (_) {
       return null;
     }
+  }
 
-    final entry = map.entries.first;
-    final arguments = entry.value;
-    return LlamaCompletionChunkToolCall(
-      index: index,
-      id: 'call_$index',
-      type: 'function',
-      function: LlamaCompletionChunkFunction(
-        name: entry.key,
-        arguments: arguments is String
-            ? arguments
-            : jsonEncode(arguments ?? <String, dynamic>{}),
-      ),
-    );
+  int? _findStructuredJsonEnd(String input, int start) {
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+
+    for (var i = start; i < input.length; i++) {
+      final ch = input.codeUnitAt(i);
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch == 0x5C) {
+          escaped = true;
+          continue;
+        }
+        if (ch == 0x22) {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch == 0x22) {
+        inString = true;
+        continue;
+      }
+      if (ch == 0x7B || ch == 0x5B) {
+        depth++;
+        continue;
+      }
+      if (ch == 0x7D || ch == 0x5D) {
+        depth--;
+        if (depth == 0) {
+          return i + 1;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  int? _findJsonStringEnd(String input, int start) {
+    var escaped = false;
+    for (var i = start + 1; i < input.length; i++) {
+      final ch = input.codeUnitAt(i);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch == 0x5C) {
+        escaped = true;
+        continue;
+      }
+      if (ch == 0x22) {
+        return i + 1;
+      }
+    }
+    return null;
   }
 
   @override
@@ -229,4 +314,11 @@ class ApertusHandler extends ChatTemplateHandler {
       suffix: '<|tools_suffix|>',
     );
   }
+}
+
+final class _JsonValueSlice {
+  final Object? value;
+  final int end;
+
+  const _JsonValueSlice({required this.value, required this.end});
 }

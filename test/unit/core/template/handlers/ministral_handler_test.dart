@@ -35,6 +35,8 @@ void main() {
     expect(rendered.additionalStops, contains('[TOOL_CALLS]'));
     expect(rendered.preservedTokens, contains('[ARGS]'));
     expect(rendered.grammarTriggers.first.value, equals('[TOOL_CALLS]'));
+    expect(rendered.parser, isNotNull);
+    expect(rendered.parser, isNotEmpty);
 
     final parsed = handler.parse(
       '[TOOL_CALLS]get_weather[ARGS]{"location":"Seoul"}',

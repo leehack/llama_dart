@@ -2,22 +2,28 @@ import 'dart:convert';
 
 import 'package:dinja/dinja.dart';
 
+import '../../grammar/json_schema_converter.dart';
 import '../../models/chat/chat_message.dart';
 import '../../models/chat/chat_template_result.dart';
 import '../../models/chat/completion_chunk.dart';
+import '../../models/inference/tool_choice.dart';
 import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
+import '../template_internal_metadata.dart';
+import '../tool_call_grammar_utils.dart';
 
 /// Handler for Functionary v3.2 format.
 ///
 /// Tool calls use `>>>name\n{...}` blocks, with `>>>all\n` as a content
 /// channel and optional `>>>python\n<raw code>` output.
 class FunctionaryV32Handler extends ChatTemplateHandler {
-  static final RegExp _tagRegex = RegExp(r'>>>([A-Za-z0-9_]+)\n');
-  static final RegExp _startOnlyRegex = RegExp(
-    r'^(all\n|python\n|[A-Za-z0-9_]+\n\{)',
+  static final RegExp _functionRegexStartOnly = RegExp(
+    r'([A-Za-z0-9_]+\n\{|python\n|all\n)',
+  );
+  static final RegExp _functionRegex = RegExp(
+    r'>>>([A-Za-z0-9_]+\n\{|python\n|all\n)',
   );
 
   @override
@@ -39,28 +45,61 @@ class FunctionaryV32Handler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    final prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<|begin_of_text|>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
-    });
+    final prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token':
+            metadata['tokenizer.ggml.bos_token'] ?? '<|begin_of_text|>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
+      },
+    );
 
-    final hasTools = tools != null && tools.isNotEmpty;
+    final activeTools = tools ?? const <ToolDefinition>[];
+    final hasTools = activeTools.isNotEmpty;
+    final toolChoice = metadata[internalToolChoiceMetadataKey];
+    final toolChoiceRequired = toolChoice == ToolChoice.required.name;
+    final parallelToolCalls =
+        metadata[internalParallelToolCallsMetadataKey] == 'true';
+    final grammar = _buildGrammarWithOptions(
+      tools,
+      parallelToolCalls: parallelToolCalls,
+    );
+    final triggers = <GrammarTrigger>[];
+    if (hasTools) {
+      for (final tool in activeTools) {
+        final escapedName = RegExp.escape(tool.name);
+        triggers.add(
+          GrammarTrigger(
+            type: 3,
+            value: '((?:[\\s\\S]+?>>>)?$escapedName\\n)\\{[\\s\\S]*',
+          ),
+        );
+      }
+      if (activeTools.any((tool) => tool.name == 'python')) {
+        triggers.add(
+          const GrammarTrigger(
+            type: 3,
+            value: '((?:[\\s\\S]+?>>>)?python\\n)[\\s\\S]*',
+          ),
+        );
+      }
+    }
+
     return LlamaChatTemplateResult(
       prompt: prompt,
       format: format.index,
-      grammar: buildGrammar(tools),
-      grammarLazy: hasTools,
+      grammar: grammar,
+      grammarLazy: hasTools && !toolChoiceRequired,
       additionalStops: getStops(
         hasTools: hasTools,
         enableThinking: enableThinking,
       ),
       preservedTokens: hasTools ? preservedTokens : const [],
-      grammarTriggers: hasTools
-          ? [const GrammarTrigger(type: 0, value: '>>>')]
-          : const [],
+      grammarTriggers: triggers,
     );
   }
 
@@ -75,105 +114,137 @@ class FunctionaryV32Handler extends ChatTemplateHandler {
       return ChatParseResult(content: output.trim());
     }
 
-    var text = output;
-    if (!text.contains('>>>') && _startOnlyRegex.hasMatch(text)) {
-      text = '>>>$text';
-    }
-
-    final matches = _tagRegex.allMatches(text).toList();
-    if (matches.isEmpty) {
-      return ChatParseResult(content: output.trim());
-    }
-
     final toolCalls = <LlamaCompletionChunkToolCall>[];
-    final contentParts = <String>[];
+    final content = StringBuffer();
 
-    if (matches.first.start > 0) {
-      final prelude = text.substring(0, matches.first.start).trim();
-      if (prelude.isNotEmpty) {
-        contentParts.add(prelude);
-      }
-    }
+    var cursor = 0;
+    var searchFrom = 0;
+    var first = true;
+    var parseFailed = false;
 
-    for (var i = 0; i < matches.length; i++) {
-      final current = matches[i];
-      final name = current.group(1)!;
-      final bodyStart = current.end;
-      final bodyEnd = i + 1 < matches.length
-          ? matches[i + 1].start
-          : text.length;
-      final body = text.substring(bodyStart, bodyEnd).trim();
-
-      if (name == 'all') {
-        if (body.isNotEmpty) {
-          contentParts.add(body);
+    while (true) {
+      _FunctionMarker? marker;
+      if (first) {
+        final startOnly = _functionRegexStartOnly.matchAsPrefix(output, cursor);
+        if (startOnly != null) {
+          marker = _FunctionMarker(
+            start: startOnly.start,
+            end: startOnly.end,
+            token: startOnly.group(1)!,
+          );
         }
+      }
+      marker ??= _findNextFunctionMarker(output, searchFrom);
+
+      if (marker == null) {
+        break;
+      }
+
+      if (marker.start > cursor) {
+        content.write(output.substring(cursor, marker.start));
+      }
+
+      cursor = marker.end;
+      searchFrom = cursor;
+
+      var name = marker.token;
+      if (name.endsWith('{')) {
+        cursor--;
+        searchFrom = cursor;
+      }
+      name = name.replaceFirst(RegExp(r'[\n{]+$'), '');
+      final atStart = marker.start == 0;
+
+      // Keep behavior aligned with llama.cpp: leading `all` is a content channel.
+      if (atStart && name == 'all') {
+        first = false;
+        searchFrom = marker.start + 1;
         continue;
       }
 
-      if (name == 'python' && !body.startsWith('{')) {
+      final allowRawPython = name == 'python';
+      final atJsonStart =
+          cursor < output.length && output.codeUnitAt(cursor) == 0x7B;
+
+      if (atJsonStart || !allowRawPython) {
+        final jsonRange = _extractJsonObject(output, cursor);
+        if (jsonRange == null) {
+          if (!isPartial) {
+            parseFailed = true;
+          }
+          break;
+        }
+
+        final jsonText = output.substring(jsonRange.start, jsonRange.end);
         toolCalls.add(
           LlamaCompletionChunkToolCall(
             index: toolCalls.length,
             id: 'call_${toolCalls.length}',
             type: 'function',
             function: LlamaCompletionChunkFunction(
-              name: 'python',
-              arguments: jsonEncode({'code': body}),
+              name: name,
+              arguments: _normalizeArguments(jsonText),
             ),
           ),
         );
-        continue;
-      }
-
-      final jsonRange = _extractJsonObject(body);
-      if (jsonRange == null) {
-        if (isPartial && body.isNotEmpty) {
-          toolCalls.add(
-            LlamaCompletionChunkToolCall(
-              index: toolCalls.length,
-              id: 'call_${toolCalls.length}',
-              type: 'function',
-              function: LlamaCompletionChunkFunction(
-                name: name,
-                arguments: body,
-              ),
-            ),
-          );
-        } else if (body.isNotEmpty) {
-          contentParts.add('>>>$name\n$body');
+        cursor = jsonRange.end;
+        while (cursor < output.length &&
+            _isWhitespace(output.codeUnitAt(cursor))) {
+          cursor++;
         }
+        searchFrom = cursor;
+        first = false;
         continue;
       }
 
-      final jsonText = body.substring(jsonRange.start, jsonRange.end);
+      final rawCode = output.substring(cursor);
       toolCalls.add(
         LlamaCompletionChunkToolCall(
           index: toolCalls.length,
           id: 'call_${toolCalls.length}',
           type: 'function',
           function: LlamaCompletionChunkFunction(
-            name: name,
-            arguments: _normalizeArguments(jsonText),
+            name: 'python',
+            arguments: jsonEncode({'code': rawCode}),
           ),
         ),
       );
+      cursor = output.length;
+      first = false;
+      break;
+    }
 
-      final trailing = body.substring(jsonRange.end).trim();
-      if (trailing.isNotEmpty) {
-        contentParts.add(trailing);
-      }
+    if (parseFailed && !isPartial) {
+      return ChatParseResult(content: output.trim(), toolCalls: const []);
+    }
+
+    if (cursor < output.length) {
+      content.write(output.substring(cursor));
     }
 
     return ChatParseResult(
-      content: contentParts.join('\n').trim(),
+      content: content.toString().trim(),
       toolCalls: toolCalls,
     );
   }
 
-  ({int start, int end})? _extractJsonObject(String text) {
-    final start = text.indexOf('{');
-    if (start == -1) return null;
+  _FunctionMarker? _findNextFunctionMarker(String text, int from) {
+    final matches = _functionRegex.allMatches(text, from);
+    if (matches.isEmpty) {
+      return null;
+    }
+    final match = matches.first;
+    return _FunctionMarker(
+      start: match.start,
+      end: match.end,
+      token: match.group(1)!,
+    );
+  }
+
+  ({int start, int end})? _extractJsonObject(String text, int start) {
+    if (start >= text.length || text.codeUnitAt(start) != 0x7B) {
+      return null;
+    }
 
     var depth = 0;
     var inString = false;
@@ -218,17 +289,89 @@ class FunctionaryV32Handler extends ChatTemplateHandler {
   String _normalizeArguments(String jsonText) {
     try {
       final decoded = jsonDecode(jsonText);
-      if (decoded is Map) {
-        return jsonEncode(Map<String, dynamic>.from(decoded));
-      }
-      return jsonEncode({'value': decoded});
+      return jsonEncode(decoded);
     } catch (_) {
       return jsonText;
     }
   }
 
+  bool _isWhitespace(int codeUnit) =>
+      codeUnit == 0x20 ||
+      codeUnit == 0x0A ||
+      codeUnit == 0x0D ||
+      codeUnit == 0x09;
+
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return null;
+    return _buildGrammarWithOptions(tools, parallelToolCalls: true);
   }
+
+  String? _buildGrammarWithOptions(
+    List<ToolDefinition>? tools, {
+    required bool parallelToolCalls,
+  }) {
+    if (tools == null || tools.isEmpty) {
+      return null;
+    }
+
+    final converter = JsonSchemaConverter();
+    final firstToolRules = <String>[];
+    final subsequentToolRules = <String>[];
+
+    for (var i = 0; i < tools.length; i++) {
+      final tool = tools[i];
+      final schema = tool.toJsonSchema();
+      converter.resolveRefs(schema, schema);
+      final argsRule = converter.visit(schema, 'tool-$i-args');
+      final ruleName = 'tool-$i-call';
+
+      converter.rules[ruleName] =
+          '${ToolCallGrammarUtils.literal('${tool.name}\\n')} $argsRule';
+      firstToolRules.add(ruleName);
+
+      if (parallelToolCalls) {
+        final subsequentRuleName = 'tool-$i-call2';
+        converter.rules[subsequentRuleName] =
+            '${ToolCallGrammarUtils.literal('>>>')} $ruleName';
+        subsequentToolRules.add(subsequentRuleName);
+      }
+    }
+
+    final buffer = StringBuffer()
+      ..writeln('first-tool-call ::= ${firstToolRules.join(' | ')}')
+      ..writeln(
+        'root ::= ${parallelToolCalls ? 'first-tool-call space (subsequent-tool-call space)*' : 'first-tool-call space'}',
+      );
+
+    if (parallelToolCalls) {
+      buffer.writeln(
+        'subsequent-tool-call ::= ${subsequentToolRules.join(' | ')}',
+      );
+    }
+
+    final otherRules = converter.rules.entries.toList(growable: false)
+      ..sort((a, b) => a.key.compareTo(b.key));
+    for (final entry in otherRules) {
+      if (entry.key == 'root' ||
+          entry.key == 'first-tool-call' ||
+          entry.key == 'subsequent-tool-call') {
+        continue;
+      }
+      buffer.writeln('${entry.key} ::= ${entry.value}');
+    }
+
+    return buffer.toString();
+  }
+}
+
+final class _FunctionMarker {
+  final int start;
+  final int end;
+  final String token;
+
+  const _FunctionMarker({
+    required this.start,
+    required this.end,
+    required this.token,
+  });
 }

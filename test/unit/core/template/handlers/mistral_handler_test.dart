@@ -50,8 +50,11 @@ void main() {
     final markerMissing = handler.parse(
       '[{"name":"get_weather","arguments":{"city":"Seoul"}}]',
     );
-    expect(markerMissing.toolCalls, hasLength(1));
-    expect(markerMissing.toolCalls.first.function?.name, equals('get_weather'));
+    expect(markerMissing.toolCalls, isEmpty);
+    expect(
+      markerMissing.content,
+      equals('[{"name":"get_weather","arguments":{"city":"Seoul"}}]'),
+    );
 
     final semicolon = handler.parse(
       '{"type":"function","function":"get_weather","parameters":{"city":"Seoul"}}; '

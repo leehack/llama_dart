@@ -68,7 +68,7 @@ void main() {
 
     test('parses Xiaomi MiMo tool call blocks', () {
       const output =
-          'hello<tool_call>{"name":"weather","arguments":{"city":"Seoul"}}</tool_call>';
+          'hello<tool_call>\n{"name": "weather", "arguments": {"city": "Seoul"}\n</tool_call>';
 
       final result = ChatTemplateEngine.parse(
         ChatFormat.xiaomiMimo.index,
@@ -83,7 +83,7 @@ void main() {
     test('parses Apriel 1.5 tool call arrays', () {
       const output =
           '<thinking>reasoning</thinking>'
-          '<tool_calls>[{"name":"weather","arguments":{"city":"Seoul"}}]</tool_calls>';
+          '<tool_calls>[{"name": "weather", "arguments": {"city": "Seoul"}}]</tool_calls>';
 
       final result = ChatTemplateEngine.parse(
         ChatFormat.apriel15.index,

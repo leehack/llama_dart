@@ -7,18 +7,18 @@ import 'package:test/test.dart';
 
 void main() {
   group('ChatFormat Detection', () {
-    test('treats non-strict LFM 2.5 fixture as generic', () {
+    test('treats non-strict LFM 2.5 fixture as content-only', () {
       final file = File('test/fixtures/templates/LFM2_5-1_2B-Thinking.jinja');
       final source = file.readAsStringSync();
       final format = detectChatFormat(source);
-      expect(format, equals(ChatFormat.generic));
+      expect(format, equals(ChatFormat.contentOnly));
     });
 
     test('does not detect LFM2 from keep_past_thinking marker alone', () {
       const source =
           '{%- set keep_past_thinking = true -%}<|im_start|>user\nhi<|im_end|>';
       final format = detectChatFormat(source);
-      expect(format, equals(ChatFormat.generic));
+      expect(format, equals(ChatFormat.contentOnly));
     });
 
     test('detects LFM2 from strict tool list markers', () {
@@ -28,16 +28,16 @@ void main() {
       expect(format, equals(ChatFormat.lfm2));
     });
 
-    test('falls back to generic for standard ChatML', () {
+    test('falls back to content-only for standard ChatML', () {
       const source = '<|im_start|>user\nhi<|im_end|>';
       final format = detectChatFormat(source);
-      expect(format, equals(ChatFormat.generic));
+      expect(format, equals(ChatFormat.contentOnly));
     });
 
-    test('detects Phi-style chat template as generic', () {
+    test('treats Phi-style chat template as content-only', () {
       const source = '<|user|>hi<|end|><|assistant|>';
       final format = detectChatFormat(source);
-      expect(format, equals(ChatFormat.generic));
+      expect(format, equals(ChatFormat.contentOnly));
     });
 
     test('detects GPT-OSS format', () {
@@ -99,6 +99,12 @@ void main() {
       expect(format, equals(ChatFormat.kimiK2));
     });
 
+    test('does not detect MiniMax from tool_call XML marker alone', () {
+      const source = '<minimax:tool_call><invoke name="x"></invoke>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.contentOnly));
+    });
+
     test('detects FireFunction v2 format', () {
       const source = '... functools[...';
       final format = detectChatFormat(source);
@@ -132,19 +138,26 @@ void main() {
       expect(format, equals(ChatFormat.qwen3CoderXml));
     });
 
+    test('keeps Qwen3 Coder XML detection when think tag is present', () {
+      const source =
+          '<tool_call><function><function=test><parameters><parameter=a>1</parameter></function></tool_call><think>';
+      final format = detectChatFormat(source);
+      expect(format, equals(ChatFormat.qwen3CoderXml));
+    });
+
     test('detects Granite only with thinking marker', () {
       const source = 'elif thinking ... <|tool_call|>';
       final format = detectChatFormat(source);
       expect(format, equals(ChatFormat.granite));
     });
 
-    test('detects FunctionGemma format from start_function_call marker', () {
+    test('treats start_function_call marker as Gemma in strict detection', () {
       const source =
           '<start_of_turn>user\nhi<end_of_turn><start_of_turn>model\n'
           '<start_function_call>call:get_weather{"location":"Seoul"}'
           '<end_function_call>';
       final format = detectChatFormat(source);
-      expect(format, equals(ChatFormat.functionGemma));
+      expect(format, equals(ChatFormat.gemma));
     });
 
     test('detects Ministral format before Magistral', () {
@@ -170,13 +183,13 @@ void main() {
       expect(format, equals(ChatFormat.ministral));
     });
 
-    test('prefers FunctionGemma over Gemma when both markers are present', () {
+    test('keeps Gemma detection when both markers are present', () {
       const source =
           '<start_of_turn>user\nhi<end_of_turn>'
           '<start_function_call>call:get_weather{"location":"Paris"}'
           '<end_function_call>';
       final format = detectChatFormat(source);
-      expect(format, equals(ChatFormat.functionGemma));
+      expect(format, equals(ChatFormat.gemma));
     });
   });
 }

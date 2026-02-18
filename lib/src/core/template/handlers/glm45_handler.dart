@@ -20,12 +20,10 @@ import '../thinking_utils.dart';
 /// Supports `<think>`/`</think>` for reasoning.
 class Glm45Handler extends ChatTemplateHandler {
   static final RegExp _toolCallBlockPattern = RegExp(
-    r'<tool_call>\s*([a-zA-Z0-9_]+)\s*([\s\S]*?)</tool_call>',
-    caseSensitive: false,
+    r'<tool_call>\s*([\s\S]*?)</tool_call>',
   );
   static final RegExp _argPairPattern = RegExp(
     r'<arg_key>\s*([\s\S]*?)\s*</arg_key>\s*<arg_value>\s*([\s\S]*?)\s*</arg_value>',
-    caseSensitive: false,
   );
 
   @override
@@ -78,14 +76,18 @@ class Glm45Handler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '[gMASK]<sop>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|user|>',
-      'clear_thinking': false,
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '[gMASK]<sop>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|user|>',
+        'clear_thinking': false,
+      },
+    );
 
     // Handle enableThinking post-render logic
     var thinkingForcedOpen = false;
@@ -141,16 +143,6 @@ class Glm45Handler extends ChatTemplateHandler {
       ...extractedFromContent.toolCalls,
     ];
     var contentText = extractedFromContent.remainingContent;
-
-    final reasoning = thinking.reasoning;
-    if (toolCalls.isEmpty && reasoning != null && reasoning.trim().isNotEmpty) {
-      final extractedFromReasoning = _extractToolCalls(reasoning);
-      toolCalls.addAll(extractedFromReasoning.toolCalls);
-      if (contentText.trim().isEmpty &&
-          extractedFromReasoning.remainingContent.trim().isNotEmpty) {
-        contentText = extractedFromReasoning.remainingContent;
-      }
-    }
 
     return ChatParseResult(
       content: contentText.trim(),
@@ -286,20 +278,23 @@ class Glm45Handler extends ChatTemplateHandler {
 
     final matches = _toolCallBlockPattern.allMatches(input);
     for (final match in matches) {
-      final toolName = (match.group(1) ?? '').trim();
-      if (toolName.isEmpty) {
-        continue;
-      }
-
+      final block = match.group(1) ?? '';
+      final firstArgIdx = block.indexOf('<arg_key>');
+      final toolName = firstArgIdx == -1
+          ? block.trim()
+          : block.substring(0, firstArgIdx).trim();
       final args = <String, dynamic>{};
-      final argsBlock = match.group(2) ?? '';
-      for (final argMatch in _argPairPattern.allMatches(argsBlock)) {
+      for (final argMatch in _argPairPattern.allMatches(block)) {
         final key = (argMatch.group(1) ?? '').trim();
         final rawValue = (argMatch.group(2) ?? '').trim();
         if (key.isEmpty) {
           continue;
         }
         args[key] = _decodeArgValue(rawValue);
+      }
+
+      if (toolName.isEmpty) {
+        continue;
       }
 
       final index = toolCalls.length;

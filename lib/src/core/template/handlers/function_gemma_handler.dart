@@ -76,16 +76,20 @@ class FunctionGemmaHandler extends ChatTemplateHandler {
     required bool multimodalContent,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': _serializeMessages(
-        messages,
-        multimodalContent: multimodalContent,
-      ),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<bos>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<eos>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': _serializeMessages(
+          messages,
+          multimodalContent: multimodalContent,
+        ),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<bos>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<eos>',
+      },
+    );
 
     if (multimodalContent) {
       prompt = prompt.replaceAll('<start_of_image>', '<__media__>');

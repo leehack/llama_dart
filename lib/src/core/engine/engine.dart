@@ -15,6 +15,27 @@ import '../models/inference/generation_params.dart';
 import '../models/inference/tool_choice.dart';
 import '../models/tools/tool_definition.dart';
 
+enum _ToolStreamingMode { undecided, raw, parsed }
+
+class _ThinkingSplitEmission {
+  final String text;
+  final bool isThinking;
+
+  const _ThinkingSplitEmission({required this.text, required this.isThinking});
+}
+
+class _ThinkingSplitResult {
+  final String pendingBuffer;
+  final bool isThinking;
+  final List<_ThinkingSplitEmission> emissions;
+
+  const _ThinkingSplitResult({
+    required this.pendingBuffer,
+    required this.isThinking,
+    required this.emissions,
+  });
+}
+
 /// Stateless chat completions engine (like OpenAI's Chat Completions API).
 ///
 /// [LlamaEngine] is the primary API for chat-based inference. Each call to
@@ -262,9 +283,16 @@ class LlamaEngine {
   /// - [ToolChoice.auto]: Model can choose (default when tools present)
   /// - [ToolChoice.required]: Model must call at least one tool
   ///
+  /// Set [parallelToolCalls] to allow multiple tool calls in one response for
+  /// templates that support it.
+  ///
   /// For TranslateGemma-style templates, set [sourceLangCode] and
   /// [targetLangCode] to control language metadata injected into user
   /// content blocks.
+  ///
+  /// Use [chatTemplateKwargs] to inject additional template globals (equivalent
+  /// to llama.cpp `chat_template_kwargs`).
+  /// Use [templateNow] to set deterministic template time context.
   ///
   /// Example:
   /// ```dart
@@ -280,22 +308,28 @@ class LlamaEngine {
     GenerationParams? params,
     List<ToolDefinition>? tools,
     ToolChoice? toolChoice,
+    bool parallelToolCalls = false,
     String? sourceLangCode,
     String? targetLangCode,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? templateNow,
   }) async* {
     _ensureReady();
 
-    // Build messages with tool system prompt if tools provided
-    // Skip tool injection if toolChoice is none
-    final effectiveTools = toolChoice == ToolChoice.none ? null : tools;
+    // Keep tools available to template routing even with toolChoice.none,
+    // matching llama.cpp behavior.
+    final effectiveTools = tools;
 
     // Apply chat template with tools - returns grammar for constraining
     final result = await chatTemplate(
       messages,
       tools: effectiveTools,
       toolChoice: toolChoice ?? ToolChoice.auto,
+      parallelToolCalls: parallelToolCalls,
       sourceLangCode: sourceLangCode,
       targetLangCode: targetLangCode,
+      chatTemplateKwargs: chatTemplateKwargs,
+      templateNow: templateNow,
     );
     final stops = {...result.stopSequences, ...?params?.stopSequences}.toList();
 
@@ -310,9 +344,6 @@ class LlamaEngine {
     );
     LlamaLogger.instance.debug(
       '  Thinking forced open: ${result.thinkingForcedOpen}',
-    );
-    LlamaLogger.instance.debug(
-      '  Handler ID: ${result.handlerId ?? '(builtin)'}',
     );
 
     // Collect media parts from all messages
@@ -357,94 +388,66 @@ class LlamaEngine {
     // Parse the tokens into structured chunks using the detected format
     final completionId = DateTime.now().millisecondsSinceEpoch.toString();
     final buffer = StringBuffer();
-
-    final thinkingTags = ChatTemplateEngine.thinkingTagsFor(
-      result.format,
-      handlerId: result.handlerId,
-    );
+    final parseToolCallsEnabled =
+        effectiveTools != null &&
+        effectiveTools.isNotEmpty &&
+        (toolChoice ?? ToolChoice.auto) != ToolChoice.none;
+    var streamedContent = '';
+    var streamedReasoning = '';
+    const structuredPartialParseInterval = 8;
+    const plainPartialParseProbeInterval = 4;
+    var tokensSincePartialParse = 0;
+    var sawStructuredOutputSignal = false;
+    var didInitialPartialParse = false;
+    var streamingMode = _ToolStreamingMode.undecided;
+    var undecidedPrefix = '';
+    final thinkingTags = ChatTemplateEngine.thinkingTagsFor(result.format);
     final startTag = thinkingTags.startTag;
     final endTag = thinkingTags.endTag;
-
     var isThinking = result.thinkingForcedOpen;
     var pendingBuffer = '';
 
-    await for (final token in tokenStream) {
-      buffer.write(token);
-      pendingBuffer += token;
+    if (parseToolCallsEnabled) {
+      await for (final token in tokenStream) {
+        buffer.write(token);
 
-      while (pendingBuffer.isNotEmpty) {
-        if (!isThinking) {
-          final startIdx = pendingBuffer.indexOf(startTag);
-          final endIdx = pendingBuffer.indexOf(endTag);
-
-          if (startIdx != -1 && (endIdx == -1 || startIdx < endIdx)) {
-            // Found start tag (and it's first)
-            final before = pendingBuffer.substring(0, startIdx);
-            if (before.isNotEmpty) {
-              yield LlamaCompletionChunk(
-                id: 'chatcmpl-$completionId',
-                object: 'chat.completion.chunk',
-                created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                model: _modelPath ?? 'llama_model',
-                choices: [
-                  LlamaCompletionChunkChoice(
-                    index: 0,
-                    delta: LlamaCompletionChunkDelta(content: before),
-                  ),
-                ],
-              );
-            }
-            isThinking = true;
-            pendingBuffer = pendingBuffer.substring(startIdx + startTag.length);
-            continue;
-          } else if (endIdx != -1) {
-            // Found end tag unexpectedly (missed start tag)
-            final reasoning = pendingBuffer.substring(0, endIdx);
-            if (reasoning.isNotEmpty) {
-              yield LlamaCompletionChunk(
-                id: 'chatcmpl-$completionId',
-                object: 'chat.completion.chunk',
-                created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                model: _modelPath ?? 'llama_model',
-                choices: [
-                  LlamaCompletionChunkChoice(
-                    index: 0,
-                    delta: LlamaCompletionChunkDelta(thinking: reasoning),
-                  ),
-                ],
-              );
-            }
-            isThinking = false;
-            pendingBuffer = pendingBuffer.substring(endIdx + endTag.length);
+        if (streamingMode == _ToolStreamingMode.undecided) {
+          undecidedPrefix += token;
+          final mode = _decideToolStreamingMode(undecidedPrefix);
+          if (mode == _ToolStreamingMode.undecided) {
             continue;
           }
-          // Check if buffer ends with a partial start tag
-          var potentialMatch = false;
-          for (var i = startTag.length - 1; i >= 1; i--) {
-            if (pendingBuffer.endsWith(startTag.substring(0, i))) {
-              final emitIdx = pendingBuffer.length - i;
-              if (emitIdx > 0) {
-                yield LlamaCompletionChunk(
-                  id: 'chatcmpl-$completionId',
-                  object: 'chat.completion.chunk',
-                  created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                  model: _modelPath ?? 'llama_model',
-                  choices: [
-                    LlamaCompletionChunkChoice(
-                      index: 0,
-                      delta: LlamaCompletionChunkDelta(
-                        content: pendingBuffer.substring(0, emitIdx),
-                      ),
-                    ),
-                  ],
-                );
-                pendingBuffer = pendingBuffer.substring(emitIdx);
-              }
-              potentialMatch = true;
-              break;
-            }
+
+          if (mode == _ToolStreamingMode.raw) {
+            streamingMode = _ToolStreamingMode.raw;
+          } else {
+            streamingMode = _ToolStreamingMode.parsed;
+            undecidedPrefix = '';
           }
-          if (!potentialMatch) {
+        }
+
+        if (streamingMode == _ToolStreamingMode.raw) {
+          if (undecidedPrefix.isNotEmpty) {
+            pendingBuffer += undecidedPrefix;
+            undecidedPrefix = '';
+          } else if (token.isNotEmpty) {
+            pendingBuffer += token;
+          }
+
+          final split = _splitThinkingBuffer(
+            pendingBuffer: pendingBuffer,
+            isThinking: isThinking,
+            startTag: startTag,
+            endTag: endTag,
+          );
+          pendingBuffer = split.pendingBuffer;
+          isThinking = split.isThinking;
+          for (final emission in split.emissions) {
+            if (emission.isThinking) {
+              streamedReasoning += emission.text;
+            } else {
+              streamedContent += emission.text;
+            }
             yield LlamaCompletionChunk(
               id: 'chatcmpl-$completionId',
               object: 'chat.completion.chunk',
@@ -453,19 +456,48 @@ class LlamaEngine {
               choices: [
                 LlamaCompletionChunkChoice(
                   index: 0,
-                  delta: LlamaCompletionChunkDelta(content: pendingBuffer),
+                  delta: emission.isThinking
+                      ? LlamaCompletionChunkDelta(thinking: emission.text)
+                      : LlamaCompletionChunkDelta(content: emission.text),
                 ),
               ],
             );
-            pendingBuffer = '';
           }
-          break;
-        } else {
-          final endIdx = pendingBuffer.indexOf(endTag);
-          if (endIdx != -1) {
-            // Found end tag
-            final reasoning = pendingBuffer.substring(0, endIdx);
-            if (reasoning.isNotEmpty) {
+          continue;
+        }
+
+        tokensSincePartialParse++;
+        final tokenHasSignal = _mayNeedStructuredPartialParse(token);
+        if (tokenHasSignal) {
+          sawStructuredOutputSignal = true;
+        }
+        final shouldRunPartialParse =
+            tokenHasSignal ||
+            !didInitialPartialParse ||
+            (sawStructuredOutputSignal &&
+                tokensSincePartialParse >= structuredPartialParseInterval) ||
+            (!sawStructuredOutputSignal &&
+                tokensSincePartialParse >= plainPartialParseProbeInterval);
+        if (!shouldRunPartialParse) {
+          continue;
+        }
+        didInitialPartialParse = true;
+        tokensSincePartialParse = 0;
+
+        try {
+          final partialParsed = ChatTemplateEngine.parse(
+            result.format,
+            buffer.toString(),
+            isPartial: true,
+            parseToolCalls: true,
+            thinkingForcedOpen: result.thinkingForcedOpen,
+            parser: result.parser,
+          );
+
+          final partialReasoning = partialParsed.reasoningContent ?? '';
+          if (partialReasoning.length > streamedReasoning.length) {
+            final delta = partialReasoning.substring(streamedReasoning.length);
+            if (delta.isNotEmpty) {
               yield LlamaCompletionChunk(
                 id: 'chatcmpl-$completionId',
                 object: 'chat.completion.chunk',
@@ -474,77 +506,132 @@ class LlamaEngine {
                 choices: [
                   LlamaCompletionChunkChoice(
                     index: 0,
-                    delta: LlamaCompletionChunkDelta(thinking: reasoning),
+                    delta: LlamaCompletionChunkDelta(thinking: delta),
                   ),
                 ],
               );
             }
-            isThinking = false;
-            pendingBuffer = pendingBuffer.substring(endIdx + endTag.length);
-            continue;
           }
-          // Check if buffer ends with a partial end tag
-          var potentialMatch = false;
-          for (var i = endTag.length - 1; i >= 1; i--) {
-            if (pendingBuffer.endsWith(endTag.substring(0, i))) {
-              final emitIdx = pendingBuffer.length - i;
-              if (emitIdx > 0) {
-                yield LlamaCompletionChunk(
-                  id: 'chatcmpl-$completionId',
-                  object: 'chat.completion.chunk',
-                  created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                  model: _modelPath ?? 'llama_model',
-                  choices: [
-                    LlamaCompletionChunkChoice(
-                      index: 0,
-                      delta: LlamaCompletionChunkDelta(
-                        thinking: pendingBuffer.substring(0, emitIdx),
-                      ),
-                    ),
-                  ],
-                );
-                pendingBuffer = pendingBuffer.substring(emitIdx);
-              }
-              potentialMatch = true;
-              break;
+
+          if (partialParsed.content.length > streamedContent.length) {
+            final delta = partialParsed.content.substring(
+              streamedContent.length,
+            );
+            if (delta.isNotEmpty) {
+              yield LlamaCompletionChunk(
+                id: 'chatcmpl-$completionId',
+                object: 'chat.completion.chunk',
+                created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                model: _modelPath ?? 'llama_model',
+                choices: [
+                  LlamaCompletionChunkChoice(
+                    index: 0,
+                    delta: LlamaCompletionChunkDelta(content: delta),
+                  ),
+                ],
+              );
             }
           }
-          if (!potentialMatch) {
-            yield LlamaCompletionChunk(
-              id: 'chatcmpl-$completionId',
-              object: 'chat.completion.chunk',
-              created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-              model: _modelPath ?? 'llama_model',
-              choices: [
-                LlamaCompletionChunkChoice(
-                  index: 0,
-                  delta: LlamaCompletionChunkDelta(thinking: pendingBuffer),
-                ),
-              ],
-            );
-            pendingBuffer = '';
+
+          if (partialReasoning.length >= streamedReasoning.length) {
+            streamedReasoning = partialReasoning;
           }
-          break;
+          if (partialParsed.content.length >= streamedContent.length) {
+            streamedContent = partialParsed.content;
+          }
+        } catch (_) {
+          // Partial parser failures are expected during incremental generation.
+          // Keep buffering and let the final parse determine structured output.
         }
       }
-    }
 
-    // Final flush of any pending buffer
-    if (pendingBuffer.isNotEmpty) {
-      yield LlamaCompletionChunk(
-        id: 'chatcmpl-$completionId',
-        object: 'chat.completion.chunk',
-        created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        model: _modelPath ?? 'llama_model',
-        choices: [
-          LlamaCompletionChunkChoice(
-            index: 0,
-            delta: isThinking
-                ? LlamaCompletionChunkDelta(thinking: pendingBuffer)
-                : LlamaCompletionChunkDelta(content: pendingBuffer),
-          ),
-        ],
-      );
+      // Preserve raw output for whitespace-only replies where routing mode
+      // never resolved (no non-whitespace token observed).
+      if (streamingMode == _ToolStreamingMode.undecided &&
+          undecidedPrefix.isNotEmpty) {
+        streamedContent += undecidedPrefix;
+        yield LlamaCompletionChunk(
+          id: 'chatcmpl-$completionId',
+          object: 'chat.completion.chunk',
+          created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          model: _modelPath ?? 'llama_model',
+          choices: [
+            LlamaCompletionChunkChoice(
+              index: 0,
+              delta: LlamaCompletionChunkDelta(content: undecidedPrefix),
+            ),
+          ],
+        );
+      }
+
+      if (streamingMode == _ToolStreamingMode.raw && pendingBuffer.isNotEmpty) {
+        if (isThinking) {
+          streamedReasoning += pendingBuffer;
+        } else {
+          streamedContent += pendingBuffer;
+        }
+        yield LlamaCompletionChunk(
+          id: 'chatcmpl-$completionId',
+          object: 'chat.completion.chunk',
+          created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          model: _modelPath ?? 'llama_model',
+          choices: [
+            LlamaCompletionChunkChoice(
+              index: 0,
+              delta: isThinking
+                  ? LlamaCompletionChunkDelta(thinking: pendingBuffer)
+                  : LlamaCompletionChunkDelta(content: pendingBuffer),
+            ),
+          ],
+        );
+      }
+    } else {
+      await for (final token in tokenStream) {
+        buffer.write(token);
+        pendingBuffer += token;
+        final split = _splitThinkingBuffer(
+          pendingBuffer: pendingBuffer,
+          isThinking: isThinking,
+          startTag: startTag,
+          endTag: endTag,
+        );
+        pendingBuffer = split.pendingBuffer;
+        isThinking = split.isThinking;
+        for (final emission in split.emissions) {
+          yield LlamaCompletionChunk(
+            id: 'chatcmpl-$completionId',
+            object: 'chat.completion.chunk',
+            created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            model: _modelPath ?? 'llama_model',
+            choices: [
+              LlamaCompletionChunkChoice(
+                index: 0,
+                delta: emission.isThinking
+                    ? LlamaCompletionChunkDelta(thinking: emission.text)
+                    : LlamaCompletionChunkDelta(content: emission.text),
+              ),
+            ],
+          );
+        }
+      }
+
+      // Final flush of any pending buffer
+      if (pendingBuffer.isNotEmpty) {
+        yield LlamaCompletionChunk(
+          id: 'chatcmpl-$completionId',
+          object: 'chat.completion.chunk',
+          created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          model: _modelPath ?? 'llama_model',
+          choices: [
+            LlamaCompletionChunkChoice(
+              index: 0,
+              delta: isThinking
+                  ? LlamaCompletionChunkDelta(thinking: pendingBuffer)
+                  : LlamaCompletionChunkDelta(content: pendingBuffer),
+            ),
+          ],
+        );
+      }
     }
 
     // After generation completes, parse the full output for tool calls
@@ -552,9 +639,53 @@ class LlamaEngine {
     final parsed = ChatTemplateEngine.parse(
       result.format,
       fullOutput,
+      parseToolCalls: parseToolCallsEnabled,
       thinkingForcedOpen: result.thinkingForcedOpen,
-      handlerId: result.handlerId,
+      parser: result.parser,
     );
+
+    if (parseToolCallsEnabled) {
+      final finalReasoning = parsed.reasoningContent ?? '';
+      final reasoningDelta = _computeFinalReconciliationDelta(
+        streamedValue: streamedReasoning,
+        finalValue: finalReasoning,
+        channel: 'thinking',
+      );
+      if (reasoningDelta != null && reasoningDelta.isNotEmpty) {
+        yield LlamaCompletionChunk(
+          id: 'chatcmpl-$completionId',
+          object: 'chat.completion.chunk',
+          created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          model: _modelPath ?? 'llama_model',
+          choices: [
+            LlamaCompletionChunkChoice(
+              index: 0,
+              delta: LlamaCompletionChunkDelta(thinking: reasoningDelta),
+            ),
+          ],
+        );
+      }
+
+      final contentDelta = _computeFinalReconciliationDelta(
+        streamedValue: streamedContent,
+        finalValue: parsed.content,
+        channel: 'content',
+      );
+      if (contentDelta != null && contentDelta.isNotEmpty) {
+        yield LlamaCompletionChunk(
+          id: 'chatcmpl-$completionId',
+          object: 'chat.completion.chunk',
+          created: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          model: _modelPath ?? 'llama_model',
+          choices: [
+            LlamaCompletionChunkChoice(
+              index: 0,
+              delta: LlamaCompletionChunkDelta(content: contentDelta),
+            ),
+          ],
+        );
+      }
+    }
 
     LlamaLogger.instance.debug('Parsed result: $parsed');
     if (parsed.hasToolCalls) {
@@ -571,6 +702,20 @@ class LlamaEngine {
     }
 
     if (parsed.hasToolCalls) {
+      final toolCallsWithIds = parsed.toolCalls
+          .asMap()
+          .entries
+          .map(
+            (entry) => LlamaCompletionChunkToolCall(
+              index: entry.value.index,
+              id: (entry.value.id == null || entry.value.id!.isEmpty)
+                  ? 'call_${entry.key}'
+                  : entry.value.id,
+              type: entry.value.type,
+              function: entry.value.function,
+            ),
+          )
+          .toList(growable: false);
       // Emit a final chunk with tool calls
       yield LlamaCompletionChunk(
         id: 'chatcmpl-$completionId',
@@ -580,7 +725,7 @@ class LlamaEngine {
         choices: [
           LlamaCompletionChunkChoice(
             index: 0,
-            delta: LlamaCompletionChunkDelta(toolCalls: parsed.toolCalls),
+            delta: LlamaCompletionChunkDelta(toolCalls: toolCallsWithIds),
             finishReason: 'tool_calls',
           ),
         ],
@@ -608,23 +753,30 @@ class LlamaEngine {
   /// This is useful for preparing messages before calling [generate] directly,
   /// or for inspecting the formatted prompt for debugging purposes.
   ///
-  /// Pass [customTemplate] or [customHandlerId] to override default routing.
+  /// Pass [customTemplate] to override default routing.
   /// Pass [responseFormat] or legacy [jsonSchema] to request structured output
   /// grammar generation.
   ///
   /// For TranslateGemma-style templates, [sourceLangCode] and
   /// [targetLangCode] are forwarded to the template renderer.
+  ///
+  /// Use [chatTemplateKwargs] to inject additional template globals (equivalent
+  /// to llama.cpp `chat_template_kwargs`).
+  /// Use [templateNow] to set deterministic template time context.
+  ///
   Future<LlamaChatTemplateResult> chatTemplate(
     List<LlamaChatMessage> messages, {
     bool addAssistant = true,
     Map<String, dynamic>? jsonSchema,
     List<ToolDefinition>? tools,
     ToolChoice toolChoice = ToolChoice.auto,
+    bool parallelToolCalls = false,
     Map<String, dynamic>? responseFormat,
     String? customTemplate,
-    String? customHandlerId,
     String? sourceLangCode,
     String? targetLangCode,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? templateNow,
   }) async {
     _ensureReady(requireContext: false);
 
@@ -666,9 +818,11 @@ class LlamaEngine {
         addAssistant: addAssistant,
         tools: tools,
         toolChoice: toolChoice,
+        parallelToolCalls: parallelToolCalls,
         responseFormat: effectiveResponseFormat,
         customTemplate: customTemplate,
-        customHandlerId: customHandlerId,
+        chatTemplateKwargs: chatTemplateKwargs,
+        now: templateNow,
       );
 
       final tokens = await tokenize(result.prompt);
@@ -683,18 +837,9 @@ class LlamaEngine {
         preservedTokens: result.preservedTokens,
         parser: result.parser,
         tokenCount: tokens.length,
-        handlerId: result.handlerId,
       );
-    } catch (e) {
-      LlamaLogger.instance.warning('ChatTemplateEngine.render failed: $e');
-
-      // Ultimate fallback: simple concatenation
-      var prompt = messages.map((m) => m.content).join('\n');
-      if (addAssistant) {
-        prompt += '\nAssistant:';
-      }
-      final tokens = await tokenize(prompt);
-      return LlamaChatTemplateResult(prompt: prompt, tokenCount: tokens.length);
+    } catch (_) {
+      rethrow;
     }
   }
 
@@ -838,6 +983,305 @@ class LlamaEngine {
   // ============================================================
   // INTERNAL HELPERS
   // ============================================================
+
+  bool _mayNeedStructuredPartialParse(String token) {
+    for (var i = 0; i < token.length; i++) {
+      switch (token.codeUnitAt(i)) {
+        case 0x22: // "
+        case 0x2C: // ,
+        case 0x3A: // :
+        case 0x3C: // <
+        case 0x3E: // >
+        case 0x5B: // [
+        case 0x5C: // \
+        case 0x5D: // ]
+        case 0x7B: // {
+        case 0x7D: // }
+          return true;
+      }
+    }
+    return false;
+  }
+
+  int? _firstNonWhitespaceIndex(String value) {
+    for (var i = 0; i < value.length; i++) {
+      if (!_isWhitespaceCodeUnit(value.codeUnitAt(i))) {
+        return i;
+      }
+    }
+    return null;
+  }
+
+  _ToolStreamingMode _decideToolStreamingMode(String value) {
+    const maxProbeChars = 256;
+    final start = _firstNonWhitespaceIndex(value);
+    if (start == null) {
+      return _ToolStreamingMode.undecided;
+    }
+
+    final trimmed = value.substring(start);
+    if (trimmed.isEmpty) {
+      return _ToolStreamingMode.undecided;
+    }
+
+    final first = trimmed.codeUnitAt(0);
+    _ToolStreamingMode mode;
+    if (first == 0x7B) {
+      mode = _decideJsonEnvelopeMode(trimmed);
+    } else if (first == 0x3C) {
+      mode = _decideXmlEnvelopeMode(trimmed);
+    } else if (first == 0x5B) {
+      mode = _decideBracketEnvelopeMode(trimmed);
+    } else {
+      mode = _ToolStreamingMode.raw;
+    }
+
+    if (mode == _ToolStreamingMode.undecided &&
+        trimmed.length >= maxProbeChars) {
+      return _ToolStreamingMode.raw;
+    }
+
+    return mode;
+  }
+
+  _ToolStreamingMode _decideJsonEnvelopeMode(String text) {
+    var i = 1;
+    while (i < text.length && _isWhitespaceCodeUnit(text.codeUnitAt(i))) {
+      i++;
+    }
+
+    if (i >= text.length) {
+      return _ToolStreamingMode.undecided;
+    }
+
+    if (text.codeUnitAt(i) != 0x22) {
+      return _ToolStreamingMode.raw;
+    }
+
+    i++;
+    final keyStart = i;
+    while (i < text.length) {
+      final ch = text.codeUnitAt(i);
+      if (ch == 0x22) {
+        final key = text.substring(keyStart, i);
+        return _isGenericEnvelopeKey(key)
+            ? _ToolStreamingMode.parsed
+            : _ToolStreamingMode.raw;
+      }
+      if (ch == 0x5C) {
+        if (i + 1 >= text.length) {
+          return _ToolStreamingMode.undecided;
+        }
+        i += 2;
+        continue;
+      }
+      i++;
+    }
+
+    return _ToolStreamingMode.undecided;
+  }
+
+  bool _isGenericEnvelopeKey(String key) {
+    return key == 'tool_call' || key == 'tool_calls' || key == 'response';
+  }
+
+  _ToolStreamingMode _decideBracketEnvelopeMode(String text) {
+    const marker = '[TOOL_CALLS]';
+    final upper = text.toUpperCase();
+    if (upper.startsWith(marker)) {
+      return _ToolStreamingMode.parsed;
+    }
+    if (marker.startsWith(upper)) {
+      return _ToolStreamingMode.undecided;
+    }
+    return _ToolStreamingMode.raw;
+  }
+
+  _ToolStreamingMode _decideXmlEnvelopeMode(String text) {
+    final lower = text.toLowerCase();
+    const parsedPrefixes = <String>[
+      '<tool_call',
+      '<tool_calls',
+      '<function',
+      '<function_call',
+      '<start_function_call',
+      '<|python_tag|>',
+      '<tool_response',
+    ];
+
+    for (final prefix in parsedPrefixes) {
+      if (lower.startsWith(prefix)) {
+        return _ToolStreamingMode.parsed;
+      }
+      if (prefix.startsWith(lower)) {
+        return _ToolStreamingMode.undecided;
+      }
+    }
+
+    final tagNameMatch = RegExp(
+      r'^<\s*/?\s*([a-zA-Z_][a-zA-Z0-9_:-]*)',
+    ).firstMatch(lower);
+    if (tagNameMatch != null) {
+      final tagName = tagNameMatch.group(1);
+      if (tagName == 'tool_call' ||
+          tagName == 'tool_calls' ||
+          tagName == 'function' ||
+          tagName == 'function_call' ||
+          tagName == 'start_function_call' ||
+          tagName == 'tool_response') {
+        return _ToolStreamingMode.parsed;
+      }
+      return _ToolStreamingMode.raw;
+    }
+
+    if (RegExp(r'^<\s*/?\s*[a-zA-Z_][a-zA-Z0-9_:-]*$').hasMatch(lower)) {
+      return _ToolStreamingMode.undecided;
+    }
+
+    return _ToolStreamingMode.raw;
+  }
+
+  _ThinkingSplitResult _splitThinkingBuffer({
+    required String pendingBuffer,
+    required bool isThinking,
+    required String startTag,
+    required String endTag,
+  }) {
+    final emissions = <_ThinkingSplitEmission>[];
+    var localPendingBuffer = pendingBuffer;
+    var localIsThinking = isThinking;
+
+    while (localPendingBuffer.isNotEmpty) {
+      if (!localIsThinking) {
+        final startIdx = localPendingBuffer.indexOf(startTag);
+        final endIdx = localPendingBuffer.indexOf(endTag);
+
+        if (startIdx != -1 && (endIdx == -1 || startIdx < endIdx)) {
+          final before = localPendingBuffer.substring(0, startIdx);
+          if (before.isNotEmpty) {
+            emissions.add(
+              _ThinkingSplitEmission(text: before, isThinking: false),
+            );
+          }
+          localIsThinking = true;
+          localPendingBuffer = localPendingBuffer.substring(
+            startIdx + startTag.length,
+          );
+          continue;
+        } else if (endIdx != -1) {
+          final reasoning = localPendingBuffer.substring(0, endIdx);
+          if (reasoning.isNotEmpty) {
+            emissions.add(
+              _ThinkingSplitEmission(text: reasoning, isThinking: true),
+            );
+          }
+          localIsThinking = false;
+          localPendingBuffer = localPendingBuffer.substring(
+            endIdx + endTag.length,
+          );
+          continue;
+        }
+
+        var potentialMatch = false;
+        for (var i = startTag.length - 1; i >= 1; i--) {
+          if (localPendingBuffer.endsWith(startTag.substring(0, i))) {
+            final emitIdx = localPendingBuffer.length - i;
+            if (emitIdx > 0) {
+              emissions.add(
+                _ThinkingSplitEmission(
+                  text: localPendingBuffer.substring(0, emitIdx),
+                  isThinking: false,
+                ),
+              );
+              localPendingBuffer = localPendingBuffer.substring(emitIdx);
+            }
+            potentialMatch = true;
+            break;
+          }
+        }
+        if (!potentialMatch) {
+          emissions.add(
+            _ThinkingSplitEmission(text: localPendingBuffer, isThinking: false),
+          );
+          localPendingBuffer = '';
+        }
+        break;
+      }
+
+      final endIdx = localPendingBuffer.indexOf(endTag);
+      if (endIdx != -1) {
+        final reasoning = localPendingBuffer.substring(0, endIdx);
+        if (reasoning.isNotEmpty) {
+          emissions.add(
+            _ThinkingSplitEmission(text: reasoning, isThinking: true),
+          );
+        }
+        localIsThinking = false;
+        localPendingBuffer = localPendingBuffer.substring(
+          endIdx + endTag.length,
+        );
+        continue;
+      }
+
+      var potentialMatch = false;
+      for (var i = endTag.length - 1; i >= 1; i--) {
+        if (localPendingBuffer.endsWith(endTag.substring(0, i))) {
+          final emitIdx = localPendingBuffer.length - i;
+          if (emitIdx > 0) {
+            emissions.add(
+              _ThinkingSplitEmission(
+                text: localPendingBuffer.substring(0, emitIdx),
+                isThinking: true,
+              ),
+            );
+            localPendingBuffer = localPendingBuffer.substring(emitIdx);
+          }
+          potentialMatch = true;
+          break;
+        }
+      }
+      if (!potentialMatch) {
+        emissions.add(
+          _ThinkingSplitEmission(text: localPendingBuffer, isThinking: true),
+        );
+        localPendingBuffer = '';
+      }
+      break;
+    }
+
+    return _ThinkingSplitResult(
+      pendingBuffer: localPendingBuffer,
+      isThinking: localIsThinking,
+      emissions: emissions,
+    );
+  }
+
+  String? _computeFinalReconciliationDelta({
+    required String streamedValue,
+    required String finalValue,
+    required String channel,
+  }) {
+    if (finalValue.length <= streamedValue.length) {
+      return null;
+    }
+
+    if (!finalValue.startsWith(streamedValue)) {
+      LlamaLogger.instance.warning(
+        'Skipping final $channel delta due to prefix mismatch '
+        '(streamed=${streamedValue.length}, final=${finalValue.length})',
+      );
+      return null;
+    }
+
+    return finalValue.substring(streamedValue.length);
+  }
+
+  bool _isWhitespaceCodeUnit(int codeUnit) {
+    return codeUnit == 0x20 || // space
+        codeUnit == 0x09 || // \t
+        codeUnit == 0x0A || // \n
+        codeUnit == 0x0D; // \r
+  }
 
   /// Validates engine is ready for inference.
   void _ensureReady({bool requireContext = true}) {

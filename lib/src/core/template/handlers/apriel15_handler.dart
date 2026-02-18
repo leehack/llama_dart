@@ -1,16 +1,13 @@
-import 'dart:convert';
-
 import 'package:dinja/dinja.dart';
 
 import '../../models/chat/chat_message.dart';
 import '../../models/chat/chat_template_result.dart';
-import '../../models/chat/completion_chunk.dart';
 import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
 import '../thinking_utils.dart';
-import '../tool_call_grammar_utils.dart';
+import '../xml_tool_call_format.dart';
 
 /// Handler for Apriel 1.5 format.
 ///
@@ -47,13 +44,17 @@ class Apriel15Handler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<s>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '</s>',
+      },
+    );
 
     var thinkingForcedOpen = false;
     if (isThinkingForcedOpen(prompt, startTag: thinkingStartTag)) {
@@ -89,87 +90,22 @@ class Apriel15Handler extends ChatTemplateHandler {
     bool parseToolCalls = true,
     bool thinkingForcedOpen = false,
   }) {
-    final thinking = extractThinking(
+    final parsed = parseXmlToolCalls(
       output,
-      thinkingForcedOpen: thinkingForcedOpen,
-      startTag: thinkingStartTag,
-      endTag: thinkingEndTag,
+      XmlToolCallFormat.apriel15,
+      startThink: thinkingStartTag,
+      endThink: thinkingEndTag,
+      parseToolCalls: parseToolCalls,
     );
-    final text = thinking.content;
-
-    if (!parseToolCalls) {
-      return ChatParseResult(
-        content: text.trim(),
-        reasoningContent: thinking.reasoning,
-      );
-    }
-
-    final toolCalls = <LlamaCompletionChunkToolCall>[];
-    var contentText = text;
-
-    final regex = RegExp(
-      r'<tool_calls>\s*(\[.*?\])\s*</tool_calls>',
-      dotAll: true,
-    );
-
-    final matches = regex.allMatches(text);
-    for (final match in matches) {
-      final payload = match.group(1);
-      if (payload == null) {
-        continue;
-      }
-
-      try {
-        final decoded = jsonDecode(payload);
-        if (decoded is! List) {
-          continue;
-        }
-
-        for (var i = 0; i < decoded.length; i++) {
-          final call = decoded[i];
-          if (call is! Map) {
-            continue;
-          }
-          final mapped = Map<String, dynamic>.from(call);
-          final name = mapped['name'] as String?;
-          if (name == null || name.isEmpty) {
-            continue;
-          }
-          final arguments = mapped['arguments'];
-          toolCalls.add(
-            LlamaCompletionChunkToolCall(
-              index: toolCalls.length,
-              id: mapped['id'] as String?,
-              type: (mapped['type'] as String?) ?? 'function',
-              function: LlamaCompletionChunkFunction(
-                name: name,
-                arguments: arguments is String
-                    ? arguments
-                    : jsonEncode(arguments ?? <String, dynamic>{}),
-              ),
-            ),
-          );
-        }
-
-        contentText = contentText.replaceFirst(match.group(0)!, '');
-      } catch (_) {
-        // Keep malformed block in content.
-      }
-    }
-
     return ChatParseResult(
-      content: contentText.trim(),
-      reasoningContent: thinking.reasoning,
-      toolCalls: toolCalls,
+      content: parsed.content.trim(),
+      reasoningContent: parsed.reasoningContent,
+      toolCalls: parsed.toolCalls,
     );
   }
 
   @override
   String? buildGrammar(List<ToolDefinition>? tools) {
-    return ToolCallGrammarUtils.buildWrappedArrayGrammar(
-      tools: tools,
-      prefix: '<tool_calls>',
-      suffix: '</tool_calls>',
-    );
+    return buildXmlToolCallGrammar(tools, XmlToolCallFormat.apriel15);
   }
 }

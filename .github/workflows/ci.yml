@@ -62,7 +62,7 @@ jobs:
         run: dart pub global activate coverage
 
       - name: Run VM tests (with coverage)
-        run: dart test -p vm --exclude-tags local-only --coverage=coverage
+        run: dart test -p vm -j 1 --exclude-tags local-only --coverage=coverage
 
       - name: Run Browser tests
         run: dart test -p chrome --exclude-tags local-only

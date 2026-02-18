@@ -5,6 +5,9 @@ import '../models/tools/tool_definition.dart';
 class ToolCallGrammarUtils {
   const ToolCallGrammarUtils._();
 
+  /// Escapes [value] as a grammar string literal.
+  static String literal(String value) => _literal(value);
+
   /// Builds a grammar for an array of tool calls and wraps it with literals.
   static String? buildWrappedArrayGrammar({
     required List<ToolDefinition>? tools,
@@ -79,8 +82,8 @@ class ToolCallGrammarUtils {
     }
 
     final rootExpr = lines[rootIndex].substring('root ::= '.length).trim();
-    final prefixExpr = prefix.isEmpty ? '' : '${_literal(prefix)} ';
-    final suffixExpr = suffix.isEmpty ? '' : ' ${_literal(suffix)}';
+    final prefixExpr = prefix.isEmpty ? '' : '${literal(prefix)} ';
+    final suffixExpr = suffix.isEmpty ? '' : ' ${literal(suffix)}';
     lines[rootIndex] = 'root ::= $prefixExpr$rootExpr$suffixExpr';
 
     return '${lines.join('\n')}\n';

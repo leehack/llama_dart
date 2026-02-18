@@ -14,6 +14,8 @@ class MockLlamaBackend implements LlamaBackend {
   double? lastLoraScale;
   int modelLoadCalls = 0;
   int modelLoadFromUrlCalls = 0;
+  String generationText = 'response';
+  List<String>? generationChunks;
   final String backendName;
   final bool urlLoadingSupported;
 
@@ -57,7 +59,13 @@ class MockLlamaBackend implements LlamaBackend {
     GenerationParams params, {
     List<LlamaContentPart>? parts,
   }) async* {
-    yield utf8.encode('response');
+    if (generationChunks != null) {
+      for (final chunk in generationChunks!) {
+        yield utf8.encode(chunk);
+      }
+      return;
+    }
+    yield utf8.encode(generationText);
   }
 
   @override
@@ -233,6 +241,434 @@ void main() {
       expect(result.prompt, '<s>user: hiassistant: ');
       expect(result.tokenCount, 3);
     });
+
+    test('create disables tool-call parsing when toolChoice is none', () async {
+      backend.generationText =
+          '{"tool_call":{"name":"get_weather","arguments":{"city":"Seoul"}}}';
+      await engine.loadModel('qwen-test.gguf');
+
+      final chunks = await engine
+          .create(
+            const [
+              LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+            ],
+            tools: [
+              ToolDefinition(
+                name: 'get_weather',
+                description: 'Get weather',
+                parameters: [ToolParam.string('city')],
+                handler: (_) async => 'ok',
+              ),
+            ],
+            toolChoice: ToolChoice.none,
+          )
+          .toList();
+
+      expect(chunks.last.choices.first.finishReason, equals('stop'));
+      final hasToolCallChunk = chunks.any(
+        (chunk) =>
+            chunk.choices.first.delta.toolCalls != null &&
+            chunk.choices.first.delta.toolCalls!.isNotEmpty,
+      );
+      expect(hasToolCallChunk, isFalse);
+    });
+
+    test('create assigns missing tool call ids like llama.cpp', () async {
+      backend.generationText =
+          '{"tool_call":{"name":"get_weather","arguments":{"city":"Seoul"}}}';
+      await engine.loadModel('qwen-test.gguf');
+
+      final chunks = await engine
+          .create(
+            const [
+              LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+            ],
+            tools: [
+              ToolDefinition(
+                name: 'get_weather',
+                description: 'Get weather',
+                parameters: [ToolParam.string('city')],
+                handler: (_) async => 'ok',
+              ),
+            ],
+            toolChoice: ToolChoice.auto,
+          )
+          .toList();
+
+      final toolChunk = chunks.last;
+      expect(toolChunk.choices.first.finishReason, equals('tool_calls'));
+      final toolCalls = toolChunk.choices.first.delta.toolCalls;
+      expect(toolCalls, isNotNull);
+      expect(toolCalls, hasLength(1));
+      expect(toolCalls!.first.id, equals('call_0'));
+      expect(toolCalls.first.function?.name, equals('get_weather'));
+    });
+
+    test('create does not stream raw tool-call JSON as content', () async {
+      backend.generationText =
+          '{"tool_call":{"name":"get_weather","arguments":{"city":"Seoul"}}}';
+      await engine.loadModel('qwen-test.gguf');
+
+      final chunks = await engine
+          .create(
+            const [
+              LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+            ],
+            tools: [
+              ToolDefinition(
+                name: 'get_weather',
+                description: 'Get weather',
+                parameters: [ToolParam.string('city')],
+                handler: (_) async => 'ok',
+              ),
+            ],
+            toolChoice: ToolChoice.auto,
+          )
+          .toList();
+
+      final streamedContent = chunks
+          .map((chunk) => chunk.choices.first.delta.content)
+          .whereType<String>()
+          .join();
+
+      expect(streamedContent, isNot(contains('"tool_call"')));
+      expect(chunks.last.choices.first.finishReason, equals('tool_calls'));
+    });
+
+    test('create still streams plain content when tools are enabled', () async {
+      backend.generationText = 'hello world';
+      await engine.loadModel('qwen-test.gguf');
+
+      final chunks = await engine
+          .create(
+            const [
+              LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+            ],
+            tools: [
+              ToolDefinition(
+                name: 'get_weather',
+                description: 'Get weather',
+                parameters: [ToolParam.string('city')],
+                handler: (_) async => 'ok',
+              ),
+            ],
+            toolChoice: ToolChoice.auto,
+          )
+          .toList();
+
+      final streamedContent = chunks
+          .map((chunk) => chunk.choices.first.delta.content)
+          .whereType<String>()
+          .join();
+
+      expect(streamedContent, contains('hello world'));
+      expect(chunks.last.choices.first.finishReason, equals('stop'));
+    });
+
+    test(
+      'create preserves raw whitespace for plain tool-enabled content',
+      () async {
+        backend.generationChunks = const ['  hello', '  ', '\n'];
+        await engine.loadModel('qwen-test.gguf');
+
+        final chunks = await engine
+            .create(
+              const [
+                LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+              ],
+              tools: [
+                ToolDefinition(
+                  name: 'get_weather',
+                  description: 'Get weather',
+                  parameters: [ToolParam.string('city')],
+                  handler: (_) async => 'ok',
+                ),
+              ],
+              toolChoice: ToolChoice.auto,
+            )
+            .toList();
+
+        final streamedContent = chunks
+            .map((chunk) => chunk.choices.first.delta.content)
+            .whereType<String>()
+            .join();
+
+        expect(streamedContent, equals('  hello  \n'));
+        expect(chunks.last.choices.first.finishReason, equals('stop'));
+      },
+    );
+
+    test(
+      'create preserves whitespace-only output with tools enabled',
+      () async {
+        backend.generationChunks = const [' ', '  ', '\n'];
+        await engine.loadModel('qwen-test.gguf');
+
+        final chunks = await engine
+            .create(
+              const [
+                LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+              ],
+              tools: [
+                ToolDefinition(
+                  name: 'get_weather',
+                  description: 'Get weather',
+                  parameters: [ToolParam.string('city')],
+                  handler: (_) async => 'ok',
+                ),
+              ],
+              toolChoice: ToolChoice.auto,
+            )
+            .toList();
+
+        final streamedContent = chunks
+            .map((chunk) => chunk.choices.first.delta.content)
+            .whereType<String>()
+            .join();
+
+        expect(streamedContent, equals('   \n'));
+        expect(chunks.last.choices.first.finishReason, equals('stop'));
+      },
+    );
+
+    test('create streams decoded escaped generic response content', () async {
+      backend.generationChunks = const [
+        r'{"response":"line1\n',
+        r'line2\"quoted',
+        r'\""}',
+      ];
+      await engine.loadModel('qwen-test.gguf');
+
+      final chunks = await engine
+          .create(
+            const [
+              LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+            ],
+            tools: [
+              ToolDefinition(
+                name: 'get_weather',
+                description: 'Get weather',
+                parameters: [ToolParam.string('city')],
+                handler: (_) async => 'ok',
+              ),
+            ],
+            toolChoice: ToolChoice.auto,
+          )
+          .toList();
+
+      final streamedContent = chunks
+          .map((chunk) => chunk.choices.first.delta.content)
+          .whereType<String>()
+          .join();
+
+      expect(streamedContent, equals('line1\nline2"quoted"'));
+      expect(chunks.last.choices.first.finishReason, equals('stop'));
+    });
+
+    test(
+      'create does not append corrupted final delta when partial and final prefixes differ',
+      () async {
+        backend.generationChunks = const [r'{"response":"foo"} bar'];
+        await engine.loadModel('qwen-test.gguf');
+
+        final chunks = await engine
+            .create(
+              const [
+                LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+              ],
+              tools: [
+                ToolDefinition(
+                  name: 'get_weather',
+                  description: 'Get weather',
+                  parameters: [ToolParam.string('city')],
+                  handler: (_) async => 'ok',
+                ),
+              ],
+              toolChoice: ToolChoice.auto,
+            )
+            .toList();
+
+        final streamedContent = chunks
+            .map((chunk) => chunk.choices.first.delta.content)
+            .whereType<String>()
+            .join();
+
+        expect(streamedContent, equals('foo'));
+        expect(streamedContent, isNot(contains('fooesponse')));
+        expect(chunks.last.choices.first.finishReason, equals('stop'));
+      },
+    );
+
+    test('create streams raw json text when tools are enabled', () async {
+      backend.generationChunks = const ['  {"note"', ': 1', '}\n'];
+      await engine.loadModel('qwen-test.gguf');
+
+      final chunks = await engine
+          .create(
+            const [
+              LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+            ],
+            tools: [
+              ToolDefinition(
+                name: 'get_weather',
+                description: 'Get weather',
+                parameters: [ToolParam.string('city')],
+                handler: (_) async => 'ok',
+              ),
+            ],
+            toolChoice: ToolChoice.auto,
+          )
+          .toList();
+
+      final contentChunks = chunks
+          .where((chunk) => chunk.choices.first.delta.content != null)
+          .toList();
+      final streamedContent = contentChunks
+          .map((chunk) => chunk.choices.first.delta.content!)
+          .join();
+
+      expect(streamedContent, equals('  {"note": 1}\n'));
+      expect(contentChunks.length, greaterThan(1));
+      expect(chunks.last.choices.first.finishReason, equals('stop'));
+    });
+
+    test('create streams raw xml text when tools are enabled', () async {
+      backend.generationChunks = const ['  <div', '>hello', '</div>\n'];
+      await engine.loadModel('qwen-test.gguf');
+
+      final chunks = await engine
+          .create(
+            const [
+              LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+            ],
+            tools: [
+              ToolDefinition(
+                name: 'get_weather',
+                description: 'Get weather',
+                parameters: [ToolParam.string('city')],
+                handler: (_) async => 'ok',
+              ),
+            ],
+            toolChoice: ToolChoice.auto,
+          )
+          .toList();
+
+      final contentChunks = chunks
+          .where((chunk) => chunk.choices.first.delta.content != null)
+          .toList();
+      final streamedContent = contentChunks
+          .map((chunk) => chunk.choices.first.delta.content!)
+          .join();
+
+      expect(streamedContent, equals('  <div>hello</div>\n'));
+      expect(contentChunks.length, greaterThan(1));
+      expect(chunks.last.choices.first.finishReason, equals('stop'));
+    });
+
+    test(
+      'create keeps thinking deltas separate in raw tool-enabled mode',
+      () async {
+        backend.generationChunks = const ['<think>reason', '</think> answer'];
+        await engine.loadModel('qwen-test.gguf');
+
+        final chunks = await engine
+            .create(
+              const [
+                LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+              ],
+              tools: [
+                ToolDefinition(
+                  name: 'get_weather',
+                  description: 'Get weather',
+                  parameters: [ToolParam.string('city')],
+                  handler: (_) async => 'ok',
+                ),
+              ],
+              toolChoice: ToolChoice.auto,
+            )
+            .toList();
+
+        final streamedContent = chunks
+            .map((chunk) => chunk.choices.first.delta.content)
+            .whereType<String>()
+            .join();
+        final streamedThinking = chunks
+            .map((chunk) => chunk.choices.first.delta.thinking)
+            .whereType<String>()
+            .join();
+
+        expect(streamedThinking, equals('reason'));
+        expect(streamedContent, equals(' answer'));
+        expect(streamedContent, isNot(contains('reason')));
+        expect(chunks.last.choices.first.finishReason, equals('stop'));
+      },
+    );
+
+    test('create handles many plain chunks when tools are enabled', () async {
+      backend.generationChunks = List<String>.filled(80, 'a');
+      await engine.loadModel('qwen-test.gguf');
+
+      final chunks = await engine
+          .create(
+            const [
+              LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+            ],
+            tools: [
+              ToolDefinition(
+                name: 'get_weather',
+                description: 'Get weather',
+                parameters: [ToolParam.string('city')],
+                handler: (_) async => 'ok',
+              ),
+            ],
+            toolChoice: ToolChoice.auto,
+          )
+          .toList();
+
+      final streamedContent = chunks
+          .map((chunk) => chunk.choices.first.delta.content)
+          .whereType<String>()
+          .join();
+
+      expect(streamedContent, equals('a' * 80));
+      expect(chunks.last.choices.first.finishReason, equals('stop'));
+    });
+
+    test(
+      'create streams short plain chunks incrementally with tools',
+      () async {
+        backend.generationChunks = const ['h', 'e', 'l', 'l', 'o'];
+        await engine.loadModel('qwen-test.gguf');
+
+        final chunks = await engine
+            .create(
+              const [
+                LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+              ],
+              tools: [
+                ToolDefinition(
+                  name: 'get_weather',
+                  description: 'Get weather',
+                  parameters: [ToolParam.string('city')],
+                  handler: (_) async => 'ok',
+                ),
+              ],
+              toolChoice: ToolChoice.auto,
+            )
+            .toList();
+
+        final contentChunks = chunks
+            .where((chunk) => chunk.choices.first.delta.content != null)
+            .toList();
+        final streamedContent = contentChunks
+            .map((chunk) => chunk.choices.first.delta.content!)
+            .join();
+
+        expect(streamedContent, equals('hello'));
+        expect(contentChunks.length, greaterThan(1));
+        expect(chunks.last.choices.first.finishReason, equals('stop'));
+      },
+    );
 
     test('metadata and context size', () async {
       await engine.loadModel('qwen-test.gguf');

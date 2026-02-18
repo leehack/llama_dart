@@ -37,13 +37,17 @@ class GemmaHandler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    final prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<bos>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<eos>',
-    });
+    final prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<bos>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<eos>',
+      },
+    );
 
     final hasTools = tools != null && tools.isNotEmpty;
     return LlamaChatTemplateResult(

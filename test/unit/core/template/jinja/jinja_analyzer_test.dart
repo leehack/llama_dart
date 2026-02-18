@@ -76,18 +76,21 @@ void main() {
     });
 
     test('detects tools variable iteration', () {
-      final template = '{% for tool in tools %}{{ tool.name }}{% endfor %}';
+      final template =
+          '{% for tool in tools %}{{ tool.function.name }}{% endfor %}';
       final caps = JinjaAnalyzer.analyze(template);
-      expect(caps.supportsToolCalls, isTrue);
-      // Current logic maps tools iteration to supportsToolCalls AND supportsTools
+      // llama.cpp caps: tools access does not imply message.tool_calls support.
+      expect(caps.supportsToolCalls, isFalse);
       expect(caps.supportsTools, isTrue);
     });
 
     test('detects message["role"] syntax', () {
       final template = '''
-        {% if message['role'] == 'system' %}
-          System: {{ message['content'] }}
-        {% endif %}
+        {% for message in messages %}
+          {% if message['role'] == 'system' %}
+            System: {{ message['content'] }}
+          {% endif %}
+        {% endfor %}
       ''';
       final caps = JinjaAnalyzer.analyze(template);
       expect(caps.supportsSystemRole, isTrue);
@@ -104,5 +107,28 @@ void main() {
       final caps = JinjaAnalyzer.analyze(template);
       expect(caps.supportsTypedContent, isTrue);
     });
+
+    test('requires tool name usage for supportsTools', () {
+      final template = '{% if tools %}tools available{% endif %}';
+      final caps = JinjaAnalyzer.analyze(template);
+      expect(caps.supportsTools, isFalse);
+    });
+
+    test('requires tool call name usage for supportsToolCalls', () {
+      final template = '{% if messages[1].tool_calls %}calls{% endif %}';
+      final caps = JinjaAnalyzer.analyze(template);
+      expect(caps.supportsToolCalls, isFalse);
+      expect(caps.supportsParallelToolCalls, isFalse);
+    });
+
+    test(
+      'does not treat raw content stringification as typed content support',
+      () {
+        final template = '{{ messages[0].content }}';
+        final caps = JinjaAnalyzer.analyze(template);
+        expect(caps.supportsStringContent, isTrue);
+        expect(caps.supportsTypedContent, isFalse);
+      },
+    );
   });
 }

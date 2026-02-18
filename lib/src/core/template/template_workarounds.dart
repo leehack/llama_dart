@@ -154,14 +154,12 @@ class TemplateWorkarounds {
       final contentText = currentContent == null
           ? ''
           : currentContent.toString();
-      final toolCallsJson = jsonEncode({'tool_calls': toolCalls});
+      final payload = {'tool_calls': toolCalls};
+      final toolCallsJson = indentSpaces <= 0
+          ? jsonEncode(payload)
+          : JsonEncoder.withIndent(' ' * indentSpaces).convert(payload);
 
-      // Keep compact output by default to avoid introducing extra whitespace.
-      if (indentSpaces <= 0) {
-        message['content'] = '$contentText$toolCallsJson';
-      } else {
-        message['content'] = '$contentText$toolCallsJson';
-      }
+      message['content'] = '$contentText$toolCallsJson';
       message.remove('tool_calls');
     }
   }

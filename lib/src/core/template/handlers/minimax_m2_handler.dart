@@ -6,7 +6,6 @@ import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
-import '../thinking_utils.dart';
 import '../xml_tool_call_format.dart';
 
 /// Handler for MiniMax M2 format.
@@ -37,13 +36,18 @@ class MinimaxM2Handler extends ChatTemplateHandler {
     bool enableThinking = true,
   }) {
     final template = Template(templateSource);
-    var prompt = template.render({
-      'messages': messages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': metadata['tokenizer.ggml.bos_token'] ?? '<|begin_of_text|>',
-      'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token':
+            metadata['tokenizer.ggml.bos_token'] ?? '<|begin_of_text|>',
+        'eos_token': metadata['tokenizer.ggml.eos_token'] ?? '<|end_of_text|>',
+      },
+    );
 
     var thinkingForcedOpen = false;
     if (prompt.endsWith('<think>\n')) {
@@ -84,24 +88,16 @@ class MinimaxM2Handler extends ChatTemplateHandler {
     bool parseToolCalls = true,
     bool thinkingForcedOpen = false,
   }) {
-    final thinking = extractThinking(
+    final result = parseXmlToolCalls(
       output,
-      thinkingForcedOpen: thinkingForcedOpen,
+      XmlToolCallFormat.minimaxM2,
+      startThink: '<think>',
+      endThink: '</think>',
+      parseToolCalls: parseToolCalls,
     );
-    final text = thinking.content;
-
-    if (!parseToolCalls) {
-      return ChatParseResult(
-        content: text.trim(),
-        reasoningContent: thinking.reasoning,
-      );
-    }
-
-    // MiniMax uses generic <tool_code> style
-    final result = parseXmlToolCalls(text, XmlToolCallFormat.minimaxM2);
     return ChatParseResult(
       content: result.content.trim(),
-      reasoningContent: thinking.reasoning,
+      reasoningContent: result.reasoningContent,
       toolCalls: result.toolCalls,
     );
   }

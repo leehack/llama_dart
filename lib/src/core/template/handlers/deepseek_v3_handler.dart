@@ -11,8 +11,8 @@ import '../../models/tools/tool_definition.dart';
 import '../chat_format.dart';
 import '../chat_parse_result.dart';
 import '../chat_template_handler.dart';
-import '../tool_call_fallback_parser.dart';
 import '../thinking_utils.dart';
+import '../tool_call_grammar_utils.dart';
 
 /// Handler for DeepSeek V3.1 format.
 ///
@@ -59,13 +59,17 @@ class DeepseekV3Handler extends ChatTemplateHandler {
       return m;
     }).toList();
 
-    var prompt = template.render({
-      'messages': modifiedMessages.map((m) => m.toJson()).toList(),
-      'add_generation_prompt': addAssistant,
-      'tools': tools?.map((t) => t.toJson()).toList(),
-      'bos_token': bosToken,
-      'eos_token': eosToken,
-    });
+    var prompt = renderTemplate(
+      template,
+      metadata: metadata,
+      context: {
+        'messages': modifiedMessages.map((m) => m.toJson()).toList(),
+        'add_generation_prompt': addAssistant,
+        'tools': tools?.map((t) => t.toJson()).toList(),
+        'bos_token': bosToken,
+        'eos_token': eosToken,
+      },
+    );
 
     // Handle enableThinking post-render logic
     var thinkingForcedOpen = false;
@@ -105,61 +109,72 @@ class DeepseekV3Handler extends ChatTemplateHandler {
     bool parseToolCalls = true,
     bool thinkingForcedOpen = false,
   }) {
+    final hasClosingThink = output.contains('</think>');
+
+    // Match llama.cpp DeepSeek-V3 behavior:
+    // if thinking is forced-open and final output has no closing think tag,
+    // treat output as regular content/tool-call channel (not reasoning).
+    if (thinkingForcedOpen && !isPartial && !hasClosingThink) {
+      return _parseContentAndToolCalls(
+        output,
+        reasoning: null,
+        parseToolCalls: parseToolCalls,
+      );
+    }
+
     final thinking = extractThinking(
       output,
       thinkingForcedOpen: thinkingForcedOpen,
     );
-    final text = thinking.content;
+    return _parseContentAndToolCalls(
+      thinking.content,
+      reasoning: thinking.reasoning,
+      parseToolCalls: parseToolCalls,
+    );
+  }
 
+  ChatParseResult _parseContentAndToolCalls(
+    String text, {
+    required String? reasoning,
+    required bool parseToolCalls,
+  }) {
     if (!parseToolCalls) {
-      return ChatParseResult(
-        content: text.trim(),
-        reasoningContent: thinking.reasoning,
-      );
+      return ChatParseResult(content: text.trim(), reasoningContent: reasoning);
     }
 
     final toolCalls = <LlamaCompletionChunkToolCall>[];
     var contentText = text;
-
     final toolsBlockRegex = RegExp(
       r'(<｜tool▁calls▁begin｜>|<｜tool_calls_begin｜>|<｜tool calls begin｜>|<｜tool\\_calls\\_begin｜>|<｜tool▁calls｜>)([\s\S]*?)<｜tool▁calls▁end｜>',
       dotAll: true,
     );
     final blockMatch = toolsBlockRegex.firstMatch(text);
     if (blockMatch != null) {
-      contentText = text.substring(0, blockMatch.start).trim();
+      final leading = text.substring(0, blockMatch.start).trim();
+      final trailing = text.substring(blockMatch.end).trim();
+      contentText = [
+        leading,
+        trailing,
+      ].where((part) => part.isNotEmpty).join('\n');
 
-      final singleCallRegex = RegExp(
-        r'<｜tool▁call▁begin｜>(.*?)<｜tool▁call▁end｜>',
+      // Match llama.cpp DeepSeek-V3 parser:
+      // (optional begin)name<sep>{...}<end>
+      final v3CallRegex = RegExp(
+        r'(?:<｜tool▁call▁begin｜>)?([^\n<]+)<｜tool▁sep｜>([\s\S]*?)<｜tool▁call▁end｜>',
         dotAll: true,
       );
-      final callMatches = singleCallRegex.allMatches(blockMatch.group(2)!);
+      final callMatches = v3CallRegex.allMatches(blockMatch.group(2)!);
       for (var i = 0; i < callMatches.length; i++) {
-        final callContent = callMatches.elementAt(i).group(1)!.trim();
-        final sepIdx = callContent.indexOf('<｜tool▁sep｜>');
-        if (sepIdx == -1) {
-          continue;
-        }
-
-        var toolName = callContent.substring(0, sepIdx).trim();
-        final payload = callContent
-            .substring(sepIdx + '<｜tool▁sep｜>'.length)
-            .trim();
-        if (_isPlaceholderToolName(toolName)) {
-          final extractedName = _extractToolNameFromPayload(payload);
-          if (extractedName != null && extractedName.isNotEmpty) {
-            toolName = extractedName;
-          }
-        }
-
-        var arguments = _extractArgumentsFromPayload(payload);
-        arguments = normalizeFallbackToolArguments(arguments);
-        toolName = normalizeFallbackToolName(toolName, arguments: arguments);
-
+        final toolName = (callMatches.elementAt(i).group(1) ?? '').trim();
+        final rawArguments = (callMatches.elementAt(i).group(2) ?? '').trim();
         if (toolName.isEmpty) {
           continue;
         }
 
+        final arguments = _decodeJson(rawArguments);
+        if (arguments == null) {
+          continue;
+        }
         toolCalls.add(
           LlamaCompletionChunkToolCall(
             index: i,
@@ -172,54 +187,19 @@ class DeepseekV3Handler extends ChatTemplateHandler {
           ),
         );
       }
-    } else {
-      final legacyToolCallRegex = RegExp(
-        r'<tool_call>(.*?)</tool_call>',
-        dotAll: true,
-      );
-      final legacyMatches = legacyToolCallRegex
-          .allMatches(text)
-          .toList(growable: false);
-      if (legacyMatches.isNotEmpty) {
-        contentText = text.substring(0, legacyMatches.first.start).trim();
-      }
-      for (var i = 0; i < legacyMatches.length; i++) {
-        final rawJson = legacyMatches[i].group(1)?.trim();
-        if (rawJson == null || rawJson.isEmpty) {
-          continue;
-        }
-        try {
-          final decoded = jsonDecode(rawJson);
-          if (decoded is! Map<String, dynamic>) {
-            continue;
-          }
-          final name = decoded['name'];
-          final arguments = decoded['arguments'];
-          if (name is! String || name.isEmpty) {
-            continue;
-          }
-          toolCalls.add(
-            LlamaCompletionChunkToolCall(
-              index: i,
-              id: 'call_$i',
-              type: 'function',
-              function: LlamaCompletionChunkFunction(
-                name: name,
-                arguments: arguments is String
-                    ? arguments
-                    : jsonEncode(arguments),
-              ),
-            ),
-          );
-        } catch (_) {
-          // Ignore malformed tool calls.
-        }
+
+      // Match llama.cpp behavior: malformed tool block falls back to content.
+      if (toolCalls.isEmpty) {
+        return ChatParseResult(
+          content: text.trim(),
+          reasoningContent: reasoning,
+        );
       }
     }
 
     return ChatParseResult(
       content: contentText.trim(),
-      reasoningContent: thinking.reasoning,
+      reasoningContent: reasoning,
       toolCalls: toolCalls,
     );
   }
@@ -240,8 +220,8 @@ class DeepseekV3Handler extends ChatTemplateHandler {
       final argsRule = converter.visit(schema, 'tool-$i-args');
 
       final toolRuleName = 'tool-$i-call';
-      final prefix = _literal('${tool.name}<｜tool▁sep｜>');
-      final suffix = _literal('<｜tool▁call▁end｜>');
+      final prefix = ToolCallGrammarUtils.literal('${tool.name}<｜tool▁sep｜>');
+      final suffix = ToolCallGrammarUtils.literal('<｜tool▁call▁end｜>');
       converter.rules[toolRuleName] =
           '( "<｜tool▁call▁begin｜>" )? $prefix $argsRule $suffix';
       toolRuleNames.add(toolRuleName);
@@ -271,79 +251,11 @@ class DeepseekV3Handler extends ChatTemplateHandler {
     return buffer.toString();
   }
 
-  String _literal(String value) {
-    final escaped = value
-        .replaceAll('\\', r'\\')
-        .replaceAll('"', r'\"')
-        .replaceAll('\n', r'\n')
-        .replaceAll('\r', r'\r');
-    return '"$escaped"';
-  }
-
-  Map<String, dynamic> _extractArgumentsFromPayload(String payload) {
-    if (payload.isEmpty) {
-      return const <String, dynamic>{};
-    }
-
+  Object? _decodeJson(String input) {
     try {
-      final decoded = jsonDecode(payload);
-      if (decoded is Map) {
-        return Map<String, dynamic>.from(decoded);
-      }
-      if (decoded is String) {
-        return decodeToolArgumentsObject(decoded);
-      }
-    } catch (_) {
-      // Fall through to looser extractors.
-    }
-
-    final extractedObject = _extractJsonObject(payload);
-    if (extractedObject != null) {
-      return extractedObject;
-    }
-
-    return const <String, dynamic>{};
-  }
-
-  bool _isPlaceholderToolName(String name) {
-    return name == 'function' || name == 'call' || name == 'tool';
-  }
-
-  String? _extractToolNameFromPayload(String payload) {
-    if (payload.isEmpty) {
-      return null;
-    }
-
-    final nameMatch = RegExp(
-      r'^([A-Za-z_][A-Za-z0-9_\.-]*)',
-    ).firstMatch(payload);
-    return nameMatch?.group(1);
-  }
-
-  Map<String, dynamic>? _extractJsonObject(String payload) {
-    if (payload.isEmpty) {
-      return null;
-    }
-
-    final objectMatch = RegExp(r'(\{[\s\S]*?\})').firstMatch(payload);
-    if (objectMatch == null) {
-      return null;
-    }
-
-    final rawObject = objectMatch.group(1);
-    if (rawObject == null || rawObject.isEmpty) {
-      return null;
-    }
-
-    try {
-      final decoded = jsonDecode(rawObject);
-      if (decoded is Map) {
-        return Map<String, dynamic>.from(decoded);
-      }
+      return jsonDecode(input);
     } catch (_) {
       return null;
     }
-
-    return null;
   }
 }

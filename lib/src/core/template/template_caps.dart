@@ -2,8 +2,10 @@ import 'jinja/jinja_analyzer.dart';
 
 /// Template capabilities detected from Jinja template source analysis.
 ///
-/// Matches llama.cpp's `common_chat_template::caps` without requiring
-/// Jinja package changes. Detection uses string matching on template source.
+/// Matches llama.cpp's `common_chat_template::caps`.
+///
+/// Detection uses an execution probe against the Jinja template with
+/// llama.cpp-like synthetic message/tool payloads, with AST/regex fallbacks.
 class TemplateCaps {
   /// Whether the template supports a system role.
   final bool supportsSystemRole;

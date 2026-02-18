@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:llamadart/src/core/template/chat_format.dart';
 import 'package:llamadart/src/core/template/handlers/llama3_handler.dart';
+import 'package:llamadart/src/core/template/template_internal_metadata.dart';
 import 'package:llamadart/src/core/models/chat/chat_message.dart';
 import 'package:llamadart/src/core/models/tools/tool_definition.dart';
 import 'package:llamadart/src/core/models/tools/tool_param.dart';
@@ -71,11 +72,32 @@ void main() {
     expect(result.grammar, contains('parameters-kv'));
   });
 
-  test('parses strict JSON tool payload and keeps loose text content', () {
+  test('renders date_string in llama.cpp format', () {
+    final handler = Llama3Handler();
+    final result = handler.render(
+      templateSource: '{{ date_string }}',
+      messages: messages,
+      metadata: {
+        internalTemplateNowMetadataKey: DateTime(
+          2026,
+          2,
+          17,
+          13,
+          5,
+          9,
+        ).toIso8601String(),
+      },
+      tools: const [],
+    );
+
+    expect(result.prompt, equals('17 Feb 2026'));
+  });
+
+  test('parses strict llama3 json tool payload', () {
     final handler = Llama3Handler();
 
     final strict = handler.parse(
-      '[{"name":"get_weather","parameters":{"city":"Seoul"}}]',
+      '{"name":"get_weather","parameters":{"city":"Seoul"}}',
     );
     expect(strict.toolCalls, hasLength(1));
     expect(strict.toolCalls.first.function?.name, equals('get_weather'));
@@ -83,9 +105,10 @@ void main() {
       jsonDecode(strict.toolCalls.first.function!.arguments!),
       containsPair('city', 'Seoul'),
     );
+    expect(strict.content, isEmpty);
 
     final semicolon = handler.parse(
-      '{"type":"function","function":"get_weather","parameters":{"city":"Seoul"}}; '
+      '{"type":"function","name":"get_weather","parameters":{"city":"Seoul"}}; '
       '{"type":"function","function":"get_time","parameters":{"city":"Seoul"}}',
     );
     expect(semicolon.toolCalls, hasLength(1));
@@ -94,11 +117,32 @@ void main() {
       jsonDecode(semicolon.toolCalls.first.function!.arguments!),
       containsPair('city', 'Seoul'),
     );
-    expect(semicolon.content, isEmpty);
+    expect(
+      semicolon.content,
+      equals(
+        '; {"type":"function","function":"get_time","parameters":{"city":"Seoul"}}',
+      ),
+    );
 
-    final alias = handler.parse('weatherlookup');
-    expect(alias.toolCalls, isEmpty);
-    expect(alias.content, equals('weatherlookup'));
+    final array = handler.parse(
+      '[{"name":"get_weather","parameters":{"city":"Seoul"}}]',
+    );
+    expect(array.toolCalls, isEmpty);
+    expect(
+      array.content,
+      equals('[{"name":"get_weather","parameters":{"city":"Seoul"}}]'),
+    );
+
+    final wrongKey = handler.parse(
+      '{"type":"function","function":"get_weather","parameters":{"city":"Seoul"}}',
+    );
+    expect(wrongKey.toolCalls, isEmpty);
+    expect(
+      wrongKey.content,
+      equals(
+        '{"type":"function","function":"get_weather","parameters":{"city":"Seoul"}}',
+      ),
+    );
   });
 }
 
