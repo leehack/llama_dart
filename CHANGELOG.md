@@ -1,4 +1,4 @@
-## Unreleased
+## 0.6.0
 
 *   **llama.cpp parity expansion (Dart-native template/parser pipeline)**:
     *   Reworked template detection/render/parse routing to align with llama.cpp semantics across supported chat formats, including format-specific tool-call parsing and fallback behavior.
@@ -29,6 +29,15 @@
     *   Clarified README backend matrix notes: `KleidiAI`/`ZenDNN` are CPU-path optimizations, not selectable runtime backend modules.
     *   Runtime backend probing for split-module bundles now runs during backend initialization (not only after first model load), so device/backend availability is visible earlier in app flows.
     *   Native-assets hook output now refreshes emitted native files per build to prevent stale backend module carryover when backend config changes.
+*   **Linux runtime/link validation and backend loader hardening**:
+    *   Hardened split-module backend loading to avoid probing backends that are not bundled for the active platform/arch, reducing noisy optional-backend load failures.
+    *   Added failed-backend memoization so missing optional modules are not retried on every model load.
+    *   Tightened Linux cache source selection to the current ABI bundle (`linux-arm64` vs `linux-x64`) when preparing runtime dependencies.
+    *   Added Linux backend/runtime setup guidance in README, including distro-specific package baselines (Ubuntu/Debian, Fedora/RHEL/CentOS, Arch).
+    *   Added reproducible Docker link-check flows for baseline (`cpu`/`vulkan`/`blas`) and optional `cuda`/`hip` module dependency resolution.
+    *   Added `scripts/check_native_link_deps.sh` helper plus dedicated validation images:
+        `docker/validation/Dockerfile.cuda-linkcheck` and
+        `docker/validation/Dockerfile.hip-linkcheck`.
 *   **Chat example backend UX cleanup**:
     *   Removed user-facing `Auto` backend option from settings; only concrete runtime-detected backends are shown.
     *   Added migration behavior that resolves legacy saved `Auto` preference to the best detected backend at runtime.

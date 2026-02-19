@@ -1,6 +1,34 @@
-# Migration Guide (`0.4.x` -> `0.5.0`)
+# Migration Guide
 
-This document covers the breaking changes introduced in `0.5.0`.
+This document covers the major breaking upgrade paths.
+
+## `0.5.x` -> `0.6.0`
+
+### Template routing / handler APIs
+
+The legacy custom handler/override registry APIs were removed:
+
+- `ChatTemplateEngine.registerHandler(...)`
+- `ChatTemplateEngine.unregisterHandler(...)`
+- `ChatTemplateEngine.clearCustomHandlers(...)`
+- `ChatTemplateEngine.registerTemplateOverride(...)`
+- `ChatTemplateEngine.unregisterTemplateOverride(...)`
+- `ChatTemplateEngine.clearTemplateOverrides(...)`
+
+Legacy per-call handler routing fields were also removed:
+
+- render param: `customHandlerId`
+- parse param: `handlerId`
+
+### Error behavior in template render/parse
+
+Template render/parse paths no longer silently downgrade to content-only
+fallback when a handler/parser fails. Failures are now surfaced to the caller.
+
+Audit call sites that previously relied on silent fallback behavior and handle
+exceptions explicitly.
+
+## `0.4.x` -> `0.5.0`
 
 ## 1) ChatSession API
 
