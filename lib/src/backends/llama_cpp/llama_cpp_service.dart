@@ -117,6 +117,7 @@ class LlamaCppService {
   _GgmlBackendLoadDart? _ggmlBackendLoadFallback;
   _GgmlBackendLoadAllDart? _ggmlBackendLoadAllFallback;
   bool _logLevelFallbackLookupAttempted = false;
+  String? _logLevelFallbackLookupSearchKey;
   _LlamaDartSetLogLevelDart? _llamaDartSetLogLevelFallback;
   LlamaLogLevel _configuredLogLevel = LlamaLogLevel.warn;
   bool _mtmdFallbackLookupAttempted = false;
@@ -189,8 +190,8 @@ class LlamaCppService {
   ///
   /// This must be called before loading any models.
   void initializeBackend() {
-    _applyConfiguredLogLevel();
     _backendModuleDirectory = resolveBackendModuleDirectory();
+    _applyConfiguredLogLevel();
 
     if (_backendModuleDirectory == null) {
       _tryLoadAllBackendsBestEffort();
@@ -694,15 +695,27 @@ class LlamaCppService {
   }
 
   void _resolveLogLevelFallbackFunction() {
-    if (_logLevelFallbackLookupAttempted) {
+    final directories = _llamadartFallbackLookupDirectories();
+    final searchKey = directories.map(path.normalize).join('|');
+
+    if (_logLevelFallbackLookupAttempted &&
+        _llamaDartSetLogLevelFallback != null) {
       return;
     }
+
+    if (_logLevelFallbackLookupAttempted &&
+        _llamaDartSetLogLevelFallback == null &&
+        _logLevelFallbackLookupSearchKey == searchKey) {
+      return;
+    }
+
     _logLevelFallbackLookupAttempted = true;
+    _logLevelFallbackLookupSearchKey = searchKey;
 
     final fileNameCandidates = _llamadartLibraryCandidateFileNames();
     final candidates = <String>{};
     final pattern = _llamadartLibraryPattern();
-    for (final directoryPath in _llamadartFallbackLookupDirectories()) {
+    for (final directoryPath in directories) {
       for (final fileName in fileNameCandidates) {
         candidates.add(path.join(directoryPath, fileName));
       }
