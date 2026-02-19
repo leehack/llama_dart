@@ -558,13 +558,12 @@ class LlamaCppService {
   }
 
   T _backendRegistryOr<T>(T fallback, T Function() call) {
-    if (_backendRegistrySymbolUnavailable) {
-      return fallback;
-    }
-
     try {
       return call();
     } on ArgumentError {
+      // Some split bundles may omit a subset of registry symbols on the
+      // primary lookup target. Treat this call as unavailable, but continue
+      // attempting other registry APIs that may still be present.
       _backendRegistrySymbolUnavailable = true;
       return fallback;
     }
@@ -1648,7 +1647,41 @@ class LlamaCppService {
 
       devices.add(label);
     }
-    return devices.toList(growable: false);
+    if (devices.isNotEmpty) {
+      return devices.toList(growable: false);
+    }
+
+    // Fallback when device-enumeration symbols are unavailable: surface loaded
+    // backend modules so UI can still present selectable backends.
+    final moduleBackends =
+        _loadedBackendModules
+            .map(_backendDisplayName)
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList(growable: false)
+          ..sort();
+    return moduleBackends;
+  }
+
+  static String _backendDisplayName(String backend) {
+    switch (backend.toLowerCase()) {
+      case 'cpu':
+        return 'CPU';
+      case 'vulkan':
+        return 'Vulkan';
+      case 'opencl':
+        return 'OpenCL';
+      case 'metal':
+        return 'Metal';
+      case 'cuda':
+        return 'CUDA';
+      case 'hip':
+        return 'HIP';
+      case 'blas':
+        return 'BLAS';
+      default:
+        return backend;
+    }
   }
 
   /// Returns whether GPU offloading is supported.

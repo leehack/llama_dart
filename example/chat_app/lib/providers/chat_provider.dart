@@ -1318,6 +1318,11 @@ class ChatProvider extends ChangeNotifier {
   }
 
   List<String> _parseBackendDevices(String backendInfo) {
+    final normalized = backendInfo.trim();
+    if (normalized.isEmpty) {
+      return const [];
+    }
+
     final parts = backendInfo
         .split(',')
         .map((entry) => entry.trim())
@@ -1326,7 +1331,7 @@ class ChatProvider extends ChangeNotifier {
         .toList(growable: false);
 
     if (parts.isEmpty) {
-      return [backendInfo];
+      return const [];
     }
     return parts;
   }
