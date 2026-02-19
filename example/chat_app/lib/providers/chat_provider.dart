@@ -1401,6 +1401,11 @@ class ChatProvider extends ChangeNotifier {
       return;
     }
 
+    if (kIsWeb) {
+      // Keep Auto on web: the bridge backend interprets non-CPU as WebGPU.
+      return;
+    }
+
     final info = backendInfo ?? await _getBackendInfoBestEffort();
     final resolved = info == null
         ? GpuBackend.cpu

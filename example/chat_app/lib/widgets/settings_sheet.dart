@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:llamadart/llamadart.dart';
 import 'package:provider/provider.dart';
@@ -245,7 +246,7 @@ class SettingsSheet extends StatelessWidget {
                             items: availableBackends.map((backend) {
                               return DropdownMenuItem(
                                 value: backend,
-                                child: Text(backend.name.toUpperCase()),
+                                child: Text(_backendLabel(backend)),
                               );
                             }).toList(),
                             onChanged: (value) {
@@ -619,6 +620,10 @@ class SettingsSheet extends StatelessWidget {
 
   List<GpuBackend> _getAvailableBackends(ChatProvider provider) {
     final Set<GpuBackend> backends = {GpuBackend.cpu};
+    if (kIsWeb) {
+      // On web, "auto" maps to bridge-driven WebGPU acceleration.
+      backends.add(GpuBackend.auto);
+    }
 
     for (final device in provider.availableDevices) {
       final d = device.toLowerCase();
@@ -649,6 +654,13 @@ class SettingsSheet extends StatelessWidget {
     final ordered = backends.toList(growable: false)
       ..sort((a, b) => a.index.compareTo(b.index));
     return ordered;
+  }
+
+  String _backendLabel(GpuBackend backend) {
+    if (kIsWeb && backend == GpuBackend.auto) {
+      return 'WEBGPU';
+    }
+    return backend.name.toUpperCase();
   }
 
   List<int> _buildContextSizeOptions(int currentValue) {
