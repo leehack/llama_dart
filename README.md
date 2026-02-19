@@ -142,7 +142,7 @@ hooks:
           windows-x64: [vulkan]
 ```
 
-Backend module matrix (from pinned native tag `b8095`, verified against all
+Backend module matrix (from pinned native tag `b8099`, verified against all
 published platform/arch bundle assets):
 
 | Target | Configurable | Default runtime backends | Available backend modules in bundle |
