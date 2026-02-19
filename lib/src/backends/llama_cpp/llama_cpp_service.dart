@@ -15,6 +15,8 @@ import 'bindings.dart';
 
 typedef _GgmlBackendLoadNative = ggml_backend_reg_t Function(Pointer<Char>);
 typedef _GgmlBackendLoadDart = ggml_backend_reg_t Function(Pointer<Char>);
+typedef _GgmlBackendInitNative = ggml_backend_reg_t Function();
+typedef _GgmlBackendInitDart = ggml_backend_reg_t Function();
 typedef _GgmlBackendLoadAllNative = Void Function();
 typedef _GgmlBackendLoadAllDart = void Function();
 typedef _LlamaDartSetLogLevelNative = Void Function(Int32);
@@ -110,6 +112,8 @@ class LlamaCppService {
   int _nextHandle = 1;
   String? _backendModuleDirectory;
   final Set<String> _loadedBackendModules = <String>{};
+  final Map<String, DynamicLibrary> _loadedBackendLibraries =
+      <String, DynamicLibrary>{};
   bool _backendLoadAllSymbolUnavailable = false;
   bool _backendLoadSymbolUnavailable = false;
   bool _backendRegistrySymbolUnavailable = false;
@@ -488,8 +492,8 @@ class LlamaCppService {
       );
     }
 
-    _prepareBackendsForModelLoad(modelParams.preferredBackend);
     _applyConfiguredLogLevel();
+    _prepareBackendsForModelLoad(modelParams.preferredBackend);
 
     final modelPathPtr = modelPath.toNativeUtf8();
     final mparams = llama_model_default_params();
@@ -598,6 +602,10 @@ class LlamaCppService {
       return true;
     }
 
+    if (Platform.isWindows && _tryRegisterBackendModuleViaAsset(backend)) {
+      return true;
+    }
+
     final fileNameCandidates = _backendLibraryCandidateFileNames(backend);
     final candidates = <String>{};
     final backendModuleDirectory = _backendModuleDirectory;
@@ -639,6 +647,37 @@ class LlamaCppService {
         return true;
       } finally {
         malloc.free(libraryPathPtr);
+      }
+    }
+
+    return false;
+  }
+
+  bool _tryRegisterBackendModuleViaAsset(String backend) {
+    final assetCandidates = <String>[
+      'package:llamadart/$backend',
+      // Keep a conservative fallback for future naming differences.
+      'package:llamadart/ggml_$backend',
+    ];
+
+    for (final assetUri in assetCandidates) {
+      try {
+        final library = DynamicLibrary.open(assetUri);
+        final init = library
+            .lookupFunction<_GgmlBackendInitNative, _GgmlBackendInitDart>(
+              'ggml_backend_init',
+            );
+        final reg = init();
+        if (reg == nullptr) {
+          continue;
+        }
+
+        ggml_backend_register(reg);
+        _loadedBackendLibraries[backend] = library;
+        _loadedBackendModules.add(backend);
+        return true;
+      } catch (_) {
+        continue;
       }
     }
 
