@@ -598,13 +598,15 @@ class LlamaCppService {
     }
 
     final fileNameCandidates = _backendLibraryCandidateFileNames(backend);
-    final candidates = <String>{...fileNameCandidates};
+    final candidates = <String>{};
     final backendModuleDirectory = _backendModuleDirectory;
     if (backendModuleDirectory != null) {
       for (final fileName in fileNameCandidates) {
         candidates.add(path.join(backendModuleDirectory, fileName));
       }
     }
+    // Keep bare-name fallback last so module-dir resolution wins when present.
+    candidates.addAll(fileNameCandidates);
 
     for (final candidate in candidates) {
       if (path.isAbsolute(candidate) && !File(candidate).existsSync()) {
@@ -649,13 +651,15 @@ class LlamaCppService {
     _ggmlFallbackLookupAttempted = true;
 
     final fileNameCandidates = _ggmlLibraryCandidateFileNames();
-    final candidates = <String>{...fileNameCandidates};
+    final candidates = <String>{};
     final backendModuleDirectory = _backendModuleDirectory;
     if (backendModuleDirectory != null) {
       for (final fileName in fileNameCandidates) {
         candidates.add(path.join(backendModuleDirectory, fileName));
       }
     }
+    // Keep bare-name fallback last so module-dir resolution wins when present.
+    candidates.addAll(fileNameCandidates);
 
     DynamicLibrary? library;
     for (final candidate in candidates) {
@@ -696,7 +700,7 @@ class LlamaCppService {
     _logLevelFallbackLookupAttempted = true;
 
     final fileNameCandidates = _llamadartLibraryCandidateFileNames();
-    final candidates = <String>{...fileNameCandidates};
+    final candidates = <String>{};
     final pattern = _llamadartLibraryPattern();
     for (final directoryPath in _llamadartFallbackLookupDirectories()) {
       for (final fileName in fileNameCandidates) {
@@ -706,6 +710,8 @@ class LlamaCppService {
         candidates.add(path.join(directoryPath, fileName));
       }
     }
+    // Keep bare-name fallback last so module-dir resolution wins when present.
+    candidates.addAll(fileNameCandidates);
 
     for (final candidate in candidates) {
       try {
