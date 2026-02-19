@@ -1,4 +1,4 @@
-## Unreleased
+## 0.6.0
 
 *   **llama.cpp parity expansion (Dart-native template/parser pipeline)**:
     *   Reworked template detection/render/parse routing to align with llama.cpp semantics across supported chat formats, including format-specific tool-call parsing and fallback behavior.

@@ -5,131 +5,42 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-purple.svg)](https://opensource.org/licenses/MIT)
 [![GitHub](https://img.shields.io/github/stars/leehack/llamadart?style=social)](https://github.com/leehack/llamadart)
 
-**llamadart** is a high-performance Dart and Flutter plugin for [llama.cpp](https://github.com/ggml-org/llama.cpp). It allows you to run Large Language Models (LLMs) locally using GGUF models across all major platforms with minimal setup.
+**llamadart** is a high-performance Dart and Flutter plugin for [llama.cpp](https://github.com/ggml-org/llama.cpp). It lets you run GGUF LLMs locally across native platforms and web (CPU/WebGPU bridge path).
 
 ## ✨ Features
 
-- 🚀 **High Performance**: Powered by `llama.cpp`'s optimized C++ kernels.
-- 🛠️ **Zero Configuration**: Uses the modern **Pure Native Asset** mechanism—no manual build scripts or platform folders required.
-- 📱 **Cross-Platform**: Full support for Android, iOS, macOS, Linux, and Windows.
+- 🚀 **High Performance**: Powered by `llama.cpp` kernels.
+- 🛠️ **Zero Configuration**: Uses Pure Native Assets; no manual CMake or platform project edits.
+- 📱 **Cross-Platform**: Android, iOS, macOS, Linux, Windows, and web.
 - ⚡ **GPU Acceleration**:
-  - **Apple**: Metal (macOS/iOS)
-  - **Android/Linux/Windows**: Vulkan (default) with optional per-bundle
-    backend modules (OpenCL/CUDA/HIP/BLAS where available)
-- 🖼️ **Multimodal Support**: Run vision and audio models (LLaVA, Gemma 3, Qwen2-VL) with integrated media processing.
-- ⏬ **Resumable Downloads**: Robust background-safe model downloads with parallel chunking and partial-file resume tracking.
-- **LoRA Support**: Apply fine-tuned adapters (GGUF) dynamically at runtime.
-- 🌐 **Web Support**: Web backend router with WebGPU bridge support and WASM fallback.
-- 💎 **Dart-First API**: Streamlined architecture with decoupled backends.
-- 🔇 **Split Logging Control**: Configure Dart-side logger and native backend logs independently.
-- 🧪 **High Coverage**: CI enforces >=70% coverage on maintainable core code.
+  - Apple: Metal
+  - Android/Linux/Windows: Vulkan by default, with optional target-specific modules
+  - Web: WebGPU via bridge runtime (with CPU fallback)
+- 🖼️ **Multimodal Support**: Vision/audio model runtime support.
+- **LoRA Support**: Runtime GGUF adapter application.
+- 🔇 **Split Logging Control**: Dart logs and native logs can be configured independently.
 
 ---
 
-## 🏗️ Architecture
+## 🚀 Start Here (Plugin Users)
 
-llamadart uses a modern, decoupled architecture designed for flexibility and platform independence:
-
-- **LlamaEngine**: The primary high-level orchestrator. It handles model lifecycle, tokenization, chat templating, and manages the inference stream.
-- **ChatSession**: A stateful wrapper for `LlamaEngine` that automatically manages conversation history, system prompts, and enforces context window limits (sliding window).
-- **LlamaBackend**: A platform-agnostic interface with a default `LlamaBackend()` factory constructor that auto-selects native (`llama.cpp`) or web (WebGPU bridge first, WASM fallback) implementations.
-
-### Runtime Ownership
-
-- Native source/build/release ownership:
-  [`leehack/llamadart-native`](https://github.com/leehack/llamadart-native)
-- Web bridge source/build ownership:
-  [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge)
-- Web bridge runtime assets ownership:
-  [`leehack/llama-web-bridge-assets`](https://github.com/leehack/llama-web-bridge-assets)
-- This repository is the consumer/integration layer: it pins and consumes
-  published native and web bridge artifacts.
-
----
-
-## 🚀 Quick Start
-
-| Platform | Architecture(s) | GPU Backend | Status |
-|----------|-----------------|-------------|--------|
-| **macOS** | arm64, x86_64 | Metal | ✅ Tested |
-| **iOS** | arm64 (Device), arm64/x86_64 (Sim) | Metal (Device), CPU (Sim) | ✅ Tested |
-| **Android** | arm64-v8a, x86_64 | Vulkan | ✅ Tested |
-| **Linux** | arm64, x86_64 | Vulkan | ✅ Tested |
-| **Windows** | x64 | Vulkan | ✅ Tested |
-| **Web** | WASM / WebGPU Bridge | CPU / Experimental WebGPU | ✅ Tested (WASM) |
-
----
-
-## 🌐 Web Backend Notes (Router)
-
-The default web backend uses the bridge runtime (`WebGpuLlamaBackend`) for
-both WebGPU and CPU execution paths.
-
-Current limitations:
-
-- Web mode is currently **experimental** and depends on an external JS bridge runtime.
-- Bridge API contract: [WebGPU bridge contract](https://github.com/leehack/llamadart/blob/main/doc/webgpu_bridge.md).
-- Prebuilt web bridge assets are published from
-  [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge)
-  to
-  [`leehack/llama-web-bridge-assets`](https://github.com/leehack/llama-web-bridge-assets).
-- These bridge repos are maintained alongside `llamadart`; this package
-  consumes their published release assets.
-- [`example/chat_app`](https://github.com/leehack/llamadart/blob/main/example/chat_app/README.md) uses local bridge files first and
-  falls back to jsDelivr assets when local assets are missing.
-- Bridge model loading now uses browser Cache Storage when `useCache` is true
-  (enabled by default in `llamadart` web backend), so repeat loads of the same
-  model URL can avoid full re-download.
-- To self-host pinned assets at build time:
-  `WEBGPU_BRIDGE_ASSETS_TAG=<tag> ./scripts/fetch_webgpu_bridge_assets.sh`.
-- The fetch script applies a Safari compatibility patch by default for universal
-  browser use (`WEBGPU_BRIDGE_PATCH_SAFARI_COMPAT=1`,
-  `WEBGPU_BRIDGE_MIN_SAFARI_VERSION=170400`).
-- The same patch flow also updates legacy bridge chunk assembly logic to avoid
-  Safari stream-reader buffer reuse issues during model downloads.
-- `example/chat_app/web/index.html` applies the same Safari compatibility patch
-  at runtime for bridge core loading (including CDN fallback paths).
-- Bridge wasm build/publish CI and runtime implementation are maintained in
-  [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge).
-- Current bridge browser targets in this repo: Chrome >= 128, Firefox >= 129,
-  Safari >= 17.4.
-- Safari GPU execution uses a compatibility gate: legacy bridge assets are
-  forced to CPU by default, while adaptive bridge assets can probe/cap GPU
-  layers and auto-fallback to CPU when generation looks unstable.
-- You can bypass the legacy safeguard with
-  `window.__llamadartAllowSafariWebGpu = true` before model load.
-- `loadMultimodalProjector` is available on web when using URL-based model/mmproj assets.
-- `supportsVision` / `supportsAudio` reflect loaded projector capabilities on web.
-- **LoRA runtime adapter APIs are not supported** on web in the current implementation.
-- Changing log level via `setLogLevel`/`setNativeLogLevel` applies on the next model load.
-
-If your app targets both native and web, gate feature toggles by platform/capability checks.
-
----
-
-## 📦 Installation
-
-Add `llamadart` to your `pubspec.yaml`:
+### 1. Add dependency
 
 ```yaml
 dependencies:
-  llamadart: ^0.5.4
+  llamadart: ^0.6.0
 ```
 
-### Zero Setup (Native Assets)
+### 2. Run with defaults
 
-`llamadart` leverages the **Dart Native Assets** (build hooks) system. When you run your app for the first time (`dart run` or `flutter run`), the package automatically:
-1. Detects your target platform and architecture.
-2. Downloads the appropriate pre-compiled native bundle from
-   [`leehack/llamadart-native`](https://github.com/leehack/llamadart-native).
-3. Bundles it seamlessly into your application.
+On first `dart run` / `flutter run`, `llamadart` will:
+1. Detect platform/architecture.
+2. Download the matching native runtime bundle from [`leehack/llamadart-native`](https://github.com/leehack/llamadart-native).
+3. Wire it into your app via native assets.
 
-No manual binary downloads, CMake configuration, or platform-specific project changes are needed.
+No manual binary download or C++ build steps are required.
 
-### Native Backend Modules (Optional)
-
-For non-Apple targets, `llamadart` can bundle backend modules per
-platform/architecture via hooks user-defines in `pubspec.yaml`:
+### 3. Optional: choose backend modules per target (non-Apple)
 
 ```yaml
 hooks:
@@ -137,52 +48,141 @@ hooks:
     llamadart:
       llamadart_native_backends:
         platforms:
-          android-arm64: [vulkan] # opencl is optional opt-in
-          linux-x64: [vulkan]
-          windows-x64: [vulkan]
+          android-arm64: [vulkan] # opencl is opt-in
+          linux-x64: [vulkan, cuda]
+          windows-x64: [vulkan, cuda]
 ```
 
-Backend module matrix (from pinned native tag `b8099`, verified against all
-published platform/arch bundle assets):
+If a requested module is unavailable for a target, `llamadart` logs a warning and falls back to target defaults.
 
-| Target | Configurable | Default runtime backends | Available backend modules in bundle |
-|--------|--------------|--------------------------|-------------------------------------|
-| android-arm64 | yes | cpu, vulkan | cpu, vulkan, opencl |
-| android-x64 | yes | cpu, vulkan | cpu, vulkan, opencl |
-| linux-arm64 | yes | cpu, vulkan | cpu, vulkan, blas |
-| linux-x64 | yes | cpu, vulkan | cpu, vulkan, blas, cuda, hip |
-| windows-arm64 | yes | cpu, vulkan | cpu, vulkan, blas |
-| windows-x64 | yes | cpu, vulkan | cpu, vulkan, blas, cuda |
-| macos-arm64 | no | cpu, METAL | n/a (single consolidated native lib) |
-| macos-x86_64 | no | cpu, METAL | n/a (single consolidated native lib) |
-| ios-arm64 | no | cpu, METAL | n/a (single consolidated native lib) |
-| ios-arm64-sim | no | cpu, METAL | n/a (single consolidated native lib) |
-| ios-x86_64-sim | no | cpu, METAL | n/a (single consolidated native lib) |
+### 4. Minimal first model load
 
-Linux runtime prerequisites (for Linux targets):
+```dart
+import 'package:llamadart/llamadart.dart';
+
+Future<void> main() async {
+  final engine = LlamaEngine(LlamaBackend());
+  try {
+    await engine.loadModel('path/to/model.gguf');
+    await for (final token in engine.generate('Hello')) {
+      print(token);
+    }
+  } finally {
+    await engine.dispose();
+  }
+}
+```
+
+---
+
+## ✅ Platform Defaults and Configurability
+
+| Target | Default runtime backends | Configurable in `pubspec.yaml` |
+|--------|--------------------------|---------------------------------|
+| android-arm64 / android-x64 | cpu, vulkan | yes |
+| linux-arm64 / linux-x64 | cpu, vulkan | yes |
+| windows-arm64 / windows-x64 | cpu, vulkan | yes |
+| macos-arm64 / macos-x86_64 | cpu, METAL | no |
+| ios-arm64 / ios simulators | cpu, METAL | no |
+| web | webgpu, cpu (bridge router) | n/a |
+
+<details>
+<summary>Full module matrix (available modules by target)</summary>
+
+Backend module matrix from pinned native tag `b8099`:
+
+| Target | Available backend modules in bundle |
+|--------|-------------------------------------|
+| android-arm64 | cpu, vulkan, opencl |
+| android-x64 | cpu, vulkan, opencl |
+| linux-arm64 | cpu, vulkan, blas |
+| linux-x64 | cpu, vulkan, blas, cuda, hip |
+| windows-arm64 | cpu, vulkan, blas |
+| windows-x64 | cpu, vulkan, blas, cuda |
+| macos-arm64 | n/a (single consolidated native lib) |
+| macos-x86_64 | n/a (single consolidated native lib) |
+| ios-arm64 | n/a (single consolidated native lib) |
+| ios-arm64-sim | n/a (single consolidated native lib) |
+| ios-x86_64-sim | n/a (single consolidated native lib) |
+
+</details>
+
+Recognized backend names for `llamadart_native_backends`:
+
+- `vulkan`
+- `cpu`
+- `opencl`
+- `cuda`
+- `blas`
+- `metal`
+- `hip`
+
+Accepted aliases:
+
+- `vk` -> `vulkan`
+- `ocl` -> `opencl`
+- `open-cl` -> `opencl`
+
+Notes:
+
+- Module availability depends on the pinned native release bundle and may change when the native tag updates.
+- Configurable targets always keep `cpu` bundled as a fallback.
+- Android keeps OpenCL available for opt-in, but defaults to Vulkan.
+- `KleidiAI` and `ZenDNN` are CPU-path optimizations in `llama.cpp`, not standalone backend module files.
+- `example/chat_app` backend settings show runtime-detected backends/devices (what initialized), not only bundled module files.
+- `example/chat_app` no longer exposes an `Auto` selector; it lists concrete detected backends.
+- Legacy saved `Auto` preferences in `example/chat_app` are auto-migrated at runtime.
+- Apple targets are intentionally non-configurable in this hook path and use consolidated native libraries.
+- The native-assets hook refreshes emitted files each build; if you are upgrading from older cached outputs, run `flutter clean` once.
+
+If you change `llamadart_native_backends`, run `flutter clean` once so stale native-asset outputs do not override new bundle selection.
+
+---
+
+## 🌐 Web Backend Notes (Router)
+
+The default web backend uses `WebGpuLlamaBackend` as a router for WebGPU and CPU paths.
+
+- Web mode is currently experimental and depends on an external JS bridge runtime.
+- Bridge API contract: [WebGPU bridge contract](https://github.com/leehack/llamadart/blob/main/doc/webgpu_bridge.md).
+- Runtime assets are published via:
+  - [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge)
+  - [`leehack/llama-web-bridge-assets`](https://github.com/leehack/llama-web-bridge-assets)
+- `example/chat_app` prefers local bridge assets, then falls back to jsDelivr.
+- Browser Cache Storage is used for repeated model loads when `useCache` is enabled (default).
+- `loadMultimodalProjector` is supported on web for URL-based model/mmproj assets.
+- `supportsVision` and `supportsAudio` reflect loaded projector capabilities.
+- LoRA runtime adapters are not currently supported on web.
+- `setLogLevel` / `setNativeLogLevel` changes take effect on next model load.
+
+If your app targets both native and web, gate feature toggles by capability checks.
+
+---
+
+## 🐧 Linux Runtime Prerequisites
+
+Linux targets may need host runtime dependencies based on selected backends:
 
 - `cpu`: no extra GPU runtime dependency.
-- `vulkan`: requires Vulkan loader + a valid GPU driver/ICD on the host.
-- `blas`: requires OpenBLAS runtime (`libopenblas.so.0`).
-- `cuda` (linux-x64 only): requires NVIDIA driver + CUDA runtime libs
-  compatible with bundle expectations (for example `libcudart.so.12`).
-- `hip` (linux-x64 only): requires ROCm runtime libs compatible with bundle
-  expectations (for example `libhipblas.so.2`).
+- `vulkan`: Vulkan loader + valid GPU driver/ICD.
+- `blas`: OpenBLAS runtime (`libopenblas.so.0`).
+- `cuda` (linux-x64): NVIDIA driver + compatible CUDA runtime libs.
+- `hip` (linux-x64): ROCm runtime libs (for example `libhipblas.so.2`).
 
-Example (Ubuntu/Debian) baseline:
+Example (Ubuntu/Debian):
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y libvulkan1 vulkan-tools libopenblas0
 ```
 
-Example (Fedora/RHEL/CentOS) baseline:
+Example (Fedora/RHEL/CentOS):
 
 ```bash
 sudo dnf install -y vulkan-loader vulkan-tools openblas
 ```
 
-Example (Arch Linux) baseline:
+Example (Arch Linux):
 
 ```bash
 sudo pacman -S --needed vulkan-icd-loader vulkan-tools openblas
@@ -191,13 +191,13 @@ sudo pacman -S --needed vulkan-icd-loader vulkan-tools openblas
 Quick verification:
 
 ```bash
-# inspect unresolved runtime deps in bundled native modules
 for f in .dart_tool/lib/libggml-*.so; do
   LD_LIBRARY_PATH=.dart_tool/lib ldd "$f" | grep "not found" || true
 done
 ```
 
-Docker validation (Linux runtime wiring):
+<details>
+<summary>Docker-based Linux link/runtime validation (power users and maintainers)</summary>
 
 ```bash
 # 1) Prepare linux-x64 native modules in .dart_tool/lib
@@ -223,20 +223,8 @@ docker run --rm --platform linux/amd64 \
     /workspace/scripts/check_native_link_deps.sh .dart_tool/lib \
       libggml-cpu.so libggml-vulkan.so libggml-blas.so
   '
-```
 
-Notes for Docker:
-
-- You can validate module packaging and shared-library resolution in Docker.
-- GPU execution still depends on host driver/runtime passthrough.
-- CUDA validation requires an NVIDIA runtime-enabled container run
-  (for example `--gpus all` plus compatible host CUDA driver stack).
-- HIP validation requires ROCm device/runtime passthrough.
-
-Optional: CUDA module link-check without GPU execution:
-
-```bash
-# build once
+# Optional CUDA module link-check without GPU execution
 docker build --platform linux/amd64 \
   -f docker/validation/Dockerfile.cuda-linkcheck \
   -t llamadart-linkcheck-cuda .
@@ -249,12 +237,8 @@ docker run --rm --platform linux/amd64 \
     /workspace/scripts/check_native_link_deps.sh .dart_tool/lib \
       libggml-cuda.so libggml-blas.so libggml-vulkan.so
   '
-```
 
-Optional: HIP module link-check without GPU execution:
-
-```bash
-# build once
+# Optional HIP module link-check without GPU execution
 docker build --platform linux/amd64 \
   -f docker/validation/Dockerfile.hip-linkcheck \
   -t llamadart-linkcheck-hip .
@@ -269,65 +253,52 @@ docker run --rm --platform linux/amd64 \
   '
 ```
 
-If you change `llamadart_native_backends`, run `flutter clean` once to ensure
-stale cached native outputs do not interfere with the new bundle selection.
-
-Recognized backend names for `llamadart_native_backends`:
-
-- `vulkan`
-- `cpu`
-- `opencl`
-- `cuda`
-- `blas`
-- `metal`
-- `hip`
-
-Accepted aliases:
-
-- `vk` -> `vulkan`
-- `ocl` -> `opencl`
-- `open-cl` -> `opencl`
-
 Notes:
 
-- Module availability depends on the pinned native release bundle and can change when the native tag is updated.
-- Configurable targets always keep `cpu` bundled as a fallback backend module.
-- Android keeps OpenCL available for opt-in configuration, but defaults to Vulkan.
-- `KleidiAI` and `ZenDNN` are CPU-path optimizations in `llama.cpp`, not separate backend module files like `ggml-vulkan` or `ggml-cuda`.
-- Because of that, they do not appear as selectable entries in `llamadart_native_backends` or as separate rows in the bundle-module matrix.
-- If you request a backend that is unavailable for a target, `llamadart` logs a warning and falls back to that target's default backend modules.
-- `example/chat_app` backend settings show runtime-detected backends/devices (what actually initialized on the device), not just bundled module files.
-- `example/chat_app` no longer exposes a user-facing `Auto` backend option; it lists concrete detected backends.
-- Legacy saved `Auto` preferences in `example/chat_app` are auto-migrated to the best detected backend at runtime.
-- The native-assets hook now refreshes emitted native files on each build; if you are upgrading from older cached outputs, run `flutter clean` once.
+- Docker can validate module packaging and shared-library resolution.
+- GPU execution still requires host device/runtime passthrough.
+- CUDA validation requires NVIDIA runtime-enabled container execution.
+- HIP validation requires ROCm passthrough.
 
-Apple targets are intentionally non-configurable in this path:
-
-- macOS and iOS device use the consolidated Metal+CPU native library.
-- iOS simulator uses the simulator-native consolidated library.
+</details>
 
 ---
 
-## ⚠️ Breaking Changes in 0.5.0
+## 🏗️ Runtime Repositories (Maintainer Context)
 
-If you are upgrading from `0.4.x`, read:
+llamadart has decoupled runtime ownership:
+
+- Native source/build/release:
+  [`leehack/llamadart-native`](https://github.com/leehack/llamadart-native)
+- Web bridge source/build:
+  [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge)
+- Web bridge runtime assets:
+  [`leehack/llama-web-bridge-assets`](https://github.com/leehack/llama-web-bridge-assets)
+- This repository consumes pinned published artifacts from those repositories.
+
+Core abstractions in this package:
+
+- `LlamaEngine`: orchestrates model lifecycle, generation, and templates.
+- `ChatSession`: stateful helper for chat history and sliding-window context.
+- `LlamaBackend`: platform-agnostic backend interface with native/web routing.
+
+---
+## ⚠️ Breaking Changes in 0.6.0
+
+If you are upgrading from `0.5.x`, read:
 
 - [MIGRATION.md](https://github.com/leehack/llamadart/blob/main/MIGRATION.md)
 
 High-impact changes:
 
-- `ChatSession` now centers on `create(...)` and streams `LlamaCompletionChunk`.
-- `LlamaChatMessage` named constructors were standardized:
-  - `LlamaChatMessage.text(...)` -> `LlamaChatMessage.fromText(...)`
-  - `LlamaChatMessage.multimodal(...)` -> `LlamaChatMessage.withContent(...)`
-- `ModelParams.logLevel` was removed; logging is now controlled at engine level via:
-  - `setDartLogLevel(...)`
-  - `setNativeLogLevel(...)`
-- Root exports changed; previously exported internals such as `ToolRegistry`,
-  `LlamaTokenizer`, and `ChatTemplateProcessor` are no longer part of the
-  public package surface.
-- Custom backend implementations must match the updated `LlamaBackend`
-  interface (including `getVramInfo` and updated `applyChatTemplate`).
+- Removed legacy custom template-handler/override APIs from `ChatTemplateEngine`:
+  - `registerHandler(...)`, `unregisterHandler(...)`, `clearCustomHandlers(...)`
+  - `registerTemplateOverride(...)`, `unregisterTemplateOverride(...)`,
+    `clearTemplateOverrides(...)`
+- Removed legacy per-call handler routing:
+  - `customHandlerId` and parse `handlerId`
+- Render/parse paths no longer silently downgrade to content-only output when
+  a handler/parser fails; failures are surfaced to the caller.
 
 ---
 
