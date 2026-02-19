@@ -33,6 +33,9 @@ jobs:
       - name: Analyze project source
         run: dart analyze
 
+      - name: Check platform boundaries
+        run: dart run tool/testing/check_platform_boundaries.dart
+
       - name: Pub Publish Dry Run
         run: flutter pub publish --dry-run
 

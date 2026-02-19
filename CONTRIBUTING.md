@@ -138,6 +138,9 @@ dart test -p vm
 
 # Run only Chrome tests
 dart test -p chrome
+
+# Verify architecture boundaries (shared/web-safe code has no dart:io/dart:ffi)
+dart run tool/testing/check_platform_boundaries.dart
 ```
 
 ### 3. Coverage
@@ -217,20 +220,5 @@ If you need to build binaries for a new release:
 2.  Create a new branch (`git checkout -b feature/my-feature`).
 3.  Commit your changes.
 4.  Push to your fork and submit a Pull Request.
-
-All PRs should complete the checklist in
-`.github/pull_request_template.md`, including:
-
-- Cross-platform safety checks (no accidental `dart:io`/`dart:ffi` in
-  shared/web-reachable paths).
-- Explicit unsupported behavior handling via `LlamaUnsupportedException`
-  where appropriate.
-- Required validation commands:
-  - `dart format --output=none --set-exit-if-changed .`
-  - `dart analyze`
-  - `dart test -p vm -j 1 --exclude-tags local-only`
-  - `dart test -p chrome --exclude-tags local-only`
-
-CI runs these checks and merge should be blocked until all required jobs pass.
 
 Thank you for contributing!
