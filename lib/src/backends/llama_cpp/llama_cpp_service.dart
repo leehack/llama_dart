@@ -118,6 +118,7 @@ class LlamaCppService {
   int _nextHandle = 1;
   String? _backendModuleDirectory;
   final Set<String> _loadedBackendModules = <String>{};
+  final Set<String> _failedBackendModules = <String>{};
   final Map<String, DynamicLibrary> _loadedBackendLibraries =
       <String, DynamicLibrary>{};
   final List<DynamicLibrary> _preloadedCoreLibraries = <DynamicLibrary>[];
@@ -362,6 +363,7 @@ class LlamaCppService {
       'libggml-opencl.so',
       'libggml-cuda.so',
       'libggml-blas.so',
+      'libggml-hip.so',
     ];
 
     for (final libraryFileName in backendModuleLibraries) {
@@ -401,6 +403,11 @@ class LlamaCppService {
 
   List<String> _linuxDependencySourceDirectories(String targetDirectory) {
     final dirs = <String>{targetDirectory};
+    final bundleNames = _linuxBundleNamesForCurrentAbi();
+    if (bundleNames.isEmpty) {
+      return dirs.toList(growable: false);
+    }
+
     final cacheRoot = Directory(
       path.join(
         Directory.current.path,
@@ -413,19 +420,14 @@ class LlamaCppService {
       return dirs.toList(growable: false);
     }
 
-    for (final tagDir in cacheRoot.listSync()) {
-      if (tagDir is! Directory) {
-        continue;
-      }
-      for (final bundleDir in tagDir.listSync()) {
-        if (bundleDir is! Directory) {
-          continue;
-        }
-        final bundleName = path.basename(bundleDir.path).toLowerCase();
-        if (!bundleName.startsWith('linux-')) {
-          continue;
-        }
-        final extractedDir = Directory(path.join(bundleDir.path, 'extracted'));
+    final tagDirectories = cacheRoot.listSync().whereType<Directory>().toList()
+      ..sort((a, b) => path.basename(b.path).compareTo(path.basename(a.path)));
+
+    for (final tagDir in tagDirectories) {
+      for (final bundleName in bundleNames) {
+        final extractedDir = Directory(
+          path.join(tagDir.path, bundleName, 'extracted'),
+        );
         if (extractedDir.existsSync()) {
           dirs.add(extractedDir.path);
         }
@@ -433,6 +435,17 @@ class LlamaCppService {
     }
 
     return dirs.toList(growable: false);
+  }
+
+  List<String> _linuxBundleNamesForCurrentAbi() {
+    switch (Abi.current()) {
+      case Abi.linuxArm64:
+        return const <String>['linux-arm64'];
+      case Abi.linuxX64:
+        return const <String>['linux-x64'];
+      default:
+        return const <String>[];
+    }
   }
 
   void _ensureLinuxLibraryPresent({
@@ -883,19 +896,19 @@ class LlamaCppService {
 
     // Always try CPU first; _tryLoadBackendModule can use either absolute path
     // (when module dir is known) or filename resolution fallback.
-    _tryLoadBackendModule('cpu');
+    _tryLoadBackendModuleIfBundled('cpu');
 
     // Probe Vulkan on desktop/mobile platforms where it is commonly provided as
     // a separate backend module, even if user preference is currently CPU.
     if (Platform.isAndroid || Platform.isLinux || Platform.isWindows) {
-      _tryLoadBackendModule('vulkan');
+      _tryLoadBackendModuleIfBundled('vulkan');
     }
     if (Platform.isLinux || Platform.isWindows) {
-      _tryLoadBackendModule('blas');
-      _tryLoadBackendModule('cuda');
+      _tryLoadBackendModuleIfBundled('blas');
+      _tryLoadBackendModuleIfBundled('cuda');
     }
     if (Platform.isLinux) {
-      _tryLoadBackendModule('hip');
+      _tryLoadBackendModuleIfBundled('hip');
     }
 
     switch (preferredBackend) {
@@ -904,23 +917,50 @@ class LlamaCppService {
       case GpuBackend.vulkan:
         return;
       case GpuBackend.metal:
-        _tryLoadBackendModule('metal');
+        _tryLoadBackendModuleIfBundled('metal');
         return;
       case GpuBackend.cuda:
-        _tryLoadBackendModule('cuda');
+        _tryLoadBackendModuleIfBundled('cuda');
         return;
       case GpuBackend.blas:
-        _tryLoadBackendModule('blas');
+        _tryLoadBackendModuleIfBundled('blas');
         return;
       case GpuBackend.opencl:
-        _tryLoadBackendModule('opencl');
+        _tryLoadBackendModuleIfBundled('opencl');
         return;
       case GpuBackend.hip:
-        _tryLoadBackendModule('hip');
+        _tryLoadBackendModuleIfBundled('hip');
         return;
       case GpuBackend.cpu:
         return;
     }
+  }
+
+  void _tryLoadBackendModuleIfBundled(String backend) {
+    if (_backendModuleDirectory != null && !_isBackendModuleBundled(backend)) {
+      return;
+    }
+    _tryLoadBackendModule(backend);
+  }
+
+  bool _isBackendModuleBundled(String backend) {
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory == null) {
+      return true;
+    }
+
+    final fileNameCandidates = _backendLibraryCandidateFileNames(backend);
+    if (fileNameCandidates.isEmpty) {
+      return false;
+    }
+
+    for (final fileName in fileNameCandidates) {
+      final fullPath = path.join(backendModuleDirectory, fileName);
+      if (File(fullPath).existsSync()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   bool _tryLoadBackendModule(String backend) {
@@ -931,6 +971,9 @@ class LlamaCppService {
     if (_loadedBackendModules.contains(backend)) {
       return true;
     }
+    if (_failedBackendModules.contains(backend)) {
+      return false;
+    }
 
     final fileNameCandidates = _backendLibraryCandidateFileNames(backend);
     final candidates = <String>{};
@@ -939,9 +982,10 @@ class LlamaCppService {
       for (final fileName in fileNameCandidates) {
         candidates.add(path.join(backendModuleDirectory, fileName));
       }
+    } else {
+      // No resolved module directory: rely on platform search paths.
+      candidates.addAll(fileNameCandidates);
     }
-    // Keep bare-name fallback last so module-dir resolution wins when present.
-    candidates.addAll(fileNameCandidates);
 
     for (final candidate in candidates) {
       if (path.isAbsolute(candidate) && !File(candidate).existsSync()) {
@@ -974,6 +1018,7 @@ class LlamaCppService {
         // successful even if this symbol is unavailable.
         _registerBackendRegBestEffort(reg);
         _loadedBackendModules.add(backend);
+        _failedBackendModules.remove(backend);
         return true;
       } finally {
         malloc.free(libraryPathPtr);
@@ -984,6 +1029,7 @@ class LlamaCppService {
       return true;
     }
 
+    _failedBackendModules.add(backend);
     return false;
   }
 
@@ -1244,12 +1290,16 @@ class LlamaCppService {
 
   List<String> _backendLibraryCandidateFileNames(String backend) {
     final baseName = _backendLibraryFileName(backend);
-    final candidates = <String>{baseName};
     final backendModuleDirectory = _backendModuleDirectory;
     if (backendModuleDirectory == null) {
-      return candidates.toList(growable: false);
+      return <String>[baseName];
     }
 
+    final candidates = <String>{};
+    final basePath = path.join(backendModuleDirectory, baseName);
+    if (File(basePath).existsSync()) {
+      candidates.add(baseName);
+    }
     final dynamicNames = _matchingLibraryNames(
       backendModuleDirectory,
       _backendLibraryPattern(backend),

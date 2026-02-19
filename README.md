@@ -159,6 +159,119 @@ published platform/arch bundle assets):
 | ios-arm64-sim | no | cpu, METAL | n/a (single consolidated native lib) |
 | ios-x86_64-sim | no | cpu, METAL | n/a (single consolidated native lib) |
 
+Linux runtime prerequisites (for Linux targets):
+
+- `cpu`: no extra GPU runtime dependency.
+- `vulkan`: requires Vulkan loader + a valid GPU driver/ICD on the host.
+- `blas`: requires OpenBLAS runtime (`libopenblas.so.0`).
+- `cuda` (linux-x64 only): requires NVIDIA driver + CUDA runtime libs
+  compatible with bundle expectations (for example `libcudart.so.12`).
+- `hip` (linux-x64 only): requires ROCm runtime libs compatible with bundle
+  expectations (for example `libhipblas.so.2`).
+
+Example (Ubuntu/Debian) baseline:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libvulkan1 vulkan-tools libopenblas0
+```
+
+Example (Fedora/RHEL/CentOS) baseline:
+
+```bash
+sudo dnf install -y vulkan-loader vulkan-tools openblas
+```
+
+Example (Arch Linux) baseline:
+
+```bash
+sudo pacman -S --needed vulkan-icd-loader vulkan-tools openblas
+```
+
+Quick verification:
+
+```bash
+# inspect unresolved runtime deps in bundled native modules
+for f in .dart_tool/lib/libggml-*.so; do
+  LD_LIBRARY_PATH=.dart_tool/lib ldd "$f" | grep "not found" || true
+done
+```
+
+Docker validation (Linux runtime wiring):
+
+```bash
+# 1) Prepare linux-x64 native modules in .dart_tool/lib
+docker run --rm --platform linux/amd64 \
+  -v "$PWD:/workspace" \
+  -v "/absolute/path/to/model.gguf:/models/your.gguf:ro" \
+  -w /workspace/example/llamadart_cli \
+  ghcr.io/cirruslabs/flutter:stable \
+  bash -lc '
+    rm -rf .dart_tool /workspace/.dart_tool/lib &&
+    dart pub get &&
+    dart run bin/llamadart_cli.dart --model /models/your.gguf --no-interactive --predict 1 --gpu-layers 0
+  '
+
+# 2) Baseline CPU/Vulkan/BLAS link-check
+docker run --rm --platform linux/amd64 \
+  -v "$PWD:/workspace" \
+  -w /workspace/example/llamadart_cli \
+  ghcr.io/cirruslabs/flutter:stable \
+  bash -lc '
+    apt-get update &&
+    apt-get install -y --no-install-recommends libvulkan1 vulkan-tools libopenblas0 &&
+    /workspace/scripts/check_native_link_deps.sh .dart_tool/lib \
+      libggml-cpu.so libggml-vulkan.so libggml-blas.so
+  '
+```
+
+Notes for Docker:
+
+- You can validate module packaging and shared-library resolution in Docker.
+- GPU execution still depends on host driver/runtime passthrough.
+- CUDA validation requires an NVIDIA runtime-enabled container run
+  (for example `--gpus all` plus compatible host CUDA driver stack).
+- HIP validation requires ROCm device/runtime passthrough.
+
+Optional: CUDA module link-check without GPU execution:
+
+```bash
+# build once
+docker build --platform linux/amd64 \
+  -f docker/validation/Dockerfile.cuda-linkcheck \
+  -t llamadart-linkcheck-cuda .
+
+docker run --rm --platform linux/amd64 \
+  -v "$PWD:/workspace" \
+  -w /workspace/example/llamadart_cli \
+  llamadart-linkcheck-cuda \
+  bash -lc '
+    /workspace/scripts/check_native_link_deps.sh .dart_tool/lib \
+      libggml-cuda.so libggml-blas.so libggml-vulkan.so
+  '
+```
+
+Optional: HIP module link-check without GPU execution:
+
+```bash
+# build once
+docker build --platform linux/amd64 \
+  -f docker/validation/Dockerfile.hip-linkcheck \
+  -t llamadart-linkcheck-hip .
+
+docker run --rm --platform linux/amd64 \
+  -v "$PWD:/workspace" \
+  -w /workspace/example/llamadart_cli \
+  llamadart-linkcheck-hip \
+  bash -lc '
+    export LD_LIBRARY_PATH=".dart_tool/lib:/opt/rocm/lib:/opt/rocm-6.3.0/lib:/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}" &&
+    /workspace/scripts/check_native_link_deps.sh .dart_tool/lib libggml-hip.so
+  '
+```
+
+If you change `llamadart_native_backends`, run `flutter clean` once to ensure
+stale cached native outputs do not interfere with the new bundle selection.
+
 Recognized backend names for `llamadart_native_backends`:
 
 - `vulkan`
