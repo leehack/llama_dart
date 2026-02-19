@@ -204,11 +204,11 @@ class LlamaCppService {
   /// Returns `null` when the path cannot be resolved.
   static String? resolveBackendModuleDirectory() {
     if (Platform.isWindows) {
-      try {
-        return path.dirname(Platform.resolvedExecutable);
-      } catch (_) {
-        return null;
-      }
+      return resolveWindowsBackendModuleDirectory(
+        resolvedExecutablePath: Platform.resolvedExecutable,
+        currentDirectoryPath: Directory.current.path,
+        environment: Platform.environment,
+      );
     }
 
     if (!Platform.isAndroid && !Platform.isLinux) {
@@ -225,6 +225,181 @@ class LlamaCppService {
       return parseBackendModuleDirectoryFromProcMaps(mapsContent);
     } catch (_) {
       return null;
+    }
+  }
+
+  /// Resolves Windows backend-module directory for dynamic backend loading.
+  ///
+  /// Resolution order:
+  /// 1. Explicit environment override (`LLAMADART_NATIVE_LIB_DIR` or
+  ///    `LLAMADART_BACKEND_MODULE_DIR`)
+  /// 2. Directory of resolved executable (if it looks like a native bundle)
+  /// 3. Current working directory (if it looks like a native bundle)
+  /// 4. Hook cache under `.dart_tool/llamadart/native_bundles/*/windows-*/`
+  /// 5. Directory of resolved executable (best-effort fallback)
+  static String? resolveWindowsBackendModuleDirectory({
+    required String resolvedExecutablePath,
+    required String currentDirectoryPath,
+    required Map<String, String> environment,
+  }) {
+    final overrideCandidates = <String>[
+      environment['LLAMADART_NATIVE_LIB_DIR'] ?? '',
+      environment['LLAMADART_BACKEND_MODULE_DIR'] ?? '',
+    ];
+    for (final override in overrideCandidates) {
+      if (override.isEmpty) {
+        continue;
+      }
+      if (_containsWindowsNativeModules(override)) {
+        return override;
+      }
+    }
+
+    final executableDir = path.dirname(resolvedExecutablePath);
+    if (_containsWindowsNativeModules(executableDir)) {
+      return executableDir;
+    }
+
+    if (_containsWindowsNativeModules(currentDirectoryPath)) {
+      return currentDirectoryPath;
+    }
+
+    final preferredBundle = _preferredWindowsBundleName();
+    final hookCacheDir = _findHookCacheWindowsBundleDirectory(
+      currentDirectoryPath,
+      preferredBundleName: preferredBundle,
+    );
+    if (hookCacheDir != null) {
+      return hookCacheDir;
+    }
+
+    return executableDir;
+  }
+
+  static String? _preferredWindowsBundleName() {
+    switch (Abi.current()) {
+      case Abi.windowsX64:
+        return 'windows-x64';
+      case Abi.windowsArm64:
+        return 'windows-arm64';
+      default:
+        return null;
+    }
+  }
+
+  static String? _findHookCacheWindowsBundleDirectory(
+    String currentDirectoryPath, {
+    String? preferredBundleName,
+  }) {
+    var cursor = Directory(currentDirectoryPath).absolute;
+    while (true) {
+      final cacheRoot = Directory(
+        path.join(cursor.path, '.dart_tool', 'llamadart', 'native_bundles'),
+      );
+      if (cacheRoot.existsSync()) {
+        final found = _selectWindowsBundleDirectoryFromCache(
+          cacheRoot.path,
+          preferredBundleName: preferredBundleName,
+        );
+        if (found != null) {
+          return found;
+        }
+      }
+
+      final parent = cursor.parent;
+      if (parent.path == cursor.path) {
+        break;
+      }
+      cursor = parent;
+    }
+
+    return null;
+  }
+
+  static String? _selectWindowsBundleDirectoryFromCache(
+    String cacheRootPath, {
+    String? preferredBundleName,
+  }) {
+    final cacheRoot = Directory(cacheRootPath);
+    List<Directory> tagDirectories;
+    try {
+      tagDirectories = cacheRoot.listSync().whereType<Directory>().toList(
+        growable: false,
+      );
+    } catch (_) {
+      return null;
+    }
+
+    tagDirectories.sort(
+      (a, b) => path.basename(b.path).compareTo(path.basename(a.path)),
+    );
+
+    for (final tagDirectory in tagDirectories) {
+      final bundleDirs = <Directory>[];
+      if (preferredBundleName != null) {
+        final preferred = Directory(
+          path.join(tagDirectory.path, preferredBundleName),
+        );
+        if (preferred.existsSync()) {
+          bundleDirs.add(preferred);
+        }
+      }
+
+      try {
+        final otherWindowsBundles = tagDirectory
+            .listSync()
+            .whereType<Directory>()
+            .where(
+              (directory) =>
+                  path.basename(directory.path).startsWith('windows-'),
+            )
+            .toList(growable: false);
+        bundleDirs.addAll(otherWindowsBundles);
+      } catch (_) {
+        // Ignore and continue with what we have.
+      }
+
+      final seen = <String>{};
+      for (final bundleDir in bundleDirs) {
+        final normalizedBundle = path.normalize(bundleDir.path);
+        if (!seen.add(normalizedBundle)) {
+          continue;
+        }
+
+        final extractedDir = path.join(bundleDir.path, 'extracted');
+        if (_containsWindowsNativeModules(extractedDir)) {
+          return extractedDir;
+        }
+        if (_containsWindowsNativeModules(bundleDir.path)) {
+          return bundleDir.path;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  static bool _containsWindowsNativeModules(String directoryPath) {
+    try {
+      final directory = Directory(directoryPath);
+      if (!directory.existsSync()) {
+        return false;
+      }
+
+      final fileNames = directory
+          .listSync()
+          .whereType<File>()
+          .map((file) => path.basename(file.path).toLowerCase())
+          .toSet();
+
+      final hasLlama = fileNames.contains('llama.dll');
+      final hasGgml = fileNames.contains('ggml.dll');
+      final hasCpuBackend = fileNames.any(
+        (name) => RegExp(r'^ggml-cpu(?:-[^.\\/]+)*\.dll$').hasMatch(name),
+      );
+      return hasLlama && hasGgml && hasCpuBackend;
+    } catch (_) {
+      return false;
     }
   }
 
