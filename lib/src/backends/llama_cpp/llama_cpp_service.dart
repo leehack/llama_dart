@@ -103,6 +103,8 @@ typedef _MtmdHelperEvalChunksDart =
       bool,
       Pointer<llama_pos>,
     );
+typedef _MtmdLogSetNative = Void Function(ggml_log_callback, Pointer<Void>);
+typedef _MtmdLogSetDart = void Function(ggml_log_callback, Pointer<Void>);
 
 /// Service responsible for managing Llama.cpp models and contexts.
 ///
@@ -187,6 +189,51 @@ class LlamaCppService {
 
     if (!applied) {
       // No applicable symbol found for this runtime layout.
+    }
+
+    // mtmd/clip uses its own logger callback chain; mirror llama logger so
+    // multimodal projector logs honor the same configured native log level.
+    _syncMtmdLogCallbackToLlamaLogger();
+  }
+
+  void _syncMtmdLogCallbackToLlamaLogger() {
+    final logCallbackPtr = malloc<ggml_log_callback>();
+    final userDataPtr = malloc<Pointer<Void>>();
+
+    try {
+      try {
+        llama_log_get(logCallbackPtr, userDataPtr);
+      } on ArgumentError {
+        return;
+      }
+
+      final callback = logCallbackPtr.value;
+      final userData = userDataPtr.value;
+      if (callback == nullptr) {
+        return;
+      }
+
+      var applied = false;
+      if (!_mtmdPrimarySymbolsUnavailable) {
+        try {
+          mtmd_log_set(callback, userData);
+          mtmd_helper_log_set(callback, userData);
+          applied = true;
+        } on ArgumentError {
+          _mtmdPrimarySymbolsUnavailable = true;
+        }
+      }
+
+      if (!applied) {
+        final fallback = _resolveMtmdFallbackApi();
+        if (fallback != null) {
+          fallback.logSet?.call(callback, userData);
+          fallback.helperLogSet?.call(callback, userData);
+        }
+      }
+    } finally {
+      malloc.free(logCallbackPtr);
+      malloc.free(userDataPtr);
     }
   }
 
@@ -2101,6 +2148,7 @@ class LlamaCppService {
     if (model == null) {
       throw Exception("Invalid model handle");
     }
+    _applyConfiguredLogLevel();
 
     final mmProjPathPtr = mmProjPath.toNativeUtf8();
     Pointer<mtmd_context> mmCtx = nullptr;
@@ -2488,6 +2536,8 @@ class _MtmdApi {
   final _MtmdBitmapFreeDart bitmapFree;
   final _MtmdTokenizeDart tokenize;
   final _MtmdHelperEvalChunksDart helperEvalChunks;
+  final _MtmdLogSetDart? logSet;
+  final _MtmdLogSetDart? helperLogSet;
 
   const _MtmdApi({
     required this.defaultMarker,
@@ -2502,10 +2552,26 @@ class _MtmdApi {
     required this.bitmapFree,
     required this.tokenize,
     required this.helperEvalChunks,
+    required this.logSet,
+    required this.helperLogSet,
   });
 
   static _MtmdApi? tryLoad(DynamicLibrary library) {
     try {
+      _MtmdLogSetDart? logSet;
+      _MtmdLogSetDart? helperLogSet;
+      try {
+        logSet = library.lookupFunction<_MtmdLogSetNative, _MtmdLogSetDart>(
+          'mtmd_log_set',
+        );
+      } catch (_) {}
+      try {
+        helperLogSet = library
+            .lookupFunction<_MtmdLogSetNative, _MtmdLogSetDart>(
+              'mtmd_helper_log_set',
+            );
+      } catch (_) {}
+
       return _MtmdApi(
         defaultMarker: library
             .lookupFunction<_MtmdDefaultMarkerNative, _MtmdDefaultMarkerDart>(
@@ -2561,6 +2627,8 @@ class _MtmdApi {
               _MtmdHelperEvalChunksNative,
               _MtmdHelperEvalChunksDart
             >('mtmd_helper_eval_chunks'),
+        logSet: logSet,
+        helperLogSet: helperLogSet,
       );
     } catch (_) {
       return null;
