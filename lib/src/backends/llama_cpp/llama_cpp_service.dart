@@ -17,6 +17,8 @@ typedef _GgmlBackendLoadNative = ggml_backend_reg_t Function(Pointer<Char>);
 typedef _GgmlBackendLoadDart = ggml_backend_reg_t Function(Pointer<Char>);
 typedef _GgmlBackendLoadAllNative = Void Function();
 typedef _GgmlBackendLoadAllDart = void Function();
+typedef _LlamaDartSetLogLevelNative = Void Function(Int32);
+typedef _LlamaDartSetLogLevelDart = void Function(int);
 typedef _MtmdDefaultMarkerNative = Pointer<Char> Function();
 typedef _MtmdDefaultMarkerDart = Pointer<Char> Function();
 typedef _MtmdContextParamsDefaultNative = mtmd_context_params Function();
@@ -114,6 +116,8 @@ class LlamaCppService {
   bool _ggmlFallbackLookupAttempted = false;
   _GgmlBackendLoadDart? _ggmlBackendLoadFallback;
   _GgmlBackendLoadAllDart? _ggmlBackendLoadAllFallback;
+  bool _logLevelFallbackLookupAttempted = false;
+  _LlamaDartSetLogLevelDart? _llamaDartSetLogLevelFallback;
   bool _mtmdFallbackLookupAttempted = false;
   bool _mtmdPrimarySymbolsUnavailable = false;
   _MtmdApi? _mtmdFallbackApi;
@@ -150,8 +154,10 @@ class LlamaCppService {
     try {
       llama_dart_set_log_level(level.index);
     } on ArgumentError {
-      // Wrapper log-level helper is optional in split-library bundles.
-      // Core runtime stays functional without this convenience call.
+      // Some split bundles expose this helper in the wrapper library instead
+      // of the primary lookup target.
+      _resolveLogLevelFallbackFunction();
+      _llamaDartSetLogLevelFallback?.call(level.index);
     }
   }
 
@@ -164,8 +170,10 @@ class LlamaCppService {
     if (_backendModuleDirectory == null) {
       _tryLoadAllBackendsBestEffort();
     } else {
-      // Android/Linux stability: load CPU first and defer GPU module loading.
+      // Split-module bundles: load CPU and proactively probe optional
+      // backend modules so capability discovery works before first model load.
       _tryLoadBackendModule('cpu');
+      _prepareBackendsForModelLoad(GpuBackend.auto);
     }
 
     if (_backendRegistryOr<int>(0, ggml_backend_reg_count) == 0) {
@@ -647,6 +655,36 @@ class LlamaCppService {
     }
   }
 
+  void _resolveLogLevelFallbackFunction() {
+    if (_logLevelFallbackLookupAttempted) {
+      return;
+    }
+    _logLevelFallbackLookupAttempted = true;
+
+    final fileNameCandidates = _llamadartLibraryCandidateFileNames();
+    final candidates = <String>{...fileNameCandidates};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory != null) {
+      for (final fileName in fileNameCandidates) {
+        candidates.add(path.join(backendModuleDirectory, fileName));
+      }
+    }
+
+    for (final candidate in candidates) {
+      try {
+        final library = DynamicLibrary.open(candidate);
+        _llamaDartSetLogLevelFallback = library
+            .lookupFunction<
+              _LlamaDartSetLogLevelNative,
+              _LlamaDartSetLogLevelDart
+            >('llama_dart_set_log_level');
+        return;
+      } catch (_) {
+        continue;
+      }
+    }
+  }
+
   static String _ggmlLibraryFileName() {
     if (Platform.isWindows) {
       return 'ggml.dll';
@@ -655,6 +693,16 @@ class LlamaCppService {
       return 'libggml.dylib';
     }
     return 'libggml.so';
+  }
+
+  static String _llamadartLibraryFileName() {
+    if (Platform.isWindows) {
+      return 'llamadart.dll';
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return 'libllamadart.dylib';
+    }
+    return 'libllamadart.so';
   }
 
   List<String> _backendLibraryCandidateFileNames(String backend) {
@@ -689,6 +737,22 @@ class LlamaCppService {
     return candidates.toList(growable: false);
   }
 
+  List<String> _llamadartLibraryCandidateFileNames() {
+    final baseName = _llamadartLibraryFileName();
+    final candidates = <String>{baseName};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory == null) {
+      return candidates.toList(growable: false);
+    }
+
+    final dynamicNames = _matchingLibraryNames(
+      backendModuleDirectory,
+      _llamadartLibraryPattern(),
+    );
+    candidates.addAll(dynamicNames);
+    return candidates.toList(growable: false);
+  }
+
   RegExp _backendLibraryPattern(String backend) {
     final escapedBackend = RegExp.escape(backend);
     if (Platform.isWindows) {
@@ -708,6 +772,16 @@ class LlamaCppService {
       return RegExp(r'^libggml(?:-[^.\\/]+)*\.dylib$');
     }
     return RegExp(r'^libggml(?:-[^.\\/]+)*\.so$');
+  }
+
+  RegExp _llamadartLibraryPattern() {
+    if (Platform.isWindows) {
+      return RegExp(r'^llamadart(?:-[^.\\/]+)*\.dll$');
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return RegExp(r'^libllamadart(?:-[^.\\/]+)*\.dylib$');
+    }
+    return RegExp(r'^libllamadart(?:-[^.\\/]+)*\.so$');
   }
 
   static List<String> _matchingLibraryNames(

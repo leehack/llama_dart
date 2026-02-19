@@ -95,7 +95,11 @@ void main(List<String> args) async {
       input.outputDirectory.toFilePath(),
       _reportDir,
     );
-    await Directory(reportDirPath).create(recursive: true);
+    final reportDir = Directory(reportDirPath);
+    if (reportDir.existsSync()) {
+      await reportDir.delete(recursive: true);
+    }
+    await reportDir.create(recursive: true);
 
     final copiedFileNames = <String>{};
     final usedAssetNames = <String>{};

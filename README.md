@@ -129,7 +129,7 @@ hooks:
           windows-x64: [vulkan]
 ```
 
-Backend module matrix (from pinned native tag `b8089`, verified against all
+Backend module matrix (from pinned native tag `b8095`, verified against all
 published platform/arch bundle assets):
 
 | Target | Configurable | Default runtime backends | Available backend modules in bundle |
@@ -171,6 +171,9 @@ Notes:
 - Because of that, they do not appear as selectable entries in `llamadart_native_backends` or as separate rows in the bundle-module matrix.
 - If you request a backend that is unavailable for a target, `llamadart` logs a warning and falls back to that target's default backend modules.
 - `example/chat_app` backend settings show runtime-detected backends/devices (what actually initialized on the device), not just bundled module files.
+- `example/chat_app` no longer exposes a user-facing `Auto` backend option; it lists concrete detected backends.
+- Legacy saved `Auto` preferences in `example/chat_app` are auto-migrated to the best detected backend at runtime.
+- The native-assets hook now refreshes emitted native files on each build; if you are upgrading from older cached outputs, run `flutter clean` once.
 
 Apple targets are intentionally non-configurable in this path:
 

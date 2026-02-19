@@ -189,16 +189,26 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> _init() async {
     _settings = await _settingsService.loadSettings();
+    String? backendInfo;
     try {
-      final backendInfo = await _chatService.engine.getBackendName();
+      backendInfo = await _chatService.engine.getBackendName();
+    } catch (e) {
+      debugPrint("Error fetching devices: $e");
+    }
+
+    await _resolveAutoPreferredBackend(backendInfo: backendInfo);
+
+    if (backendInfo != null) {
       _availableDevices = _parseBackendDevices(backendInfo);
       _activeBackend = _deriveActiveBackendLabel(
         backendInfo,
         preferredBackend: _settings.preferredBackend,
         gpuLayers: _settings.gpuLayers,
       );
-    } catch (e) {
-      debugPrint("Error fetching devices: $e");
+    } else {
+      _activeBackend = _settings.preferredBackend == GpuBackend.cpu
+          ? 'CPU'
+          : _settings.preferredBackend.name.toUpperCase();
     }
     notifyListeners();
   }
@@ -229,6 +239,7 @@ class ChatProvider extends ChangeNotifier {
     }
 
     try {
+      await _resolveAutoPreferredBackend();
       await _chatService.engine.setDartLogLevel(_settings.logLevel);
       await _chatService.engine.setNativeLogLevel(_settings.nativeLogLevel);
       await _chatService.init(
@@ -1383,6 +1394,50 @@ class ChatProvider extends ChangeNotifier {
     }
 
     return backendInfo;
+  }
+
+  Future<void> _resolveAutoPreferredBackend({String? backendInfo}) async {
+    if (_settings.preferredBackend != GpuBackend.auto) {
+      return;
+    }
+
+    final info = backendInfo ?? await _getBackendInfoBestEffort();
+    final resolved = info == null
+        ? GpuBackend.cpu
+        : _selectBestBackendFromInfo(info);
+
+    _settings = _settings.copyWith(preferredBackend: resolved);
+    await _settingsService.saveSettings(_settings);
+  }
+
+  Future<String?> _getBackendInfoBestEffort() async {
+    try {
+      return await _chatService.engine.getBackendName();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  GpuBackend _selectBestBackendFromInfo(String backendInfo) {
+    if (_containsBackendMarker(backendInfo, GpuBackend.metal)) {
+      return GpuBackend.metal;
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.cuda)) {
+      return GpuBackend.cuda;
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.hip)) {
+      return GpuBackend.hip;
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.vulkan)) {
+      return GpuBackend.vulkan;
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.opencl)) {
+      return GpuBackend.opencl;
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.blas)) {
+      return GpuBackend.blas;
+    }
+    return GpuBackend.cpu;
   }
 
   bool _containsBackendMarker(String value, GpuBackend backend) {

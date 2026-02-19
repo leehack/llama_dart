@@ -21,7 +21,9 @@ class SettingsSheet extends StatelessWidget {
         final selectedBackend =
             availableBackends.contains(provider.preferredBackend)
             ? provider.preferredBackend
-            : GpuBackend.auto;
+            : availableBackends.contains(GpuBackend.cpu)
+            ? GpuBackend.cpu
+            : availableBackends.first;
 
         return Padding(
           padding: EdgeInsets.only(
@@ -616,7 +618,7 @@ class SettingsSheet extends StatelessWidget {
   }
 
   List<GpuBackend> _getAvailableBackends(ChatProvider provider) {
-    final Set<GpuBackend> backends = {GpuBackend.auto};
+    final Set<GpuBackend> backends = {GpuBackend.cpu};
 
     for (final device in provider.availableDevices) {
       final d = device.toLowerCase();
@@ -641,10 +643,6 @@ class SettingsSheet extends StatelessWidget {
     if (active.contains('cuda')) backends.add(GpuBackend.cuda);
     if (active.contains('blas')) backends.add(GpuBackend.blas);
     if (active.contains('cpu') || active.contains('llvm')) {
-      backends.add(GpuBackend.cpu);
-    }
-
-    if (backends.length == 1) {
       backends.add(GpuBackend.cpu);
     }
 

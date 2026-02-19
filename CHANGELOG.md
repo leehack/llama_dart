@@ -27,6 +27,11 @@
     *   Updated `tool/testing/run_llama_cpp_chat_tests.sh` to use prepared `.dart_tool` source instead of `third_party/llama_cpp`, so local upstream chat-suite runs no longer depend on vendored source.
     *   Updated template parity tests to resolve fixtures from `LLAMA_CPP_TEMPLATES_DIR` or `.dart_tool/llama_cpp/models/templates` instead of `third_party/llama_cpp`.
     *   Clarified README backend matrix notes: `KleidiAI`/`ZenDNN` are CPU-path optimizations, not selectable runtime backend modules.
+    *   Runtime backend probing for split-module bundles now runs during backend initialization (not only after first model load), so device/backend availability is visible earlier in app flows.
+    *   Native-assets hook output now refreshes emitted native files per build to prevent stale backend module carryover when backend config changes.
+*   **Chat example backend UX cleanup**:
+    *   Removed user-facing `Auto` backend option from settings; only concrete runtime-detected backends are shown.
+    *   Added migration behavior that resolves legacy saved `Auto` preference to the best detected backend at runtime.
 
 ## 0.5.4
 
