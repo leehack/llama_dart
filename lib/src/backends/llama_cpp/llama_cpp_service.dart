@@ -23,6 +23,7 @@ class LlamaCppService {
   final Set<String> _loadedBackendModules = <String>{};
   bool _backendLoadAllSymbolUnavailable = false;
   bool _backendLoadSymbolUnavailable = false;
+  bool _backendRegistrySymbolUnavailable = false;
 
   // --- Internal State ---
   final Map<int, _LlamaModelWrapper> _models = {};
@@ -69,7 +70,7 @@ class LlamaCppService {
       _tryLoadBackendModule('cpu');
     }
 
-    if (ggml_backend_reg_count() == 0) {
+    if (_backendRegistryOr<int>(0, ggml_backend_reg_count) == 0) {
       // Fallback path: attempt to load CPU backend by filename resolution.
       _tryLoadBackendModule('cpu');
     }
@@ -304,6 +305,19 @@ class LlamaCppService {
     return false;
   }
 
+  T _backendRegistryOr<T>(T fallback, T Function() call) {
+    if (_backendRegistrySymbolUnavailable) {
+      return fallback;
+    }
+
+    try {
+      return call();
+    } on ArgumentError {
+      _backendRegistrySymbolUnavailable = true;
+      return fallback;
+    }
+  }
+
   static String _backendLibraryFileName(String backend) {
     if (Platform.isWindows) {
       return 'ggml-$backend.dll';
@@ -336,13 +350,19 @@ class LlamaCppService {
 
   String _backendDiagnostics() {
     final regs = <String>[];
-    final regCount = ggml_backend_reg_count();
+    final regCount = _backendRegistryOr<int>(0, ggml_backend_reg_count);
     for (var i = 0; i < regCount; i++) {
-      final reg = ggml_backend_reg_get(i);
+      final reg = _backendRegistryOr<ggml_backend_reg_t>(
+        nullptr,
+        () => ggml_backend_reg_get(i),
+      );
       if (reg == nullptr) {
         continue;
       }
-      final regNamePtr = ggml_backend_reg_name(reg);
+      final regNamePtr = _backendRegistryOr<Pointer<Char>>(
+        nullptr,
+        () => ggml_backend_reg_name(reg),
+      );
       if (regNamePtr == nullptr) {
         continue;
       }
@@ -352,7 +372,8 @@ class LlamaCppService {
     final devices = getBackendInfo();
     return '{moduleDir=${_backendModuleDirectory ?? "null"}, '
         'loadedModules=${_loadedBackendModules.toList(growable: false)}, '
-        'registeredBackends=$regs, devices=$devices}';
+        'registeredBackends=$regs, devices=$devices, '
+        'registryApisUnavailable=$_backendRegistrySymbolUnavailable}';
   }
 
   Pointer<ggml_backend_dev_t>? _createPreferredDeviceList(GpuBackend backend) {
@@ -374,8 +395,11 @@ class LlamaCppService {
       case GpuBackend.auto:
         return null;
       case GpuBackend.cpu:
-        final cpuDev = ggml_backend_dev_by_type(
-          ggml_backend_dev_type.GGML_BACKEND_DEVICE_TYPE_CPU,
+        final cpuDev = _backendRegistryOr<ggml_backend_dev_t>(
+          nullptr,
+          () => ggml_backend_dev_by_type(
+            ggml_backend_dev_type.GGML_BACKEND_DEVICE_TYPE_CPU,
+          ),
         );
         if (cpuDev == nullptr) {
           return null;
@@ -399,19 +423,28 @@ class LlamaCppService {
   List<ggml_backend_dev_t>? _devicesForBackendRegName(String regName) {
     final regNamePtr = regName.toNativeUtf8();
     try {
-      final reg = ggml_backend_reg_by_name(regNamePtr.cast());
+      final reg = _backendRegistryOr<ggml_backend_reg_t>(
+        nullptr,
+        () => ggml_backend_reg_by_name(regNamePtr.cast()),
+      );
       if (reg == nullptr) {
         return null;
       }
 
-      final count = ggml_backend_reg_dev_count(reg);
+      final count = _backendRegistryOr<int>(
+        0,
+        () => ggml_backend_reg_dev_count(reg),
+      );
       if (count <= 0) {
         return null;
       }
 
       final devices = <ggml_backend_dev_t>[];
       for (var i = 0; i < count; i++) {
-        final dev = ggml_backend_reg_dev_get(reg, i);
+        final dev = _backendRegistryOr<ggml_backend_dev_t>(
+          nullptr,
+          () => ggml_backend_reg_dev_get(reg, i),
+        );
         if (dev != nullptr) {
           devices.add(dev);
         }
@@ -1331,20 +1364,32 @@ class LlamaCppService {
 
   /// Returns information about available backend devices.
   List<String> getBackendInfo() {
-    final count = ggml_backend_dev_count();
+    final count = _backendRegistryOr<int>(0, ggml_backend_dev_count);
     final devices = <String>{};
     for (var i = 0; i < count; i++) {
-      final dev = ggml_backend_dev_get(i);
+      final dev = _backendRegistryOr<ggml_backend_dev_t>(
+        nullptr,
+        () => ggml_backend_dev_get(i),
+      );
       if (dev == nullptr) continue;
 
-      final devNamePtr = ggml_backend_dev_name(dev);
+      final devNamePtr = _backendRegistryOr<Pointer<Char>>(
+        nullptr,
+        () => ggml_backend_dev_name(dev),
+      );
       if (devNamePtr == nullptr) continue;
       final devName = devNamePtr.cast<Utf8>().toDartString();
 
       String label = devName;
-      final reg = ggml_backend_dev_backend_reg(dev);
+      final reg = _backendRegistryOr<ggml_backend_reg_t>(
+        nullptr,
+        () => ggml_backend_dev_backend_reg(dev),
+      );
       if (reg != nullptr) {
-        final regNamePtr = ggml_backend_reg_name(reg);
+        final regNamePtr = _backendRegistryOr<Pointer<Char>>(
+          nullptr,
+          () => ggml_backend_reg_name(reg),
+        );
         if (regNamePtr != nullptr) {
           final regName = regNamePtr.cast<Utf8>().toDartString();
           if (regName.toLowerCase() == devName.toLowerCase()) {
