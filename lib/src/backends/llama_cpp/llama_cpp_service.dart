@@ -13,6 +13,11 @@ import '../../core/models/inference/generation_params.dart';
 import '../../core/models/inference/model_params.dart';
 import 'bindings.dart';
 
+typedef _GgmlBackendLoadNative = ggml_backend_reg_t Function(Pointer<Char>);
+typedef _GgmlBackendLoadDart = ggml_backend_reg_t Function(Pointer<Char>);
+typedef _GgmlBackendLoadAllNative = Void Function();
+typedef _GgmlBackendLoadAllDart = void Function();
+
 /// Service responsible for managing Llama.cpp models and contexts.
 ///
 /// This service handles the direct interaction with the native Llama.cpp library,
@@ -24,6 +29,9 @@ class LlamaCppService {
   bool _backendLoadAllSymbolUnavailable = false;
   bool _backendLoadSymbolUnavailable = false;
   bool _backendRegistrySymbolUnavailable = false;
+  bool _ggmlFallbackLookupAttempted = false;
+  _GgmlBackendLoadDart? _ggmlBackendLoadFallback;
+  _GgmlBackendLoadAllDart? _ggmlBackendLoadAllFallback;
 
   // --- Internal State ---
   final Map<int, _LlamaModelWrapper> _models = {};
@@ -91,9 +99,15 @@ class LlamaCppService {
     try {
       ggml_backend_load_all();
     } on ArgumentError {
-      // Some builds (notably certain Windows bundles) don't export this
-      // optional convenience symbol. Treat it as unavailable and continue
-      // with explicit backend loading/fallback.
+      _resolveGgmlFallbackFunctions();
+      final fallback = _ggmlBackendLoadAllFallback;
+      if (fallback != null) {
+        fallback();
+        return;
+      }
+
+      // Some split bundles don't expose this symbol on the primary FFI asset.
+      // Continue with explicit backend-module loading fallback.
       _backendLoadAllSymbolUnavailable = true;
     }
   }
@@ -291,10 +305,16 @@ class LlamaCppService {
         try {
           reg = ggml_backend_load(libraryPathPtr.cast());
         } on ArgumentError {
-          // Optional dynamic-loader symbol can be missing in some native
-          // builds. Mark unavailable to avoid repeated failures.
-          _backendLoadSymbolUnavailable = true;
-          return false;
+          _resolveGgmlFallbackFunctions();
+          final fallback = _ggmlBackendLoadFallback;
+          if (fallback == null) {
+            // Optional dynamic-loader symbol can be missing from the primary
+            // FFI asset in split bundles. If ggml fallback is unavailable,
+            // stop retrying.
+            _backendLoadSymbolUnavailable = true;
+            return false;
+          }
+          reg = fallback(libraryPathPtr.cast());
         }
         if (reg == nullptr) {
           continue;
@@ -308,6 +328,61 @@ class LlamaCppService {
     }
 
     return false;
+  }
+
+  void _resolveGgmlFallbackFunctions() {
+    if (_ggmlFallbackLookupAttempted) {
+      return;
+    }
+    _ggmlFallbackLookupAttempted = true;
+
+    final fileName = _ggmlLibraryFileName();
+    final candidates = <String>{fileName};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory != null) {
+      candidates.add(path.join(backendModuleDirectory, fileName));
+    }
+
+    DynamicLibrary? library;
+    for (final candidate in candidates) {
+      try {
+        library = DynamicLibrary.open(candidate);
+        break;
+      } catch (_) {
+        continue;
+      }
+    }
+    if (library == null) {
+      return;
+    }
+
+    try {
+      _ggmlBackendLoadFallback = library
+          .lookupFunction<_GgmlBackendLoadNative, _GgmlBackendLoadDart>(
+            'ggml_backend_load',
+          );
+    } catch (_) {
+      _ggmlBackendLoadFallback = null;
+    }
+
+    try {
+      _ggmlBackendLoadAllFallback = library
+          .lookupFunction<_GgmlBackendLoadAllNative, _GgmlBackendLoadAllDart>(
+            'ggml_backend_load_all',
+          );
+    } catch (_) {
+      _ggmlBackendLoadAllFallback = null;
+    }
+  }
+
+  static String _ggmlLibraryFileName() {
+    if (Platform.isWindows) {
+      return 'ggml.dll';
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return 'libggml.dylib';
+    }
+    return 'libggml.so';
   }
 
   T _backendRegistryOr<T>(T fallback, T Function() call) {
