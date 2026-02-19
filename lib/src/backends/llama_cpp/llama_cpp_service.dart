@@ -689,10 +689,6 @@ class LlamaCppService {
       return true;
     }
 
-    if (Platform.isWindows && _tryRegisterBackendModuleViaAsset(backend)) {
-      return true;
-    }
-
     final fileNameCandidates = _backendLibraryCandidateFileNames(backend);
     final candidates = <String>{};
     final backendModuleDirectory = _backendModuleDirectory;
@@ -730,12 +726,19 @@ class LlamaCppService {
           continue;
         }
 
+        // Best-effort compatibility call for runtimes where explicit register is
+        // required after dynamic load. We still consider the module load
+        // successful even if this symbol is unavailable.
         _registerBackendRegBestEffort(reg);
         _loadedBackendModules.add(backend);
         return true;
       } finally {
         malloc.free(libraryPathPtr);
       }
+    }
+
+    if (Platform.isWindows && _tryRegisterBackendModuleViaAsset(backend)) {
+      return true;
     }
 
     return false;
@@ -760,7 +763,10 @@ class LlamaCppService {
           continue;
         }
 
-        _registerBackendRegBestEffort(reg);
+        // Asset init path requires explicit backend registration.
+        if (!_registerBackendRegBestEffort(reg)) {
+          continue;
+        }
         _loadedBackendLibraries[backend] = library;
         _loadedBackendModules.add(backend);
         return true;
@@ -772,20 +778,21 @@ class LlamaCppService {
     return false;
   }
 
-  void _registerBackendRegBestEffort(ggml_backend_reg_t reg) {
+  bool _registerBackendRegBestEffort(ggml_backend_reg_t reg) {
     try {
       ggml_backend_register(reg);
-      return;
+      return true;
     } on ArgumentError {
       _resolveGgmlFallbackFunctions();
       final fallback = _ggmlBackendRegisterFallback;
       if (fallback == null) {
-        return;
+        return false;
       }
       try {
         fallback(reg);
+        return true;
       } catch (_) {
-        return;
+        return false;
       }
     }
   }
