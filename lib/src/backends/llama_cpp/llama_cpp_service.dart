@@ -126,6 +126,7 @@ class LlamaCppService {
   bool _backendLoadSymbolUnavailable = false;
   bool _backendRegistrySymbolUnavailable = false;
   bool _linuxCorePreloadAttempted = false;
+  bool _linuxRuntimeDepsPrepared = false;
   bool _ggmlFallbackLookupAttempted = false;
   _GgmlBackendLoadDart? _ggmlBackendLoadFallback;
   _GgmlBackendLoadAllDart? _ggmlBackendLoadAllFallback;
@@ -250,6 +251,7 @@ class LlamaCppService {
   ///
   /// This must be called before loading any models.
   void initializeBackend() {
+    _prepareLinuxRuntimeDependenciesBeforeBinding();
     _preloadLinuxCoreLibrariesForSonameResolution();
     _backendModuleDirectory = resolveBackendModuleDirectory();
     _applyConfiguredLogLevel();
@@ -283,18 +285,180 @@ class LlamaCppService {
     // Linux split bundles expose versioned SONAMEs (e.g. libllama.so.0).
     // Preloading dependency libraries through native-asset URIs ensures their
     // SONAMEs are already registered before @Native resolves libllamadart.
-    const preloadAssets = <String>[
-      'package:llamadart/ggml-base',
-      'package:llamadart/ggml',
-      'package:llamadart/llama',
+    final moduleDir = _resolveLinuxPrimaryLibraryDirectory();
+
+    final preloadCandidates = <List<String>>[
+      <String>[
+        'package:llamadart/ggml-base',
+        if (moduleDir != null) path.join(moduleDir, 'libggml-base.so.0'),
+        if (moduleDir != null) path.join(moduleDir, 'libggml-base.so'),
+      ],
+      <String>[
+        'package:llamadart/ggml',
+        if (moduleDir != null) path.join(moduleDir, 'libggml.so.0'),
+        if (moduleDir != null) path.join(moduleDir, 'libggml.so'),
+      ],
+      <String>[
+        'package:llamadart/llama',
+        if (moduleDir != null) path.join(moduleDir, 'libllama.so.0'),
+        if (moduleDir != null) path.join(moduleDir, 'libllama.so'),
+      ],
     ];
 
-    for (final assetUri in preloadAssets) {
-      try {
-        _preloadedCoreLibraries.add(DynamicLibrary.open(assetUri));
-      } catch (_) {
+    for (final candidates in preloadCandidates) {
+      var loaded = false;
+      for (final candidate in candidates) {
+        try {
+          _preloadedCoreLibraries.add(DynamicLibrary.open(candidate));
+          loaded = true;
+          break;
+        } catch (_) {
+          continue;
+        }
+      }
+
+      if (!loaded) {
         // Best effort: continue and let normal fallback paths handle loading.
       }
+    }
+  }
+
+  void _prepareLinuxRuntimeDependenciesBeforeBinding() {
+    if (!Platform.isLinux || _linuxRuntimeDepsPrepared) {
+      return;
+    }
+    _linuxRuntimeDepsPrepared = true;
+
+    final targetDir = _resolveLinuxPrimaryLibraryDirectory();
+    if (targetDir == null) {
+      return;
+    }
+
+    final sourceDirectories = _linuxDependencySourceDirectories(targetDir);
+    const coreLibraries = <String>[
+      'libggml-base.so',
+      'libggml.so',
+      'libllama.so',
+    ];
+
+    for (final libraryFileName in coreLibraries) {
+      _ensureLinuxLibraryPresent(
+        targetDirectory: targetDir,
+        sourceDirectories: sourceDirectories,
+        fileName: libraryFileName,
+      );
+      _ensureLinuxSonameAlias(targetDir, libraryFileName);
+    }
+  }
+
+  String? _resolveLinuxPrimaryLibraryDirectory() {
+    final candidates = <String>{
+      path.join(Directory.current.path, '.dart_tool', 'lib'),
+      path.dirname(Platform.resolvedExecutable),
+      Directory.current.path,
+    };
+
+    for (final candidate in candidates) {
+      final directory = Directory(candidate);
+      if (!directory.existsSync()) {
+        continue;
+      }
+      final hasPrimary =
+          File(path.join(candidate, 'libllamadart.so')).existsSync() ||
+          File(path.join(candidate, 'libllamadart.so.0')).existsSync();
+      if (hasPrimary) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  List<String> _linuxDependencySourceDirectories(String targetDirectory) {
+    final dirs = <String>{targetDirectory};
+    final cacheRoot = Directory(
+      path.join(
+        Directory.current.path,
+        '.dart_tool',
+        'llamadart',
+        'native_bundles',
+      ),
+    );
+    if (!cacheRoot.existsSync()) {
+      return dirs.toList(growable: false);
+    }
+
+    for (final tagDir in cacheRoot.listSync()) {
+      if (tagDir is! Directory) {
+        continue;
+      }
+      for (final bundleDir in tagDir.listSync()) {
+        if (bundleDir is! Directory) {
+          continue;
+        }
+        final bundleName = path.basename(bundleDir.path).toLowerCase();
+        if (!bundleName.startsWith('linux-')) {
+          continue;
+        }
+        final extractedDir = Directory(path.join(bundleDir.path, 'extracted'));
+        if (extractedDir.existsSync()) {
+          dirs.add(extractedDir.path);
+        }
+      }
+    }
+
+    return dirs.toList(growable: false);
+  }
+
+  void _ensureLinuxLibraryPresent({
+    required String targetDirectory,
+    required List<String> sourceDirectories,
+    required String fileName,
+  }) {
+    final targetPath = path.join(targetDirectory, fileName);
+    if (File(targetPath).existsSync()) {
+      return;
+    }
+
+    for (final sourceDirectory in sourceDirectories) {
+      final sourcePath = path.join(sourceDirectory, fileName);
+      final sourceFile = File(sourcePath);
+      if (!sourceFile.existsSync()) {
+        continue;
+      }
+      try {
+        sourceFile.copySync(targetPath);
+        return;
+      } catch (_) {
+        continue;
+      }
+    }
+  }
+
+  void _ensureLinuxSonameAlias(String directory, String baseFileName) {
+    final sourcePath = path.join(directory, baseFileName);
+    final sourceFile = File(sourcePath);
+    if (!sourceFile.existsSync()) {
+      return;
+    }
+
+    final aliasPath = '$sourcePath.0';
+    final aliasFile = File(aliasPath);
+    if (aliasFile.existsSync()) {
+      return;
+    }
+
+    try {
+      Link(aliasPath).createSync(baseFileName);
+      return;
+    } catch (_) {
+      // Fall through to copying when symlinks are unavailable.
+    }
+
+    try {
+      sourceFile.copySync(aliasPath);
+    } catch (_) {
+      // Best effort only.
     }
   }
 
