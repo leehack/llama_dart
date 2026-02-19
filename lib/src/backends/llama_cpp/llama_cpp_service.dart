@@ -19,6 +19,10 @@ typedef _GgmlBackendInitNative = ggml_backend_reg_t Function();
 typedef _GgmlBackendInitDart = ggml_backend_reg_t Function();
 typedef _GgmlBackendLoadAllNative = Void Function();
 typedef _GgmlBackendLoadAllDart = void Function();
+typedef _GgmlBackendLoadAllFromPathNative = Void Function(Pointer<Char>);
+typedef _GgmlBackendLoadAllFromPathDart = void Function(Pointer<Char>);
+typedef _GgmlBackendRegisterNative = Void Function(ggml_backend_reg_t);
+typedef _GgmlBackendRegisterDart = void Function(ggml_backend_reg_t);
 typedef _LlamaDartSetLogLevelNative = Void Function(Int32);
 typedef _LlamaDartSetLogLevelDart = void Function(int);
 typedef _MtmdDefaultMarkerNative = Pointer<Char> Function();
@@ -117,11 +121,14 @@ class LlamaCppService {
   final Map<String, DynamicLibrary> _loadedBackendLibraries =
       <String, DynamicLibrary>{};
   bool _backendLoadAllSymbolUnavailable = false;
+  bool _backendLoadAllFromPathSymbolUnavailable = false;
   bool _backendLoadSymbolUnavailable = false;
   bool _backendRegistrySymbolUnavailable = false;
   bool _ggmlFallbackLookupAttempted = false;
   _GgmlBackendLoadDart? _ggmlBackendLoadFallback;
   _GgmlBackendLoadAllDart? _ggmlBackendLoadAllFallback;
+  _GgmlBackendLoadAllFromPathDart? _ggmlBackendLoadAllFromPathFallback;
+  _GgmlBackendRegisterDart? _ggmlBackendRegisterFallback;
   bool _logLevelFallbackLookupAttempted = false;
   String? _logLevelFallbackLookupSearchKey;
   _LlamaDartSetLogLevelDart? _llamaDartSetLogLevelFallback;
@@ -247,6 +254,8 @@ class LlamaCppService {
     if (_backendModuleDirectory == null) {
       _tryLoadAllBackendsBestEffort();
     } else {
+      _tryLoadAllBackendsFromPathBestEffort(_backendModuleDirectory!);
+
       // Split-module bundles: load CPU and proactively probe optional
       // backend modules so capability discovery works before first model load.
       _tryLoadBackendModule('cpu');
@@ -280,6 +289,32 @@ class LlamaCppService {
       // Some split bundles don't expose this symbol on the primary FFI asset.
       // Continue with explicit backend-module loading fallback.
       _backendLoadAllSymbolUnavailable = true;
+    }
+  }
+
+  bool _tryLoadAllBackendsFromPathBestEffort(String directoryPath) {
+    if (_backendLoadAllFromPathSymbolUnavailable) {
+      return false;
+    }
+
+    final directoryPathPtr = directoryPath.toNativeUtf8();
+    try {
+      try {
+        ggml_backend_load_all_from_path(directoryPathPtr.cast());
+        return true;
+      } on ArgumentError {
+        _resolveGgmlFallbackFunctions();
+        final fallback = _ggmlBackendLoadAllFromPathFallback;
+        if (fallback != null) {
+          fallback(directoryPathPtr.cast());
+          return true;
+        }
+
+        _backendLoadAllFromPathSymbolUnavailable = true;
+        return false;
+      }
+    } finally {
+      malloc.free(directoryPathPtr);
     }
   }
 
@@ -598,6 +633,11 @@ class LlamaCppService {
       return;
     }
 
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory != null) {
+      _tryLoadAllBackendsFromPathBestEffort(backendModuleDirectory);
+    }
+
     // Always try CPU first; _tryLoadBackendModule can use either absolute path
     // (when module dir is known) or filename resolution fallback.
     _tryLoadBackendModule('cpu');
@@ -690,6 +730,7 @@ class LlamaCppService {
           continue;
         }
 
+        _registerBackendRegBestEffort(reg);
         _loadedBackendModules.add(backend);
         return true;
       } finally {
@@ -719,7 +760,7 @@ class LlamaCppService {
           continue;
         }
 
-        ggml_backend_register(reg);
+        _registerBackendRegBestEffort(reg);
         _loadedBackendLibraries[backend] = library;
         _loadedBackendModules.add(backend);
         return true;
@@ -729,6 +770,24 @@ class LlamaCppService {
     }
 
     return false;
+  }
+
+  void _registerBackendRegBestEffort(ggml_backend_reg_t reg) {
+    try {
+      ggml_backend_register(reg);
+      return;
+    } on ArgumentError {
+      _resolveGgmlFallbackFunctions();
+      final fallback = _ggmlBackendRegisterFallback;
+      if (fallback == null) {
+        return;
+      }
+      try {
+        fallback(reg);
+      } catch (_) {
+        return;
+      }
+    }
   }
 
   void _resolveGgmlFallbackFunctions() {
@@ -777,6 +836,25 @@ class LlamaCppService {
           );
     } catch (_) {
       _ggmlBackendLoadAllFallback = null;
+    }
+
+    try {
+      _ggmlBackendLoadAllFromPathFallback = library
+          .lookupFunction<
+            _GgmlBackendLoadAllFromPathNative,
+            _GgmlBackendLoadAllFromPathDart
+          >('ggml_backend_load_all_from_path');
+    } catch (_) {
+      _ggmlBackendLoadAllFromPathFallback = null;
+    }
+
+    try {
+      _ggmlBackendRegisterFallback = library
+          .lookupFunction<_GgmlBackendRegisterNative, _GgmlBackendRegisterDart>(
+            'ggml_backend_register',
+          );
+    } catch (_) {
+      _ggmlBackendRegisterFallback = null;
     }
   }
 
