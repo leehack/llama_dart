@@ -112,7 +112,10 @@ void main(List<String> args) async {
       final destinationPath = path.join(reportDirPath, library.fileName);
       await File(library.filePath).copy(destinationPath);
 
-      final baseAssetName = codeAssetNameForLibrary(library);
+      final baseAssetName = codeAssetNameForLibrary(
+        spec: spec,
+        library: library,
+      );
       final assetName = _dedupeAssetName(baseAssetName, usedAssetNames);
 
       output.assets.code.add(

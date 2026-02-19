@@ -187,4 +187,48 @@ void main() {
       expect(selected.length, libraries.length);
     });
   });
+
+  group('codeAssetNameForLibrary', () {
+    test('maps Windows llama core to primary asset id', () {
+      final spec = resolveNativeBundleSpec(
+        os: OS.windows,
+        arch: Architecture.x64,
+        isIosSimulator: false,
+      )!;
+      final library = describeNativeLibrary('/tmp/llama-windows-x64.dll');
+
+      expect(
+        codeAssetNameForLibrary(spec: spec, library: library),
+        'llamadart',
+      );
+    });
+
+    test('maps Windows wrapper to non-primary asset id', () {
+      final spec = resolveNativeBundleSpec(
+        os: OS.windows,
+        arch: Architecture.x64,
+        isIosSimulator: false,
+      )!;
+      final library = describeNativeLibrary('/tmp/llamadart-windows-x64.dll');
+
+      expect(
+        codeAssetNameForLibrary(spec: spec, library: library),
+        'llamadart_wrapper',
+      );
+    });
+
+    test('keeps non-Windows primary mapping unchanged', () {
+      final spec = resolveNativeBundleSpec(
+        os: OS.linux,
+        arch: Architecture.x64,
+        isIosSimulator: false,
+      )!;
+      final library = describeNativeLibrary('/tmp/libllamadart.so');
+
+      expect(
+        codeAssetNameForLibrary(spec: spec, library: library),
+        'llamadart',
+      );
+    });
+  });
 }

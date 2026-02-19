@@ -315,7 +315,22 @@ List<NativeLibraryDescriptor> selectLibrariesForBundling({
       .toList(growable: false);
 }
 
-String codeAssetNameForLibrary(NativeLibraryDescriptor library) {
+String codeAssetNameForLibrary({
+  required NativeBundleSpec spec,
+  required NativeLibraryDescriptor library,
+}) {
+  // Windows split bundle exports core llama/ggml symbols from `llama.dll`,
+  // while `llamadart.dll` only contains wrapper helpers. The Dart bindings
+  // default asset must point at the core symbol provider.
+  if (spec.bundle.startsWith('windows-')) {
+    if (library.canonicalName == 'llama') {
+      return 'llamadart';
+    }
+    if (library.canonicalName == 'llamadart') {
+      return 'llamadart_wrapper';
+    }
+  }
+
   if (library.isPrimary) {
     return 'llamadart';
   }

@@ -54,7 +54,12 @@ class LlamaCppService {
 
   /// Sets the log level for the Llama.cpp library.
   void setLogLevel(LlamaLogLevel level) {
-    llama_dart_set_log_level(level.index);
+    try {
+      llama_dart_set_log_level(level.index);
+    } on ArgumentError {
+      // Wrapper log-level helper is optional in split-library bundles.
+      // Core runtime stays functional without this convenience call.
+    }
   }
 
   /// Initializes the Llama.cpp backend.
@@ -1435,15 +1440,22 @@ class LlamaCppService {
     }
 
     final mmProjPathPtr = mmProjPath.toNativeUtf8();
-    final ctxParams = mtmd_context_params_default();
-
-    final mmCtx = mtmd_init_from_file(
-      mmProjPathPtr.cast(),
-      model.pointer,
-      ctxParams,
-    );
-
-    malloc.free(mmProjPathPtr);
+    Pointer<mtmd_context> mmCtx = nullptr;
+    try {
+      final ctxParams = mtmd_context_params_default();
+      mmCtx = mtmd_init_from_file(
+        mmProjPathPtr.cast(),
+        model.pointer,
+        ctxParams,
+      );
+    } on ArgumentError {
+      throw Exception(
+        'Multimodal support is unavailable in this native runtime bundle '
+        '(missing mtmd symbols in primary FFI asset).',
+      );
+    } finally {
+      malloc.free(mmProjPathPtr);
+    }
 
     if (mmCtx == nullptr) {
       throw Exception("Failed to load multimodal projector");
