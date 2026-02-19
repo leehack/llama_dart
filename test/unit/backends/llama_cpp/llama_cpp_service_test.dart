@@ -125,11 +125,53 @@ void main() {
 
       expect(path.normalize(resolved!), path.normalize(extractedDir.path));
     });
+
+    test('prefers .dart_tool/lib when suffixed native assets are present', () {
+      final dartToolLibDir = Directory(
+        path.join(tempRoot.path, '.dart_tool', 'lib'),
+      )..createSync(recursive: true);
+      _createWindowsBundleMarkerFiles(
+        dartToolLibDir.path,
+        suffix: '-windows-x64',
+      );
+
+      final extractedDir = Directory(
+        path.join(
+          tempRoot.path,
+          '.dart_tool',
+          'llamadart',
+          'native_bundles',
+          'b8095',
+          'windows-x64',
+          'extracted',
+        ),
+      )..createSync(recursive: true);
+      _createWindowsBundleMarkerFiles(extractedDir.path);
+
+      final resolved = LlamaCppService.resolveWindowsBackendModuleDirectory(
+        resolvedExecutablePath: path.join(
+          tempRoot.path,
+          'dart-sdk',
+          'dart.exe',
+        ),
+        currentDirectoryPath: tempRoot.path,
+        environment: const {},
+      );
+
+      expect(path.normalize(resolved!), path.normalize(dartToolLibDir.path));
+    });
   });
 }
 
-void _createWindowsBundleMarkerFiles(String directoryPath) {
-  final markerFiles = <String>['llama.dll', 'ggml.dll', 'ggml-cpu.dll'];
+void _createWindowsBundleMarkerFiles(
+  String directoryPath, {
+  String suffix = '',
+}) {
+  final markerFiles = <String>[
+    'llama$suffix.dll',
+    'ggml$suffix.dll',
+    'ggml-cpu$suffix.dll',
+  ];
   for (final fileName in markerFiles) {
     File(path.join(directoryPath, fileName)).writeAsStringSync('');
   }

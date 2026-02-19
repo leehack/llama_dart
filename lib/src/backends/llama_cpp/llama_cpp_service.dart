@@ -601,6 +601,11 @@ class LlamaCppService {
       return currentDirectoryPath;
     }
 
+    final dartToolLibDir = _findDartToolLibDirectory(currentDirectoryPath);
+    if (dartToolLibDir != null) {
+      return dartToolLibDir;
+    }
+
     final preferredBundle = _preferredWindowsBundleName();
     final hookCacheDir = _findHookCacheWindowsBundleDirectory(
       currentDirectoryPath,
@@ -729,8 +734,12 @@ class LlamaCppService {
           .map((file) => path.basename(file.path).toLowerCase())
           .toSet();
 
-      final hasLlama = fileNames.contains('llama.dll');
-      final hasGgml = fileNames.contains('ggml.dll');
+      final hasLlama = fileNames.any(
+        (name) => RegExp(r'^llama(?:-[^.\\/]+)*\.dll$').hasMatch(name),
+      );
+      final hasGgml = fileNames.any(
+        (name) => RegExp(r'^ggml(?:-[^.\\/]+)*\.dll$').hasMatch(name),
+      );
       final hasCpuBackend = fileNames.any(
         (name) => RegExp(r'^ggml-cpu(?:-[^.\\/]+)*\.dll$').hasMatch(name),
       );
@@ -738,6 +747,24 @@ class LlamaCppService {
     } catch (_) {
       return false;
     }
+  }
+
+  static String? _findDartToolLibDirectory(String currentDirectoryPath) {
+    var cursor = Directory(currentDirectoryPath).absolute;
+    while (true) {
+      final dartToolLib = path.join(cursor.path, '.dart_tool', 'lib');
+      if (_containsWindowsNativeModules(dartToolLib)) {
+        return dartToolLib;
+      }
+
+      final parent = cursor.parent;
+      if (parent.path == cursor.path) {
+        break;
+      }
+      cursor = parent;
+    }
+
+    return null;
   }
 
   /// Parses `/proc/self/maps` content and returns the module directory.
