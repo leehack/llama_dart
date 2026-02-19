@@ -118,6 +118,7 @@ class LlamaCppService {
   _GgmlBackendLoadAllDart? _ggmlBackendLoadAllFallback;
   bool _logLevelFallbackLookupAttempted = false;
   _LlamaDartSetLogLevelDart? _llamaDartSetLogLevelFallback;
+  LlamaLogLevel _configuredLogLevel = LlamaLogLevel.warn;
   bool _mtmdFallbackLookupAttempted = false;
   bool _mtmdPrimarySymbolsUnavailable = false;
   _MtmdApi? _mtmdFallbackApi;
@@ -151,13 +152,18 @@ class LlamaCppService {
 
   /// Sets the log level for the Llama.cpp library.
   void setLogLevel(LlamaLogLevel level) {
+    _configuredLogLevel = level;
+    _applyConfiguredLogLevel();
+  }
+
+  void _applyConfiguredLogLevel() {
     try {
-      llama_dart_set_log_level(level.index);
+      llama_dart_set_log_level(_configuredLogLevel.index);
     } on ArgumentError {
       // Some split bundles expose this helper in the wrapper library instead
       // of the primary lookup target.
       _resolveLogLevelFallbackFunction();
-      _llamaDartSetLogLevelFallback?.call(level.index);
+      _llamaDartSetLogLevelFallback?.call(_configuredLogLevel.index);
     }
   }
 
@@ -165,6 +171,7 @@ class LlamaCppService {
   ///
   /// This must be called before loading any models.
   void initializeBackend() {
+    _applyConfiguredLogLevel();
     _backendModuleDirectory = resolveBackendModuleDirectory();
 
     if (_backendModuleDirectory == null) {
@@ -182,6 +189,7 @@ class LlamaCppService {
     }
 
     llama_backend_init();
+    _applyConfiguredLogLevel();
   }
 
   void _tryLoadAllBackendsBestEffort() {
@@ -462,6 +470,7 @@ class LlamaCppService {
     }
 
     _prepareBackendsForModelLoad(modelParams.preferredBackend);
+    _applyConfiguredLogLevel();
 
     final modelPathPtr = modelPath.toNativeUtf8();
     final mparams = llama_model_default_params();
@@ -512,6 +521,13 @@ class LlamaCppService {
   }
 
   void _prepareBackendsForModelLoad(GpuBackend preferredBackend) {
+    // Apple bundles are consolidated into a single native library and do not
+    // ship separate ggml backend modules.
+    if ((Platform.isMacOS || Platform.isIOS) &&
+        _backendModuleDirectory == null) {
+      return;
+    }
+
     // Always try CPU first; _tryLoadBackendModule can use either absolute path
     // (when module dir is known) or filename resolution fallback.
     _tryLoadBackendModule('cpu');
@@ -663,10 +679,13 @@ class LlamaCppService {
 
     final fileNameCandidates = _llamadartLibraryCandidateFileNames();
     final candidates = <String>{...fileNameCandidates};
-    final backendModuleDirectory = _backendModuleDirectory;
-    if (backendModuleDirectory != null) {
+    final pattern = _llamadartLibraryPattern();
+    for (final directoryPath in _llamadartFallbackLookupDirectories()) {
       for (final fileName in fileNameCandidates) {
-        candidates.add(path.join(backendModuleDirectory, fileName));
+        candidates.add(path.join(directoryPath, fileName));
+      }
+      for (final fileName in _matchingLibraryNames(directoryPath, pattern)) {
+        candidates.add(path.join(directoryPath, fileName));
       }
     }
 
@@ -683,6 +702,27 @@ class LlamaCppService {
         continue;
       }
     }
+  }
+
+  List<String> _llamadartFallbackLookupDirectories() {
+    final directories = <String>{};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory != null) {
+      directories.add(backendModuleDirectory);
+    }
+
+    final executableDir = path.dirname(Platform.resolvedExecutable);
+    directories.add(executableDir);
+    directories.add(Directory.current.path);
+
+    if (Platform.isMacOS) {
+      directories.add(
+        path.normalize(path.join(executableDir, '..', 'Frameworks')),
+      );
+      directories.add(path.normalize(path.join(executableDir, 'Frameworks')));
+    }
+
+    return directories.toList(growable: false);
   }
 
   static String _ggmlLibraryFileName() {
