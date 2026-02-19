@@ -713,7 +713,7 @@ class LlamaCppService {
     _logLevelFallbackLookupSearchKey = searchKey;
 
     final fileNameCandidates = _llamadartLibraryCandidateFileNames();
-    final candidates = <String>{};
+    final candidates = <String>[..._llamadartAssetUriCandidates()];
     final pattern = _llamadartLibraryPattern();
     for (final directoryPath in directories) {
       for (final fileName in fileNameCandidates) {
@@ -726,7 +726,11 @@ class LlamaCppService {
     // Keep bare-name fallback last so module-dir resolution wins when present.
     candidates.addAll(fileNameCandidates);
 
+    final seen = <String>{};
     for (final candidate in candidates) {
+      if (!seen.add(candidate)) {
+        continue;
+      }
       try {
         final library = DynamicLibrary.open(candidate);
         _llamaDartSetLogLevelFallback = library
@@ -739,6 +743,18 @@ class LlamaCppService {
         continue;
       }
     }
+  }
+
+  List<String> _llamadartAssetUriCandidates() {
+    // Prefer asset-URI resolution so Windows split bundles can reliably resolve
+    // the wrapper helper library without relying on process cwd/search paths.
+    if (Platform.isWindows) {
+      return const <String>[
+        'package:llamadart/llamadart_wrapper',
+        'package:llamadart/llamadart',
+      ];
+    }
+    return const <String>['package:llamadart/llamadart'];
   }
 
   List<String> _llamadartFallbackLookupDirectories() {
