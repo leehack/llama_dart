@@ -17,4 +17,10 @@ enum GpuBackend {
 
   /// Use BLAS backend (CPU acceleration).
   blas,
+
+  /// Use OpenCL backend.
+  opencl,
+
+  /// Use HIP backend (AMD ROCm).
+  hip,
 }

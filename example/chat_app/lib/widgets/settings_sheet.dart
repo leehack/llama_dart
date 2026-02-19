@@ -624,6 +624,8 @@ class SettingsSheet extends StatelessWidget {
         backends.add(GpuBackend.metal);
       }
       if (d.contains('vulkan')) backends.add(GpuBackend.vulkan);
+      if (d.contains('opencl')) backends.add(GpuBackend.opencl);
+      if (d.contains('hip')) backends.add(GpuBackend.hip);
       if (d.contains('cuda')) backends.add(GpuBackend.cuda);
       if (d.contains('blas')) backends.add(GpuBackend.blas);
       if (d.contains('cpu') || d.contains('llvm')) backends.add(GpuBackend.cpu);
@@ -634,6 +636,8 @@ class SettingsSheet extends StatelessWidget {
       backends.add(GpuBackend.metal);
     }
     if (active.contains('vulkan')) backends.add(GpuBackend.vulkan);
+    if (active.contains('opencl')) backends.add(GpuBackend.opencl);
+    if (active.contains('hip')) backends.add(GpuBackend.hip);
     if (active.contains('cuda')) backends.add(GpuBackend.cuda);
     if (active.contains('blas')) backends.add(GpuBackend.blas);
     if (active.contains('cpu') || active.contains('llvm')) {

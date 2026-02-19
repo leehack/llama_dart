@@ -7,5 +7,7 @@ void main() {
     expect(GpuBackend.values, contains(GpuBackend.cpu));
     expect(GpuBackend.values, contains(GpuBackend.vulkan));
     expect(GpuBackend.values, contains(GpuBackend.metal));
+    expect(GpuBackend.values, contains(GpuBackend.opencl));
+    expect(GpuBackend.values, contains(GpuBackend.hip));
   });
 }

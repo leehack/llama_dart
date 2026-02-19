@@ -4,6 +4,7 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:path/path.dart' as path;
 
 import '../../core/models/chat/content_part.dart';
 import '../../core/models/config/gpu_backend.dart';
@@ -18,6 +19,8 @@ import 'bindings.dart';
 /// including loading models, creating contexts, managing memory, and running inference.
 class LlamaCppService {
   int _nextHandle = 1;
+  String? _backendModuleDirectory;
+  final Set<String> _loadedBackendModules = <String>{};
 
   // --- Internal State ---
   final Map<int, _LlamaModelWrapper> _models = {};
@@ -55,8 +58,74 @@ class LlamaCppService {
   ///
   /// This must be called before loading any models.
   void initializeBackend() {
-    ggml_backend_load_all();
+    _backendModuleDirectory = resolveBackendModuleDirectory();
+
+    if (_backendModuleDirectory == null) {
+      ggml_backend_load_all();
+    } else {
+      // Android/Linux stability: load CPU first and defer GPU module loading.
+      _tryLoadBackendModule('cpu');
+    }
+
+    if (ggml_backend_reg_count() == 0) {
+      // Fallback path: attempt to load CPU backend by filename resolution.
+      _tryLoadBackendModule('cpu');
+    }
+
     llama_backend_init();
+  }
+
+  /// Resolves the native backend module directory for dynamic backend loading.
+  ///
+  /// On Android/Linux we inspect `/proc/self/maps` to find the loaded
+  /// `libllamadart.so` location, then load backend modules from that directory.
+  /// Returns `null` when the path cannot be resolved.
+  static String? resolveBackendModuleDirectory() {
+    if (!Platform.isAndroid && !Platform.isLinux) {
+      return null;
+    }
+
+    try {
+      final mapsFile = File('/proc/self/maps');
+      if (!mapsFile.existsSync()) {
+        return null;
+      }
+
+      final mapsContent = mapsFile.readAsStringSync();
+      return parseBackendModuleDirectoryFromProcMaps(mapsContent);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Parses `/proc/self/maps` content and returns the module directory.
+  ///
+  /// This is exposed for testability.
+  static String? parseBackendModuleDirectoryFromProcMaps(String mapsContent) {
+    for (final rawLine in mapsContent.split('\n')) {
+      final line = rawLine.trim();
+      if (line.isEmpty) {
+        continue;
+      }
+
+      final slashIndex = line.indexOf('/');
+      if (slashIndex < 0) {
+        continue;
+      }
+
+      final mappedPath = line.substring(slashIndex).trim();
+      final normalizedPath = mappedPath.endsWith(' (deleted)')
+          ? mappedPath.substring(0, mappedPath.length - ' (deleted)'.length)
+          : mappedPath;
+
+      if (!normalizedPath.endsWith('/libllamadart.so')) {
+        continue;
+      }
+
+      return path.dirname(normalizedPath);
+    }
+
+    return null;
   }
 
   /// Loads a model from the specified [modelPath].
@@ -64,15 +133,41 @@ class LlamaCppService {
   /// Returns a handle to the loaded model.
   /// Throws an [Exception] if the file does not exist or fails to load.
   int loadModel(String modelPath, ModelParams modelParams) {
-    if (!File(modelPath).existsSync()) {
+    final modelFile = File(modelPath);
+    if (!modelFile.existsSync()) {
       throw Exception("File not found: $modelPath");
     }
+    final modelFileSize = modelFile.lengthSync();
+    if (modelFileSize <= 0) {
+      throw Exception("Model file is empty: $modelPath");
+    }
+    if (!_looksLikeGguf(modelFile)) {
+      throw Exception(
+        "Model file does not appear to be GGUF: $modelPath. "
+        "Please verify the download completed correctly.",
+      );
+    }
+
+    _prepareBackendsForModelLoad(modelParams.preferredBackend);
+
     final modelPathPtr = modelPath.toNativeUtf8();
     final mparams = llama_model_default_params();
-    final preferredDevices = _createPreferredDeviceList(
+    var preferredDevices = _createPreferredDeviceList(
       modelParams.preferredBackend,
     );
-    mparams.n_gpu_layers = resolveGpuLayersForLoad(modelParams);
+    var gpuLayers = resolveGpuLayersForLoad(modelParams);
+
+    final explicitGpuBackend =
+        modelParams.preferredBackend != GpuBackend.auto &&
+        modelParams.preferredBackend != GpuBackend.cpu;
+    if (explicitGpuBackend && preferredDevices == null) {
+      // Honor explicit backend intent: if requested GPU backend is unavailable,
+      // fall back to CPU instead of letting another GPU backend auto-select.
+      preferredDevices = _createPreferredDeviceList(GpuBackend.cpu);
+      gpuLayers = 0;
+    }
+
+    mparams.n_gpu_layers = gpuLayers;
     mparams.use_mmap = true;
     if (preferredDevices != null) {
       mparams.devices = preferredDevices;
@@ -89,7 +184,11 @@ class LlamaCppService {
     }
 
     if (modelPtr == nullptr) {
-      throw Exception("Failed to load model");
+      final diagnostics = _backendDiagnostics();
+      throw Exception(
+        "Failed to load model (size=$modelFileSize bytes, "
+        "diagnostics=$diagnostics)",
+      );
     }
 
     final handle = _getHandle();
@@ -97,6 +196,134 @@ class LlamaCppService {
     _loraAdapters[handle] = {};
 
     return handle;
+  }
+
+  void _prepareBackendsForModelLoad(GpuBackend preferredBackend) {
+    // Always try CPU first; _tryLoadBackendModule can use either absolute path
+    // (when module dir is known) or filename resolution fallback.
+    _tryLoadBackendModule('cpu');
+
+    // Probe Vulkan on desktop/mobile platforms where it is commonly provided as
+    // a separate backend module, even if user preference is currently CPU.
+    if (Platform.isAndroid || Platform.isLinux || Platform.isWindows) {
+      _tryLoadBackendModule('vulkan');
+    }
+    if (Platform.isLinux || Platform.isWindows) {
+      _tryLoadBackendModule('blas');
+      _tryLoadBackendModule('cuda');
+    }
+    if (Platform.isLinux) {
+      _tryLoadBackendModule('hip');
+    }
+
+    switch (preferredBackend) {
+      case GpuBackend.auto:
+        return;
+      case GpuBackend.vulkan:
+        return;
+      case GpuBackend.metal:
+        _tryLoadBackendModule('metal');
+        return;
+      case GpuBackend.cuda:
+        _tryLoadBackendModule('cuda');
+        return;
+      case GpuBackend.blas:
+        _tryLoadBackendModule('blas');
+        return;
+      case GpuBackend.opencl:
+        _tryLoadBackendModule('opencl');
+        return;
+      case GpuBackend.hip:
+        _tryLoadBackendModule('hip');
+        return;
+      case GpuBackend.cpu:
+        return;
+    }
+  }
+
+  bool _tryLoadBackendModule(String backend) {
+    if (_loadedBackendModules.contains(backend)) {
+      return true;
+    }
+
+    final libraryFileName = _backendLibraryFileName(backend);
+    final candidates = <String>{libraryFileName};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory != null) {
+      candidates.add(path.join(backendModuleDirectory, libraryFileName));
+    }
+
+    for (final candidate in candidates) {
+      if (path.isAbsolute(candidate) && !File(candidate).existsSync()) {
+        continue;
+      }
+
+      final libraryPathPtr = candidate.toNativeUtf8();
+      try {
+        final reg = ggml_backend_load(libraryPathPtr.cast());
+        if (reg == nullptr) {
+          continue;
+        }
+
+        _loadedBackendModules.add(backend);
+        return true;
+      } finally {
+        malloc.free(libraryPathPtr);
+      }
+    }
+
+    return false;
+  }
+
+  static String _backendLibraryFileName(String backend) {
+    if (Platform.isWindows) {
+      return 'ggml-$backend.dll';
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return 'libggml-$backend.dylib';
+    }
+    return 'libggml-$backend.so';
+  }
+
+  static bool _looksLikeGguf(File modelFile) {
+    try {
+      final header = modelFile.openSync(mode: FileMode.read);
+      try {
+        final magic = header.readSync(4);
+        if (magic.length < 4) {
+          return false;
+        }
+        return magic[0] == 0x47 &&
+            magic[1] == 0x47 &&
+            magic[2] == 0x55 &&
+            magic[3] == 0x46;
+      } finally {
+        header.closeSync();
+      }
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String _backendDiagnostics() {
+    final regs = <String>[];
+    final regCount = ggml_backend_reg_count();
+    for (var i = 0; i < regCount; i++) {
+      final reg = ggml_backend_reg_get(i);
+      if (reg == nullptr) {
+        continue;
+      }
+      final regNamePtr = ggml_backend_reg_name(reg);
+      if (regNamePtr == nullptr) {
+        continue;
+      }
+      regs.add(regNamePtr.cast<Utf8>().toDartString());
+    }
+
+    final devices = getBackendInfo();
+    return '{moduleDir=${_backendModuleDirectory ?? "null"}, '
+        'loadedModules=${_loadedBackendModules.toList(growable: false)}, '
+        'registeredBackends=$regs, devices=$devices}';
   }
 
   Pointer<ggml_backend_dev_t>? _createPreferredDeviceList(GpuBackend backend) {
@@ -133,6 +360,10 @@ class LlamaCppService {
         return _devicesForBackendRegName('CUDA');
       case GpuBackend.blas:
         return _devicesForBackendRegName('BLAS');
+      case GpuBackend.opencl:
+        return _devicesForBackendRegName('OpenCL');
+      case GpuBackend.hip:
+        return _devicesForBackendRegName('HIP');
     }
   }
 
@@ -975,9 +1206,21 @@ class LlamaCppService {
     final ctx = _contexts[contextHandle];
     final modelHandle = _contextToModel[contextHandle];
     if (ctx == null || modelHandle == null) return;
+
+    final modelAdapters = _loraAdapters[modelHandle];
+    final activeLoras = _activeLoras[contextHandle];
+    if (modelAdapters == null || activeLoras == null) return;
+
     try {
       if (op == 'set') {
-        var adapter = _loraAdapters[modelHandle]![path!];
+        if (path == null) {
+          throw Exception('LoRA path is required for set operation');
+        }
+        if (scale == null) {
+          throw Exception('LoRA scale is required for set operation');
+        }
+
+        var adapter = modelAdapters[path];
         if (adapter == null) {
           final pathPtr = path.toNativeUtf8();
           final adapterPtr = llama_adapter_lora_init(
@@ -989,22 +1232,71 @@ class LlamaCppService {
             throw Exception("Failed to load LoRA at $path");
           }
           adapter = _LlamaLoraWrapper(adapterPtr);
-          _loraAdapters[modelHandle]![path] = adapter;
+          modelAdapters[path] = adapter;
         }
-        llama_set_adapter_lora(ctx.pointer, adapter.pointer, scale!);
-        _activeLoras[contextHandle]![path] = scale;
+        activeLoras[path] = scale;
+        _applyActiveLoras(ctx.pointer, modelAdapters, activeLoras);
       } else if (op == 'remove') {
-        final adapter = _loraAdapters[modelHandle]![path!];
-        if (adapter != null) {
-          llama_rm_adapter_lora(ctx.pointer, adapter.pointer);
+        if (path == null) {
+          throw Exception('LoRA path is required for remove operation');
         }
-        _activeLoras[contextHandle]!.remove(path);
+        activeLoras.remove(path);
+        _applyActiveLoras(ctx.pointer, modelAdapters, activeLoras);
       } else if (op == 'clear') {
-        llama_clear_adapter_lora(ctx.pointer);
-        _activeLoras[contextHandle]!.clear();
+        activeLoras.clear();
+        _applyActiveLoras(ctx.pointer, modelAdapters, activeLoras);
+      } else {
+        throw Exception('Unknown LoRA operation: $op');
       }
     } catch (e) {
       rethrow;
+    }
+  }
+
+  void _applyActiveLoras(
+    Pointer<llama_context> context,
+    Map<String, _LlamaLoraWrapper> loadedAdapters,
+    Map<String, double> activeLoras,
+  ) {
+    if (activeLoras.isEmpty) {
+      final result = llama_set_adapters_lora(context, nullptr, 0, nullptr);
+      if (result != 0) {
+        throw Exception('Failed to clear LoRA adapters (code: $result)');
+      }
+      return;
+    }
+
+    final activeEntries = activeLoras.entries.toList(growable: false);
+    final adapterPointers = malloc<Pointer<llama_adapter_lora>>(
+      activeEntries.length,
+    );
+    final scalesPointer = malloc<Float>(activeEntries.length);
+
+    try {
+      for (var i = 0; i < activeEntries.length; i++) {
+        final entry = activeEntries[i];
+        final adapter = loadedAdapters[entry.key];
+        if (adapter == null) {
+          throw Exception(
+            'LoRA adapter not loaded for active path: ${entry.key}',
+          );
+        }
+        adapterPointers[i] = adapter.pointer;
+        scalesPointer[i] = entry.value;
+      }
+
+      final result = llama_set_adapters_lora(
+        context,
+        adapterPointers,
+        activeEntries.length,
+        scalesPointer,
+      );
+      if (result != 0) {
+        throw Exception('Failed to apply LoRA adapters (code: $result)');
+      }
+    } finally {
+      malloc.free(adapterPointers);
+      malloc.free(scalesPointer);
     }
   }
 

@@ -84,7 +84,7 @@ dart run tool/testing/check_lcov_threshold.dart coverage/lcov.info 70
 - Keep `LlamaEngine` free of `dart:ffi` and `dart:io` for web support
 
 ### Architecture Principles
-- Zero-Patch Strategy: Never modify code in `third_party/`
+- Zero-Patch Strategy: Never patch upstream native sources in this repository
 - Use wrappers and hooks for necessary integrations
 - Modular separation: `engine/`, `backends/`, `models/`, `utils/`
 - Abstract interfaces in `backends/backend.dart`
@@ -136,11 +136,9 @@ throw LlamaUnsupportedException('GPU acceleration not available on this platform
 ```
 
 ### Zero-Patch Strategy Details
-- All third-party code lives in `third_party/llama_cpp/` subdirectory
-- Never edit `third_party/llama_cpp/` source files directly
-- Build modifications go in `third_party/CMakeLists.txt` or build scripts
-- Allows seamless upstream updates by updating submodule pointers
-- Consolidate experimental modules (e.g., `mtmd`) in build configuration
+- Native build/source ownership lives in `llamadart-native`
+- This repository should not add local `llama.cpp` patches or build scripts
+- Keep local native integration focused on hook/config/bindings consumption
 
 ## Development Workflow
 
@@ -150,17 +148,17 @@ throw LlamaUnsupportedException('GPU acceleration not available on this platform
 3. Run `dart test` to verify all tests pass
 4. For new features, add tests to maintain >=70% coverage on maintainable source code (generated files are excluded via `// coverage:ignore-file`)
 
-### Rebuilding llama.cpp
-When you need to rebuild the native llama.cpp library:
+### Syncing Native Version
+When you need to update native version + bindings in this repository:
 ```bash
-rm -rf .dart_tool  # Clean Dart cache
-cd third_party
-# macOS targets: macos-arm64, macos-x86_64
-# iOS targets: ios-device-arm64, ios-sim-arm64, ios-sim-x86_64
-./build_apple.sh macos-arm64
+# Preferred: run the repository workflow
+# .github/workflows/sync_native_bindings.yml
 ```
 
-Note: This is only necessary when modifying `third_party/` code or testing native changes.
+For local regeneration workflows, sync headers from `llamadart-native` and run:
+```bash
+tool/native/sync_native_headers_and_bindings.sh --tag latest
+```
 
 ### Adding New Features
 1. Create public API in appropriate `lib/src/` subdirectory

@@ -31,4 +31,39 @@ void main() {
       expect(LlamaCppService.resolveGpuLayersForLoad(params), 42);
     });
   });
+
+  group('parseBackendModuleDirectoryFromProcMaps', () {
+    test('extracts lib directory from standard maps entry', () {
+      const maps = '''
+7f8a0000-7f8b0000 r-xp 00000000 103:04 12345 /data/app/~~pkg/lib/arm64/libllamadart.so
+''';
+
+      expect(
+        LlamaCppService.parseBackendModuleDirectoryFromProcMaps(maps),
+        '/data/app/~~pkg/lib/arm64',
+      );
+    });
+
+    test('handles deleted mapping suffix', () {
+      const maps = '''
+7f8a0000-7f8b0000 r-xp 00000000 103:04 12345 /tmp/libllamadart.so (deleted)
+''';
+
+      expect(
+        LlamaCppService.parseBackendModuleDirectoryFromProcMaps(maps),
+        '/tmp',
+      );
+    });
+
+    test('returns null when libllamadart mapping is missing', () {
+      const maps = '''
+7f8a0000-7f8b0000 r-xp 00000000 103:04 12345 /system/lib64/libc.so
+''';
+
+      expect(
+        LlamaCppService.parseBackendModuleDirectoryFromProcMaps(maps),
+        isNull,
+      );
+    });
+  });
 }

@@ -22,6 +22,11 @@
     *   Added mirrored unit tests for new internal template components (`peg_parser_builder`, `template_internal_metadata`) to satisfy structure guards.
 *   **Test cleanup and maintainability**:
     *   Reduced noisy diagnostics in template integration tests and centralized format sample parse payload fixtures for easier parity maintenance.
+*   **Native integration cleanup (llamadart-native migration)**:
+    *   Added `tool/testing/prepare_llama_cpp_source.sh` to fetch/refresh `ggml-org/llama.cpp` into `.dart_tool/llama_cpp` (or `LLAMA_CPP_SOURCE_DIR`) pinned to a resolved ref (`LLAMA_CPP_REF`, default `latest` release tag).
+    *   Updated `tool/testing/run_llama_cpp_chat_tests.sh` to use prepared `.dart_tool` source instead of `third_party/llama_cpp`, so local upstream chat-suite runs no longer depend on vendored source.
+    *   Updated template parity tests to resolve fixtures from `LLAMA_CPP_TEMPLATES_DIR` or `.dart_tool/llama_cpp/models/templates` instead of `third_party/llama_cpp`.
+    *   Clarified README backend matrix notes: `KleidiAI`/`ZenDNN` are CPU-path optimizations, not selectable runtime backend modules.
 
 ## 0.5.4
 

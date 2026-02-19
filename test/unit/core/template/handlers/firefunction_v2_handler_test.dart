@@ -13,9 +13,8 @@ import 'package:llamadart/src/core/template/chat_template_engine.dart';
 import 'package:test/test.dart';
 
 void main() {
-  final hasVendoredLlamaCppTemplates = Directory(
-    'third_party/llama_cpp/models/templates',
-  ).existsSync();
+  final templatesDir = _resolveTemplatesDir();
+  final hasLlamaCppTemplates = templatesDir.existsSync();
 
   group('FirefunctionV2Handler', () {
     test('parses prefixed tool-call array', () {
@@ -102,7 +101,7 @@ void main() {
       'renders llama.cpp firefunction template with tool context',
       () {
         final source = File(
-          'third_party/llama_cpp/models/templates/fireworks-ai-llama-3-firefunction-v2.jinja',
+          '${templatesDir.path}/fireworks-ai-llama-3-firefunction-v2.jinja',
         ).readAsStringSync();
 
         final result = ChatTemplateEngine.render(
@@ -125,9 +124,9 @@ void main() {
         expect(result.prompt, contains('functools'));
         expect(result.prompt, contains('Today is'));
       },
-      skip: hasVendoredLlamaCppTemplates
+      skip: hasLlamaCppTemplates
           ? false
-          : 'Requires local third_party llama.cpp template fixtures.',
+          : 'Requires llama.cpp template fixtures (run tool/testing/prepare_llama_cpp_source.sh).',
     );
   });
 
@@ -183,7 +182,7 @@ void main() {
       'renders llama.cpp functionary v3.2 template',
       () {
         final source = File(
-          'third_party/llama_cpp/models/templates/meetkai-functionary-medium-v3.2.jinja',
+          '${templatesDir.path}/meetkai-functionary-medium-v3.2.jinja',
         ).readAsStringSync();
 
         final result = ChatTemplateEngine.render(
@@ -205,9 +204,9 @@ void main() {
         expect(result.format, equals(ChatFormat.functionaryV32.index));
         expect(result.prompt, contains('>>>'));
       },
-      skip: hasVendoredLlamaCppTemplates
+      skip: hasLlamaCppTemplates
           ? false
-          : 'Requires local third_party llama.cpp template fixtures.',
+          : 'Requires llama.cpp template fixtures (run tool/testing/prepare_llama_cpp_source.sh).',
     );
   });
 
@@ -250,7 +249,7 @@ void main() {
       'renders llama.cpp functionary v3.1 template',
       () {
         final source = File(
-          'third_party/llama_cpp/models/templates/meetkai-functionary-medium-v3.1.jinja',
+          '${templatesDir.path}/meetkai-functionary-medium-v3.1.jinja',
         ).readAsStringSync();
 
         final result = ChatTemplateEngine.render(
@@ -272,9 +271,9 @@ void main() {
         expect(result.format, equals(ChatFormat.functionaryV31Llama31.index));
         expect(result.prompt, contains('<function='));
       },
-      skip: hasVendoredLlamaCppTemplates
+      skip: hasLlamaCppTemplates
           ? false
-          : 'Requires local third_party llama.cpp template fixtures.',
+          : 'Requires llama.cpp template fixtures (run tool/testing/prepare_llama_cpp_source.sh).',
     );
   });
 
@@ -298,4 +297,12 @@ void main() {
 
 Future<Object?> _noopHandler(_) async {
   return 'ok';
+}
+
+Directory _resolveTemplatesDir() {
+  final envPath = Platform.environment['LLAMA_CPP_TEMPLATES_DIR'];
+  if (envPath != null && envPath.trim().isNotEmpty) {
+    return Directory(envPath);
+  }
+  return Directory('.dart_tool/llama_cpp/models/templates');
 }

@@ -14,7 +14,8 @@
 - 📱 **Cross-Platform**: Full support for Android, iOS, macOS, Linux, and Windows.
 - ⚡ **GPU Acceleration**:
   - **Apple**: Metal (macOS/iOS)
-  - **Android/Linux/Windows**: Vulkan
+  - **Android/Linux/Windows**: Vulkan (default) with optional per-bundle
+    backend modules (OpenCL/CUDA/HIP/BLAS where available)
 - 🖼️ **Multimodal Support**: Run vision and audio models (LLaVA, Gemma 3, Qwen2-VL) with integrated media processing.
 - ⏬ **Resumable Downloads**: Robust background-safe model downloads with parallel chunking and partial-file resume tracking.
 - **LoRA Support**: Apply fine-tuned adapters (GGUF) dynamically at runtime.
@@ -106,10 +107,75 @@ dependencies:
 
 `llamadart` leverages the **Dart Native Assets** (build hooks) system. When you run your app for the first time (`dart run` or `flutter run`), the package automatically:
 1. Detects your target platform and architecture.
-2. Downloads the appropriate pre-compiled binary from GitHub.
+2. Downloads the appropriate pre-compiled native bundle from
+   [`leehack/llamadart-native`](https://github.com/leehack/llamadart-native).
 3. Bundles it seamlessly into your application.
 
 No manual binary downloads, CMake configuration, or platform-specific project changes are needed.
+
+### Native Backend Modules (Optional)
+
+For non-Apple targets, `llamadart` can bundle backend modules per
+platform/architecture via hooks user-defines in `pubspec.yaml`:
+
+```yaml
+hooks:
+  user_defines:
+    llamadart:
+      llamadart_native_backends:
+        platforms:
+          android-arm64: [vulkan] # opencl is optional opt-in
+          linux-x64: [vulkan]
+          windows-x64: [vulkan]
+```
+
+Backend module matrix (from pinned native tag `b8089`, verified against all
+published platform/arch bundle assets):
+
+| Target | Configurable | Default runtime backends | Available backend modules in bundle |
+|--------|--------------|--------------------------|-------------------------------------|
+| android-arm64 | yes | cpu, vulkan | cpu, vulkan, opencl |
+| android-x64 | yes | cpu, vulkan | cpu, vulkan, opencl |
+| linux-arm64 | yes | cpu, vulkan | cpu, vulkan, blas |
+| linux-x64 | yes | cpu, vulkan | cpu, vulkan, blas, cuda, hip |
+| windows-arm64 | yes | cpu, vulkan | cpu, vulkan, blas |
+| windows-x64 | yes | cpu, vulkan | cpu, vulkan, blas, cuda |
+| macos-arm64 | no | cpu, METAL | n/a (single consolidated native lib) |
+| macos-x86_64 | no | cpu, METAL | n/a (single consolidated native lib) |
+| ios-arm64 | no | cpu, METAL | n/a (single consolidated native lib) |
+| ios-arm64-sim | no | cpu, METAL | n/a (single consolidated native lib) |
+| ios-x86_64-sim | no | cpu, METAL | n/a (single consolidated native lib) |
+
+Recognized backend names for `llamadart_native_backends`:
+
+- `vulkan`
+- `cpu`
+- `opencl`
+- `cuda`
+- `blas`
+- `metal`
+- `hip`
+
+Accepted aliases:
+
+- `vk` -> `vulkan`
+- `ocl` -> `opencl`
+- `open-cl` -> `opencl`
+
+Notes:
+
+- Module availability depends on the pinned native release bundle and can change when the native tag is updated.
+- Configurable targets always keep `cpu` bundled as a fallback backend module.
+- Android keeps OpenCL available for opt-in configuration, but defaults to Vulkan.
+- `KleidiAI` and `ZenDNN` are CPU-path optimizations in `llama.cpp`, not separate backend module files like `ggml-vulkan` or `ggml-cuda`.
+- Because of that, they do not appear as selectable entries in `llamadart_native_backends` or as separate rows in the bundle-module matrix.
+- If you request a backend that is unavailable for a target, `llamadart` logs a warning and falls back to that target's default backend modules.
+- `example/chat_app` backend settings show runtime-detected backends/devices (what actually initialized on the device), not just bundled module files.
+
+Apple targets are intentionally non-configurable in this path:
+
+- macOS and iOS device use the consolidated Metal+CPU native library.
+- iOS simulator uses the simulator-native consolidated library.
 
 ---
 

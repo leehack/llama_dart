@@ -769,6 +769,8 @@ class ChatProvider extends ChangeNotifier {
         lower.contains('webgpu') ||
         _containsBackendMarker(backendInfo, GpuBackend.metal) ||
         _containsBackendMarker(backendInfo, GpuBackend.vulkan) ||
+        _containsBackendMarker(backendInfo, GpuBackend.opencl) ||
+        _containsBackendMarker(backendInfo, GpuBackend.hip) ||
         _containsBackendMarker(backendInfo, GpuBackend.cuda) ||
         _containsBackendMarker(backendInfo, GpuBackend.blas);
 
@@ -1343,6 +1345,11 @@ class ChatProvider extends ChangeNotifier {
       return preferredBackend.name.toUpperCase();
     }
 
+    if (preferredBackend != GpuBackend.auto) {
+      // Explicit backend requested but not available at runtime; we fallback to CPU.
+      return 'CPU';
+    }
+
     final lower = backendInfo.toLowerCase();
     if (lower.contains('webgpu') || lower.contains('wgpu')) {
       return 'WEBGPU';
@@ -1353,6 +1360,12 @@ class ChatProvider extends ChangeNotifier {
     }
     if (_containsBackendMarker(backendInfo, GpuBackend.vulkan)) {
       return 'VULKAN';
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.opencl)) {
+      return 'OPENCL';
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.hip)) {
+      return 'HIP';
     }
     if (_containsBackendMarker(backendInfo, GpuBackend.cuda)) {
       return 'CUDA';
@@ -1374,6 +1387,10 @@ class ChatProvider extends ChangeNotifier {
         return lower.contains('metal') || lower.contains('mtl');
       case GpuBackend.vulkan:
         return lower.contains('vulkan');
+      case GpuBackend.opencl:
+        return lower.contains('opencl');
+      case GpuBackend.hip:
+        return lower.contains('hip');
       case GpuBackend.cuda:
         return lower.contains('cuda');
       case GpuBackend.blas:

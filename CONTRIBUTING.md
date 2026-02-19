@@ -24,31 +24,34 @@ The project follows a modular, decoupled architecture:
 -   `lib/src/backends/`: Platform-agnostic backend interface and native/web backends.
 -   `lib/src/core/models/`: Shared data models (messages, params, tools, config).
 -   `lib/src/core/`: Shared utilities (exceptions, logger, grammar helpers).
--   `third_party/`: `llama.cpp` core engine and build infrastructure.
 
 ## 🛡️ Zero-Patch Strategy
 
-This project follows a **Zero-Patch Strategy** for external submodules (like `llama.cpp` and `Vulkan-Headers`):
+Native source and build orchestration now live in
+[`leehack/llamadart-native`](https://github.com/leehack/llamadart-native).
 
-*   **Zero Direct Modifications**: We never modify the source code inside `third_party/llama_cpp`.
-*   **Upgradability**: This allows us to update the core engine by simply bumping the submodule pointer.
-*   **Wrappers & Hooks**: Any necessary changes should be implemented in `third_party/CMakeLists.txt` or through compiler flags in the build scripts. We also consolidate experimental modules like `mtmd` by linking them into the core `llamadart` binary.
+*   **Zero Direct Modifications**: Do not patch upstream `llama.cpp` sources in this repository.
+*   **Sync-Only in this repo**: This repository consumes released native bundles and generated bindings.
+*   **Build logic lives elsewhere**: Native build scripts and backend matrix changes belong in `llamadart-native`.
 
 ## 🏗️ Architecture: Native Assets & CI
 
 `llamadart` uses a modern binary distribution lifecycle:
 
 ### 1. Binary Production (CI)
-Maintainer workflows under `.github/workflows/` use scripts in `third_party/`
-to build and validate native binaries for **Android, iOS, macOS, Linux, and Windows**.
-Release artifacts are published to **GitHub Releases** and consumed by the build hook.
+Native binaries are built and released from
+[`leehack/llamadart-native`](https://github.com/leehack/llamadart-native).
+That repository publishes multi-library native bundles for
+**Android, iOS, macOS, Linux, and Windows**.
 
 ### 2. Binary Consumption (Hook)
 When a user adds `llamadart` as a dependency and runs their app:
 - The **`hook/build.dart`** script executes automatically.
 - It detects the user's current target OS and architecture.
-- It downloads the matching pre-compiled binary from the GitHub Release corresponding to the package version.
-- It reports the binary to the Dart VM as a **`CodeAsset`** with the ID `package:llamadart/llamadart`.
+- It downloads the matching pre-compiled native bundle from
+  `leehack/llamadart-native` GitHub Releases.
+- It reports the required shared libraries to the Dart VM as `CodeAsset`s,
+  including `package:llamadart/llamadart`.
 
 ### 3. Runtime Resolution (FFI)
 - The library uses **`@Native`** top-level bindings in `lib/src/backends/llama_cpp/bindings.dart`.
@@ -66,7 +69,6 @@ When a user adds `llamadart` as a dependency and runs their app:
 2.  **Initialize**:
     ```bash
     dart pub get
-    git submodule update --init --recursive
     ```
 
 3.  **Build/Fetch Native Library**:
@@ -133,16 +135,28 @@ dart run tool/testing/check_lcov_threshold.dart coverage/lcov.info 70
 
 If you need to build binaries for a new release:
 
-1.  **Navigate to the build tool**:
+1.  Use the native build repository:
     ```bash
-    cd third_party
+    git clone https://github.com/leehack/llamadart-native.git
+    cd llamadart-native
+    git submodule update --init --recursive
     ```
 
-2.  **Run platform scripts**:
-    -   **Android**: `./build_android.sh`
-    -   **Apple (macOS)**: `./build_apple.sh macos-arm64` or `./build_apple.sh macos-x86_64`
-    -   **Apple (iOS)**: `./build_apple.sh ios-device-arm64`, `./build_apple.sh ios-sim-arm64`, or `./build_apple.sh ios-sim-x86_64`
-    -   **Linux**: `./build_linux.sh vulkan`
+2.  Build/release with the native pipeline:
+    - Run `Native Build & Release` in `llamadart-native` (`.github/workflows/native_release.yml`), or
+    - Build locally via `python3 tools/build.py ...` as documented in that repository.
+
+3.  Sync `llamadart` hook pin:
+    - Run `Sync Native Version & Bindings`
+      (`.github/workflows/sync_native_bindings.yml`) in this repository to:
+      - resolve a `llamadart-native` release tag,
+      - sync headers from the matching release header bundle,
+      - regenerate Dart bindings from the matching native headers,
+      - open an automated PR with the updates.
+    - For local regeneration, run:
+      ```bash
+      tool/native/sync_native_headers_and_bindings.sh --tag latest
+      ```
 
 ## Running Examples
 

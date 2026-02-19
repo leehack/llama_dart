@@ -1,0 +1,73 @@
+name: Sync Native Version & Bindings
+
+on:
+  workflow_dispatch:
+    inputs:
+      native_tag:
+        description: 'llamadart-native release tag to sync (e.g., b8011 or latest)'
+        required: true
+        default: 'latest'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Cache Pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-cache-${{ hashFiles('**/pubspec.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-cache-
+
+      - name: Install LLVM/Clang for ffigen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm-dev libclang-dev clang rsync python3
+
+      - name: Install Dart/Flutter dependencies
+        run: flutter pub get
+
+      - name: Sync headers and regenerate bindings
+        id: sync_headers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tool/native/sync_native_headers_and_bindings.sh --tag "${{ github.event.inputs.native_tag }}"
+
+      - name: Update native hook tag
+        run: |
+          TAG="${{ steps.sync_headers.outputs.resolved_tag }}"
+          sed -i "s/const _llamaCppTag = '.*';/const _llamaCppTag = '$TAG';/" hook/build.dart
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(native): sync native release ${{ steps.sync_headers.outputs.resolved_tag }}"
+          title: "chore(native): sync native release ${{ steps.sync_headers.outputs.resolved_tag }}"
+          body: |
+            Automated sync from `leehack/llamadart-native` release `${{ steps.sync_headers.outputs.resolved_tag }}`.
+
+            Changes:
+            - Updates `hook/build.dart` native tag pin.
+            - Syncs headers from the matching `llamadart-native` release header bundle.
+            - Regenerates `lib/src/backends/llama_cpp/bindings.dart` via ffigen.
+          branch: "automation/native-sync-${{ steps.sync_headers.outputs.resolved_tag }}"
+          labels: automation/native-sync
+          add-paths: |
+            hook/build.dart
+            lib/src/backends/llama_cpp/bindings.dart
+          delete-branch: true
