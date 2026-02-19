@@ -17,6 +17,88 @@ typedef _GgmlBackendLoadNative = ggml_backend_reg_t Function(Pointer<Char>);
 typedef _GgmlBackendLoadDart = ggml_backend_reg_t Function(Pointer<Char>);
 typedef _GgmlBackendLoadAllNative = Void Function();
 typedef _GgmlBackendLoadAllDart = void Function();
+typedef _MtmdDefaultMarkerNative = Pointer<Char> Function();
+typedef _MtmdDefaultMarkerDart = Pointer<Char> Function();
+typedef _MtmdContextParamsDefaultNative = mtmd_context_params Function();
+typedef _MtmdContextParamsDefaultDart = mtmd_context_params Function();
+typedef _MtmdInitFromFileNative =
+    Pointer<mtmd_context> Function(
+      Pointer<Char>,
+      Pointer<llama_model>,
+      mtmd_context_params,
+    );
+typedef _MtmdInitFromFileDart =
+    Pointer<mtmd_context> Function(
+      Pointer<Char>,
+      Pointer<llama_model>,
+      mtmd_context_params,
+    );
+typedef _MtmdFreeNative = Void Function(Pointer<mtmd_context>);
+typedef _MtmdFreeDart = void Function(Pointer<mtmd_context>);
+typedef _MtmdInputChunksInitNative = Pointer<mtmd_input_chunks> Function();
+typedef _MtmdInputChunksInitDart = Pointer<mtmd_input_chunks> Function();
+typedef _MtmdInputChunksFreeNative = Void Function(Pointer<mtmd_input_chunks>);
+typedef _MtmdInputChunksFreeDart = void Function(Pointer<mtmd_input_chunks>);
+typedef _MtmdHelperBitmapInitFromFileNative =
+    Pointer<mtmd_bitmap> Function(Pointer<mtmd_context>, Pointer<Char>);
+typedef _MtmdHelperBitmapInitFromFileDart =
+    Pointer<mtmd_bitmap> Function(Pointer<mtmd_context>, Pointer<Char>);
+typedef _MtmdHelperBitmapInitFromBufNative =
+    Pointer<mtmd_bitmap> Function(
+      Pointer<mtmd_context>,
+      Pointer<UnsignedChar>,
+      Size,
+    );
+typedef _MtmdHelperBitmapInitFromBufDart =
+    Pointer<mtmd_bitmap> Function(
+      Pointer<mtmd_context>,
+      Pointer<UnsignedChar>,
+      int,
+    );
+typedef _MtmdBitmapInitFromAudioNative =
+    Pointer<mtmd_bitmap> Function(Size, Pointer<Float>);
+typedef _MtmdBitmapInitFromAudioDart =
+    Pointer<mtmd_bitmap> Function(int, Pointer<Float>);
+typedef _MtmdBitmapFreeNative = Void Function(Pointer<mtmd_bitmap>);
+typedef _MtmdBitmapFreeDart = void Function(Pointer<mtmd_bitmap>);
+typedef _MtmdTokenizeNative =
+    Int32 Function(
+      Pointer<mtmd_context>,
+      Pointer<mtmd_input_chunks>,
+      Pointer<mtmd_input_text>,
+      Pointer<Pointer<mtmd_bitmap>>,
+      Size,
+    );
+typedef _MtmdTokenizeDart =
+    int Function(
+      Pointer<mtmd_context>,
+      Pointer<mtmd_input_chunks>,
+      Pointer<mtmd_input_text>,
+      Pointer<Pointer<mtmd_bitmap>>,
+      int,
+    );
+typedef _MtmdHelperEvalChunksNative =
+    Int32 Function(
+      Pointer<mtmd_context>,
+      Pointer<llama_context>,
+      Pointer<mtmd_input_chunks>,
+      llama_pos,
+      llama_seq_id,
+      Int32,
+      Bool,
+      Pointer<llama_pos>,
+    );
+typedef _MtmdHelperEvalChunksDart =
+    int Function(
+      Pointer<mtmd_context>,
+      Pointer<llama_context>,
+      Pointer<mtmd_input_chunks>,
+      int,
+      int,
+      int,
+      bool,
+      Pointer<llama_pos>,
+    );
 
 /// Service responsible for managing Llama.cpp models and contexts.
 ///
@@ -32,6 +114,9 @@ class LlamaCppService {
   bool _ggmlFallbackLookupAttempted = false;
   _GgmlBackendLoadDart? _ggmlBackendLoadFallback;
   _GgmlBackendLoadAllDart? _ggmlBackendLoadAllFallback;
+  bool _mtmdFallbackLookupAttempted = false;
+  bool _mtmdPrimarySymbolsUnavailable = false;
+  _MtmdApi? _mtmdFallbackApi;
 
   // --- Internal State ---
   final Map<int, _LlamaModelWrapper> _models = {};
@@ -118,6 +203,14 @@ class LlamaCppService {
   /// `libllamadart.so` location, then load backend modules from that directory.
   /// Returns `null` when the path cannot be resolved.
   static String? resolveBackendModuleDirectory() {
+    if (Platform.isWindows) {
+      try {
+        return path.dirname(Platform.resolvedExecutable);
+      } catch (_) {
+        return null;
+      }
+    }
+
     if (!Platform.isAndroid && !Platform.isLinux) {
       return null;
     }
@@ -287,11 +380,13 @@ class LlamaCppService {
       return true;
     }
 
-    final libraryFileName = _backendLibraryFileName(backend);
-    final candidates = <String>{libraryFileName};
+    final fileNameCandidates = _backendLibraryCandidateFileNames(backend);
+    final candidates = <String>{...fileNameCandidates};
     final backendModuleDirectory = _backendModuleDirectory;
     if (backendModuleDirectory != null) {
-      candidates.add(path.join(backendModuleDirectory, libraryFileName));
+      for (final fileName in fileNameCandidates) {
+        candidates.add(path.join(backendModuleDirectory, fileName));
+      }
     }
 
     for (final candidate in candidates) {
@@ -336,11 +431,13 @@ class LlamaCppService {
     }
     _ggmlFallbackLookupAttempted = true;
 
-    final fileName = _ggmlLibraryFileName();
-    final candidates = <String>{fileName};
+    final fileNameCandidates = _ggmlLibraryCandidateFileNames();
+    final candidates = <String>{...fileNameCandidates};
     final backendModuleDirectory = _backendModuleDirectory;
     if (backendModuleDirectory != null) {
-      candidates.add(path.join(backendModuleDirectory, fileName));
+      for (final fileName in fileNameCandidates) {
+        candidates.add(path.join(backendModuleDirectory, fileName));
+      }
     }
 
     DynamicLibrary? library;
@@ -383,6 +480,81 @@ class LlamaCppService {
       return 'libggml.dylib';
     }
     return 'libggml.so';
+  }
+
+  List<String> _backendLibraryCandidateFileNames(String backend) {
+    final baseName = _backendLibraryFileName(backend);
+    final candidates = <String>{baseName};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory == null) {
+      return candidates.toList(growable: false);
+    }
+
+    final dynamicNames = _matchingLibraryNames(
+      backendModuleDirectory,
+      _backendLibraryPattern(backend),
+    );
+    candidates.addAll(dynamicNames);
+    return candidates.toList(growable: false);
+  }
+
+  List<String> _ggmlLibraryCandidateFileNames() {
+    final baseName = _ggmlLibraryFileName();
+    final candidates = <String>{baseName};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory == null) {
+      return candidates.toList(growable: false);
+    }
+
+    final dynamicNames = _matchingLibraryNames(
+      backendModuleDirectory,
+      _ggmlLibraryPattern(),
+    );
+    candidates.addAll(dynamicNames);
+    return candidates.toList(growable: false);
+  }
+
+  RegExp _backendLibraryPattern(String backend) {
+    final escapedBackend = RegExp.escape(backend);
+    if (Platform.isWindows) {
+      return RegExp('^ggml-$escapedBackend(?:-[^.\\\\/]+)*\\.dll\$');
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return RegExp('^libggml-$escapedBackend(?:-[^.\\\\/]+)*\\.dylib\$');
+    }
+    return RegExp('^libggml-$escapedBackend(?:-[^.\\\\/]+)*\\.so\$');
+  }
+
+  RegExp _ggmlLibraryPattern() {
+    if (Platform.isWindows) {
+      return RegExp(r'^ggml(?:-[^.\\/]+)*\.dll$');
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return RegExp(r'^libggml(?:-[^.\\/]+)*\.dylib$');
+    }
+    return RegExp(r'^libggml(?:-[^.\\/]+)*\.so$');
+  }
+
+  static List<String> _matchingLibraryNames(
+    String directoryPath,
+    RegExp regex,
+  ) {
+    try {
+      final names = <String>[];
+      for (final entity in Directory(directoryPath).listSync()) {
+        if (entity is! File) {
+          continue;
+        }
+        final name = path.basename(entity.path);
+        if (regex.hasMatch(name)) {
+          names.add(name);
+        }
+      }
+      names.sort();
+      return names;
+    } catch (_) {
+      return const [];
+    }
   }
 
   T _backendRegistryOr<T>(T fallback, T Function() call) {
@@ -560,7 +732,7 @@ class LlamaCppService {
       final mmHandle = _modelToMtmd.remove(modelHandle);
       if (mmHandle != null) {
         final mmCtx = _mtmdContexts.remove(mmHandle);
-        if (mmCtx != null) mtmd_free(mmCtx);
+        if (mmCtx != null) _mtmdFree(mmCtx);
       }
 
       model.dispose();
@@ -783,7 +955,7 @@ class LlamaCppService {
   ) {
     int initialTokens = 0;
     final bitmaps = malloc<Pointer<mtmd_bitmap>>(mediaParts.length);
-    final chunks = mtmd_input_chunks_init();
+    final chunks = _mtmdInputChunksInit();
 
     try {
       for (int i = 0; i < mediaParts.length; i++) {
@@ -792,15 +964,12 @@ class LlamaCppService {
         if (p is LlamaImageContent) {
           if (p.path != null) {
             final pathPtr = p.path!.toNativeUtf8();
-            bitmaps[i] = mtmd_helper_bitmap_init_from_file(
-              mmCtx,
-              pathPtr.cast(),
-            );
+            bitmaps[i] = _mtmdHelperBitmapInitFromFile(mmCtx, pathPtr.cast());
             malloc.free(pathPtr);
           } else if (p.bytes != null) {
             final dataPtr = malloc<Uint8>(p.bytes!.length);
             dataPtr.asTypedList(p.bytes!.length).setAll(0, p.bytes!);
-            bitmaps[i] = mtmd_helper_bitmap_init_from_buf(
+            bitmaps[i] = _mtmdHelperBitmapInitFromBuf(
               mmCtx,
               dataPtr.cast(),
               p.bytes!.length,
@@ -810,15 +979,12 @@ class LlamaCppService {
         } else if (p is LlamaAudioContent) {
           if (p.path != null) {
             final pathPtr = p.path!.toNativeUtf8();
-            bitmaps[i] = mtmd_helper_bitmap_init_from_file(
-              mmCtx,
-              pathPtr.cast(),
-            );
+            bitmaps[i] = _mtmdHelperBitmapInitFromFile(mmCtx, pathPtr.cast());
             malloc.free(pathPtr);
           } else if (p.bytes != null) {
             final dataPtr = malloc<Uint8>(p.bytes!.length);
             dataPtr.asTypedList(p.bytes!.length).setAll(0, p.bytes!);
-            bitmaps[i] = mtmd_helper_bitmap_init_from_buf(
+            bitmaps[i] = _mtmdHelperBitmapInitFromBuf(
               mmCtx,
               dataPtr.cast(),
               p.bytes!.length,
@@ -827,7 +993,7 @@ class LlamaCppService {
           } else if (p.samples != null) {
             final dataPtr = malloc<Float>(p.samples!.length);
             dataPtr.asTypedList(p.samples!.length).setAll(0, p.samples!);
-            bitmaps[i] = mtmd_bitmap_init_from_audio(
+            bitmaps[i] = _mtmdBitmapInitFromAudio(
               p.samples!.length,
               dataPtr.cast(),
             );
@@ -853,7 +1019,7 @@ class LlamaCppService {
       inputText.ref.add_special = (bos != eos && bos != -1);
       inputText.ref.parse_special = true;
 
-      final res = mtmd_tokenize(
+      final res = _mtmdTokenize(
         mmCtx,
         chunks,
         inputText,
@@ -863,7 +1029,7 @@ class LlamaCppService {
 
       if (res == 0) {
         final newPast = malloc<llama_pos>();
-        if (mtmd_helper_eval_chunks(
+        if (_mtmdHelperEvalChunks(
               mmCtx,
               ctx.pointer,
               chunks,
@@ -885,16 +1051,16 @@ class LlamaCppService {
       malloc.free(inputText);
     } finally {
       for (int i = 0; i < mediaParts.length; i++) {
-        if (bitmaps[i] != nullptr) mtmd_bitmap_free(bitmaps[i]);
+        if (bitmaps[i] != nullptr) _mtmdBitmapFree(bitmaps[i]);
       }
       malloc.free(bitmaps);
-      mtmd_input_chunks_free(chunks);
+      _mtmdInputChunksFree(chunks);
     }
     return initialTokens;
   }
 
   String _normalizeMtmdPromptMarkers(String prompt, int mediaPartCount) {
-    final markerPtr = mtmd_default_marker();
+    final markerPtr = _mtmdDefaultMarker();
     final marker = markerPtr == nullptr
         ? '<__media__>'
         : markerPtr.cast<Utf8>().toDartString();
@@ -1501,7 +1667,7 @@ class LlamaCppService {
     }
     _models.clear();
     for (final m in _mtmdContexts.values) {
-      mtmd_free(m);
+      _mtmdFree(m);
     }
     _mtmdContexts.clear();
     // llama_backend_free(); // DISABLED: Prevents race conditions with other isolates
@@ -1517,17 +1683,8 @@ class LlamaCppService {
     final mmProjPathPtr = mmProjPath.toNativeUtf8();
     Pointer<mtmd_context> mmCtx = nullptr;
     try {
-      final ctxParams = mtmd_context_params_default();
-      mmCtx = mtmd_init_from_file(
-        mmProjPathPtr.cast(),
-        model.pointer,
-        ctxParams,
-      );
-    } on ArgumentError {
-      throw Exception(
-        'Multimodal support is unavailable in this native runtime bundle '
-        '(missing mtmd symbols in primary FFI asset).',
-      );
+      final ctxParams = _mtmdContextParamsDefault();
+      mmCtx = _mtmdInitFromFile(mmProjPathPtr.cast(), model.pointer, ctxParams);
     } finally {
       malloc.free(mmProjPathPtr);
     }
@@ -1546,9 +1703,310 @@ class LlamaCppService {
   void freeMultimodalContext(int mmContextHandle) {
     final mmCtx = _mtmdContexts.remove(mmContextHandle);
     if (mmCtx != null) {
-      mtmd_free(mmCtx);
+      _mtmdFree(mmCtx);
       _modelToMtmd.removeWhere((k, v) => v == mmContextHandle);
     }
+  }
+
+  Pointer<Char> _mtmdDefaultMarker() {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_default_marker();
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    return fallback?.defaultMarker() ?? nullptr;
+  }
+
+  mtmd_context_params _mtmdContextParamsDefault() {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_context_params_default();
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(_mtmdUnavailableMessage('mtmd_context_params_default'));
+    }
+    return fallback.contextParamsDefault();
+  }
+
+  Pointer<mtmd_context> _mtmdInitFromFile(
+    Pointer<Char> mmProjPath,
+    Pointer<llama_model> model,
+    mtmd_context_params ctxParams,
+  ) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_init_from_file(mmProjPath, model, ctxParams);
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(_mtmdUnavailableMessage('mtmd_init_from_file'));
+    }
+    return fallback.initFromFile(mmProjPath, model, ctxParams);
+  }
+
+  void _mtmdFree(Pointer<mtmd_context> ctx) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        mtmd_free(ctx);
+        return;
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      return;
+    }
+    fallback.free(ctx);
+  }
+
+  Pointer<mtmd_input_chunks> _mtmdInputChunksInit() {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_input_chunks_init();
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(_mtmdUnavailableMessage('mtmd_input_chunks_init'));
+    }
+    return fallback.inputChunksInit();
+  }
+
+  void _mtmdInputChunksFree(Pointer<mtmd_input_chunks> chunks) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        mtmd_input_chunks_free(chunks);
+        return;
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      return;
+    }
+    fallback.inputChunksFree(chunks);
+  }
+
+  Pointer<mtmd_bitmap> _mtmdHelperBitmapInitFromFile(
+    Pointer<mtmd_context> ctx,
+    Pointer<Char> pathPtr,
+  ) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_helper_bitmap_init_from_file(ctx, pathPtr);
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(
+        _mtmdUnavailableMessage('mtmd_helper_bitmap_init_from_file'),
+      );
+    }
+    return fallback.helperBitmapInitFromFile(ctx, pathPtr);
+  }
+
+  Pointer<mtmd_bitmap> _mtmdHelperBitmapInitFromBuf(
+    Pointer<mtmd_context> ctx,
+    Pointer<UnsignedChar> data,
+    int size,
+  ) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_helper_bitmap_init_from_buf(ctx, data, size);
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(
+        _mtmdUnavailableMessage('mtmd_helper_bitmap_init_from_buf'),
+      );
+    }
+    return fallback.helperBitmapInitFromBuf(ctx, data, size);
+  }
+
+  Pointer<mtmd_bitmap> _mtmdBitmapInitFromAudio(int n, Pointer<Float> samples) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_bitmap_init_from_audio(n, samples);
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(_mtmdUnavailableMessage('mtmd_bitmap_init_from_audio'));
+    }
+    return fallback.bitmapInitFromAudio(n, samples);
+  }
+
+  void _mtmdBitmapFree(Pointer<mtmd_bitmap> bitmap) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        mtmd_bitmap_free(bitmap);
+        return;
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      return;
+    }
+    fallback.bitmapFree(bitmap);
+  }
+
+  int _mtmdTokenize(
+    Pointer<mtmd_context> ctx,
+    Pointer<mtmd_input_chunks> output,
+    Pointer<mtmd_input_text> text,
+    Pointer<Pointer<mtmd_bitmap>> bitmaps,
+    int nBitmaps,
+  ) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_tokenize(ctx, output, text, bitmaps, nBitmaps);
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(_mtmdUnavailableMessage('mtmd_tokenize'));
+    }
+    return fallback.tokenize(ctx, output, text, bitmaps, nBitmaps);
+  }
+
+  int _mtmdHelperEvalChunks(
+    Pointer<mtmd_context> ctx,
+    Pointer<llama_context> lctx,
+    Pointer<mtmd_input_chunks> chunks,
+    int nPast,
+    int seqId,
+    int nBatch,
+    bool logitsLast,
+    Pointer<llama_pos> newNPast,
+  ) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_helper_eval_chunks(
+          ctx,
+          lctx,
+          chunks,
+          nPast,
+          seqId,
+          nBatch,
+          logitsLast,
+          newNPast,
+        );
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(_mtmdUnavailableMessage('mtmd_helper_eval_chunks'));
+    }
+    return fallback.helperEvalChunks(
+      ctx,
+      lctx,
+      chunks,
+      nPast,
+      seqId,
+      nBatch,
+      logitsLast,
+      newNPast,
+    );
+  }
+
+  _MtmdApi? _resolveMtmdFallbackApi() {
+    if (_mtmdFallbackLookupAttempted) {
+      return _mtmdFallbackApi;
+    }
+    _mtmdFallbackLookupAttempted = true;
+
+    final fileNameCandidates = _mtmdLibraryCandidateFileNames();
+    final candidates = <String>{...fileNameCandidates};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory != null) {
+      for (final fileName in fileNameCandidates) {
+        candidates.add(path.join(backendModuleDirectory, fileName));
+      }
+    }
+
+    DynamicLibrary? library;
+    for (final candidate in candidates) {
+      try {
+        library = DynamicLibrary.open(candidate);
+        break;
+      } catch (_) {
+        continue;
+      }
+    }
+    if (library == null) {
+      return null;
+    }
+
+    _mtmdFallbackApi = _MtmdApi.tryLoad(library);
+    return _mtmdFallbackApi;
+  }
+
+  List<String> _mtmdLibraryCandidateFileNames() {
+    final baseName = _mtmdLibraryFileName();
+    final candidates = <String>{baseName};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory == null) {
+      return candidates.toList(growable: false);
+    }
+
+    final dynamicNames = _matchingLibraryNames(
+      backendModuleDirectory,
+      _mtmdLibraryPattern(),
+    );
+    candidates.addAll(dynamicNames);
+    return candidates.toList(growable: false);
+  }
+
+  static String _mtmdLibraryFileName() {
+    if (Platform.isWindows) {
+      return 'mtmd.dll';
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return 'libmtmd.dylib';
+    }
+    return 'libmtmd.so';
+  }
+
+  RegExp _mtmdLibraryPattern() {
+    if (Platform.isWindows) {
+      return RegExp(r'^mtmd(?:-[^.\\/]+)*\.dll$');
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return RegExp(r'^libmtmd(?:-[^.\\/]+)*\.dylib$');
+    }
+    return RegExp(r'^libmtmd(?:-[^.\\/]+)*\.so$');
+  }
+
+  String _mtmdUnavailableMessage(String symbol) {
+    return 'Multimodal support is unavailable in this native runtime bundle '
+        '(missing `$symbol` in both primary and mtmd libraries).';
   }
 
   // --- Helper Getters ---
@@ -1591,6 +2049,99 @@ class _LazyGrammarConfig {
     }
     if (triggerTokens != nullptr) {
       malloc.free(triggerTokens);
+    }
+  }
+}
+
+class _MtmdApi {
+  final _MtmdDefaultMarkerDart defaultMarker;
+  final _MtmdContextParamsDefaultDart contextParamsDefault;
+  final _MtmdInitFromFileDart initFromFile;
+  final _MtmdFreeDart free;
+  final _MtmdInputChunksInitDart inputChunksInit;
+  final _MtmdInputChunksFreeDart inputChunksFree;
+  final _MtmdHelperBitmapInitFromFileDart helperBitmapInitFromFile;
+  final _MtmdHelperBitmapInitFromBufDart helperBitmapInitFromBuf;
+  final _MtmdBitmapInitFromAudioDart bitmapInitFromAudio;
+  final _MtmdBitmapFreeDart bitmapFree;
+  final _MtmdTokenizeDart tokenize;
+  final _MtmdHelperEvalChunksDart helperEvalChunks;
+
+  const _MtmdApi({
+    required this.defaultMarker,
+    required this.contextParamsDefault,
+    required this.initFromFile,
+    required this.free,
+    required this.inputChunksInit,
+    required this.inputChunksFree,
+    required this.helperBitmapInitFromFile,
+    required this.helperBitmapInitFromBuf,
+    required this.bitmapInitFromAudio,
+    required this.bitmapFree,
+    required this.tokenize,
+    required this.helperEvalChunks,
+  });
+
+  static _MtmdApi? tryLoad(DynamicLibrary library) {
+    try {
+      return _MtmdApi(
+        defaultMarker: library
+            .lookupFunction<_MtmdDefaultMarkerNative, _MtmdDefaultMarkerDart>(
+              'mtmd_default_marker',
+            ),
+        contextParamsDefault: library
+            .lookupFunction<
+              _MtmdContextParamsDefaultNative,
+              _MtmdContextParamsDefaultDart
+            >('mtmd_context_params_default'),
+        initFromFile: library
+            .lookupFunction<_MtmdInitFromFileNative, _MtmdInitFromFileDart>(
+              'mtmd_init_from_file',
+            ),
+        free: library.lookupFunction<_MtmdFreeNative, _MtmdFreeDart>(
+          'mtmd_free',
+        ),
+        inputChunksInit: library
+            .lookupFunction<
+              _MtmdInputChunksInitNative,
+              _MtmdInputChunksInitDart
+            >('mtmd_input_chunks_init'),
+        inputChunksFree: library
+            .lookupFunction<
+              _MtmdInputChunksFreeNative,
+              _MtmdInputChunksFreeDart
+            >('mtmd_input_chunks_free'),
+        helperBitmapInitFromFile: library
+            .lookupFunction<
+              _MtmdHelperBitmapInitFromFileNative,
+              _MtmdHelperBitmapInitFromFileDart
+            >('mtmd_helper_bitmap_init_from_file'),
+        helperBitmapInitFromBuf: library
+            .lookupFunction<
+              _MtmdHelperBitmapInitFromBufNative,
+              _MtmdHelperBitmapInitFromBufDart
+            >('mtmd_helper_bitmap_init_from_buf'),
+        bitmapInitFromAudio: library
+            .lookupFunction<
+              _MtmdBitmapInitFromAudioNative,
+              _MtmdBitmapInitFromAudioDart
+            >('mtmd_bitmap_init_from_audio'),
+        bitmapFree: library
+            .lookupFunction<_MtmdBitmapFreeNative, _MtmdBitmapFreeDart>(
+              'mtmd_bitmap_free',
+            ),
+        tokenize: library
+            .lookupFunction<_MtmdTokenizeNative, _MtmdTokenizeDart>(
+              'mtmd_tokenize',
+            ),
+        helperEvalChunks: library
+            .lookupFunction<
+              _MtmdHelperEvalChunksNative,
+              _MtmdHelperEvalChunksDart
+            >('mtmd_helper_eval_chunks'),
+      );
+    } catch (_) {
+      return null;
     }
   }
 }
