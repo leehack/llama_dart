@@ -778,8 +778,7 @@ class LlamaCppService {
   }
 
   List<String> _llamadartLibraryCandidateFileNames() {
-    final baseName = _llamadartLibraryFileName();
-    final candidates = <String>{baseName};
+    final candidates = _llamadartStaticCandidateFileNames();
     final backendModuleDirectory = _backendModuleDirectory;
     if (backendModuleDirectory == null) {
       return candidates.toList(growable: false);
@@ -791,6 +790,15 @@ class LlamaCppService {
     );
     candidates.addAll(dynamicNames);
     return candidates.toList(growable: false);
+  }
+
+  Set<String> _llamadartStaticCandidateFileNames() {
+    final candidates = <String>{_llamadartLibraryFileName()};
+    if (Platform.isWindows) {
+      // Hook asset naming can expose wrapper helper as `llamadart_wrapper.dll`.
+      candidates.add('llamadart_wrapper.dll');
+    }
+    return candidates;
   }
 
   RegExp _backendLibraryPattern(String backend) {
@@ -816,12 +824,12 @@ class LlamaCppService {
 
   RegExp _llamadartLibraryPattern() {
     if (Platform.isWindows) {
-      return RegExp(r'^llamadart(?:-[^.\\/]+)*\.dll$');
+      return RegExp(r'^llamadart(?:[-_][^.\\/]+)*\.dll$');
     }
     if (Platform.isMacOS || Platform.isIOS) {
-      return RegExp(r'^libllamadart(?:-[^.\\/]+)*\.dylib$');
+      return RegExp(r'^libllamadart(?:[-_][^.\\/]+)*\.dylib$');
     }
-    return RegExp(r'^libllamadart(?:-[^.\\/]+)*\.so$');
+    return RegExp(r'^libllamadart(?:[-_][^.\\/]+)*\.so$');
   }
 
   static List<String> _matchingLibraryNames(
