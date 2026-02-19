@@ -189,16 +189,26 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> _init() async {
     _settings = await _settingsService.loadSettings();
+    String? backendInfo;
     try {
-      final backendInfo = await _chatService.engine.getBackendName();
+      backendInfo = await _chatService.engine.getBackendName();
+    } catch (e) {
+      debugPrint("Error fetching devices: $e");
+    }
+
+    await _resolveAutoPreferredBackend(backendInfo: backendInfo);
+
+    if (backendInfo != null) {
       _availableDevices = _parseBackendDevices(backendInfo);
       _activeBackend = _deriveActiveBackendLabel(
         backendInfo,
         preferredBackend: _settings.preferredBackend,
         gpuLayers: _settings.gpuLayers,
       );
-    } catch (e) {
-      debugPrint("Error fetching devices: $e");
+    } else {
+      _activeBackend = _settings.preferredBackend == GpuBackend.cpu
+          ? 'CPU'
+          : _settings.preferredBackend.name.toUpperCase();
     }
     notifyListeners();
   }
@@ -229,6 +239,7 @@ class ChatProvider extends ChangeNotifier {
     }
 
     try {
+      await _resolveAutoPreferredBackend();
       await _chatService.engine.setDartLogLevel(_settings.logLevel);
       await _chatService.engine.setNativeLogLevel(_settings.nativeLogLevel);
       await _chatService.init(
@@ -769,6 +780,8 @@ class ChatProvider extends ChangeNotifier {
         lower.contains('webgpu') ||
         _containsBackendMarker(backendInfo, GpuBackend.metal) ||
         _containsBackendMarker(backendInfo, GpuBackend.vulkan) ||
+        _containsBackendMarker(backendInfo, GpuBackend.opencl) ||
+        _containsBackendMarker(backendInfo, GpuBackend.hip) ||
         _containsBackendMarker(backendInfo, GpuBackend.cuda) ||
         _containsBackendMarker(backendInfo, GpuBackend.blas);
 
@@ -1316,6 +1329,11 @@ class ChatProvider extends ChangeNotifier {
   }
 
   List<String> _parseBackendDevices(String backendInfo) {
+    final normalized = backendInfo.trim();
+    if (normalized.isEmpty) {
+      return const [];
+    }
+
     final parts = backendInfo
         .split(',')
         .map((entry) => entry.trim())
@@ -1324,7 +1342,7 @@ class ChatProvider extends ChangeNotifier {
         .toList(growable: false);
 
     if (parts.isEmpty) {
-      return [backendInfo];
+      return const [];
     }
     return parts;
   }
@@ -1343,6 +1361,11 @@ class ChatProvider extends ChangeNotifier {
       return preferredBackend.name.toUpperCase();
     }
 
+    if (preferredBackend != GpuBackend.auto) {
+      // Explicit backend requested but not available at runtime; we fallback to CPU.
+      return 'CPU';
+    }
+
     final lower = backendInfo.toLowerCase();
     if (lower.contains('webgpu') || lower.contains('wgpu')) {
       return 'WEBGPU';
@@ -1353,6 +1376,12 @@ class ChatProvider extends ChangeNotifier {
     }
     if (_containsBackendMarker(backendInfo, GpuBackend.vulkan)) {
       return 'VULKAN';
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.opencl)) {
+      return 'OPENCL';
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.hip)) {
+      return 'HIP';
     }
     if (_containsBackendMarker(backendInfo, GpuBackend.cuda)) {
       return 'CUDA';
@@ -1367,6 +1396,55 @@ class ChatProvider extends ChangeNotifier {
     return backendInfo;
   }
 
+  Future<void> _resolveAutoPreferredBackend({String? backendInfo}) async {
+    if (_settings.preferredBackend != GpuBackend.auto) {
+      return;
+    }
+
+    if (kIsWeb) {
+      // Keep Auto on web: the bridge backend interprets non-CPU as WebGPU.
+      return;
+    }
+
+    final info = backendInfo ?? await _getBackendInfoBestEffort();
+    final resolved = info == null
+        ? GpuBackend.cpu
+        : _selectBestBackendFromInfo(info);
+
+    _settings = _settings.copyWith(preferredBackend: resolved);
+    await _settingsService.saveSettings(_settings);
+  }
+
+  Future<String?> _getBackendInfoBestEffort() async {
+    try {
+      return await _chatService.engine.getBackendName();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  GpuBackend _selectBestBackendFromInfo(String backendInfo) {
+    if (_containsBackendMarker(backendInfo, GpuBackend.metal)) {
+      return GpuBackend.metal;
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.cuda)) {
+      return GpuBackend.cuda;
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.hip)) {
+      return GpuBackend.hip;
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.vulkan)) {
+      return GpuBackend.vulkan;
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.opencl)) {
+      return GpuBackend.opencl;
+    }
+    if (_containsBackendMarker(backendInfo, GpuBackend.blas)) {
+      return GpuBackend.blas;
+    }
+    return GpuBackend.cpu;
+  }
+
   bool _containsBackendMarker(String value, GpuBackend backend) {
     final lower = value.toLowerCase();
     switch (backend) {
@@ -1374,6 +1452,10 @@ class ChatProvider extends ChangeNotifier {
         return lower.contains('metal') || lower.contains('mtl');
       case GpuBackend.vulkan:
         return lower.contains('vulkan');
+      case GpuBackend.opencl:
+        return lower.contains('opencl');
+      case GpuBackend.hip:
+        return lower.contains('hip');
       case GpuBackend.cuda:
         return lower.contains('cuda');
       case GpuBackend.blas:

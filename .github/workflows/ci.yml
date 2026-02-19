@@ -6,10 +6,15 @@ on:
   pull_request:
     branches: [ master, main ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: Analyze & Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -33,6 +38,9 @@ jobs:
       - name: Analyze project source
         run: dart analyze
 
+      - name: Check platform boundaries
+        run: dart run tool/testing/check_platform_boundaries.dart
+
       - name: Pub Publish Dry Run
         run: flutter pub publish --dry-run
 
@@ -44,8 +52,8 @@ jobs:
 
   test-linux-coverage:
     name: Test Linux & Web (with Coverage)
-    needs: analyze
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -83,8 +91,8 @@ jobs:
 
   test-other-os:
     name: Test Native (${{ matrix.os }})
-    needs: analyze
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:

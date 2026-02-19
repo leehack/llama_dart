@@ -16,6 +16,7 @@ environment:
   flutter: '>=3.38.0'
 
 dependencies:
+  archive: ^4.0.7
   ffi: ^2.1.0
   path: ^1.8.3
   http: ^1.1.0

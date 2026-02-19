@@ -7,7 +7,7 @@ A Flutter chat application demonstrating real-world usage of llamadart with UI.
 - 🦙 Real-time chat with local LLM
 - 🖼️ **Vision & Audio Support**: Works on native and web bridge when a matching mmproj is loaded.
 - 📱 Material Design 3 UI
-- ⚙️ Model configuration (path, backend selection, GPU layers, context size)
+- ⚙️ Model configuration (path, runtime-detected backend selection, GPU layers, context size)
 - 🧩 Capability badges per model (Tools / Thinking / Vision / Audio / Video)
 - 🎯 Per-model presets for temperature, Top-K, Top-P, context, and max tokens
 - 🛠️ Tool-calling toggles with template support checks
@@ -42,6 +42,7 @@ Note: this is a Flutter app, so use `flutter test` (not `dart test`).
 ### 3. Advanced Configuration (Optional)
 1. Tap the settings icon (⚙️) in the app bar.
 2. Adjust **GPU Layers**, **Context Size**, **Preferred Backend**, **Dart Log Level**, and **Native Log Level**.
+   - Backend choices are concrete runtime-detected options (for example: CPU/Vulkan/CUDA), not `Auto`.
 3. Optionally toggle **Enable Tools** / **Force Tool Call** depending on model/template support.
 4. Tap **Load Model** to apply changes.
 
@@ -119,7 +120,7 @@ await engine.loadModel(
   modelParams: ModelParams(
     gpuLayers: 99, // Offload all layers for best performance on GPU
     contextSize: 2048,
-    preferredBackend: GpuBackend.auto,
+    preferredBackend: GpuBackend.vulkan,
   ),
 );
 
@@ -171,6 +172,7 @@ _(Add screenshots here when complete)_
 - Ensure you have an active internet connection. The `llamadart` build hook needs to download the pre-compiled `llama.cpp` binary for your platform.
 - Check the console for download progress logs.
 - If behind a proxy, ensure Dart/Flutter can access GitHub.
+- If you recently changed native backend config and are upgrading from an older build cache, run a one-time `flutter clean`.
 
 **"Model file not found" error:**
 - Ensure you have successfully downloaded a model from the selection screen.
@@ -180,6 +182,10 @@ _(Add screenshots here when complete)_
 - Ensure hardware acceleration is enabled (e.g., Metal on Apple, Vulkan on Android/Linux/Windows).
 - Check if `GPU Layers` is set to a high enough value (default 99 offloads all layers).
 - Use a model with a smaller quantization level (e.g., Q4_K_M).
+
+**Backend list/selection notes:**
+- The settings sheet shows detected runtime backends/devices, not only packaged modules.
+- Legacy saved `Auto` backend preferences are resolved to the best detected backend at runtime.
 
 
 **App crashes on startup:**

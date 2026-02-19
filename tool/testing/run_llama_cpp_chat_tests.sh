@@ -2,10 +2,13 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-src_dir="${repo_root}/third_party/llama_cpp"
+src_dir="${LLAMA_CPP_CHAT_TEST_SOURCE_DIR:-${LLAMA_CPP_SOURCE_DIR:-${repo_root}/.dart_tool/llama_cpp}}"
 build_dir="${LLAMA_CPP_CHAT_TEST_BUILD_DIR:-${repo_root}/.dart_tool/llama_cpp_chat_tests}"
 include_full="${LLAMA_CPP_CHAT_TEST_INCLUDE_FULL:-0}"
 full_verbose="${LLAMA_CPP_CHAT_TEST_FULL_VERBOSE:-0}"
+
+export LLAMA_CPP_SOURCE_DIR="${src_dir}"
+"${repo_root}/tool/testing/prepare_llama_cpp_source.sh" >/dev/null
 
 if [[ ! -f "${src_dir}/CMakeLists.txt" ]]; then
   echo "llama.cpp source not found at: ${src_dir}" >&2

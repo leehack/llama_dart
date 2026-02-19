@@ -4,6 +4,7 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:path/path.dart' as path;
 
 import '../../core/models/chat/content_part.dart';
 import '../../core/models/config/gpu_backend.dart';
@@ -12,12 +13,133 @@ import '../../core/models/inference/generation_params.dart';
 import '../../core/models/inference/model_params.dart';
 import 'bindings.dart';
 
+typedef _GgmlBackendLoadNative = ggml_backend_reg_t Function(Pointer<Char>);
+typedef _GgmlBackendLoadDart = ggml_backend_reg_t Function(Pointer<Char>);
+typedef _GgmlBackendInitNative = ggml_backend_reg_t Function();
+typedef _GgmlBackendInitDart = ggml_backend_reg_t Function();
+typedef _GgmlBackendLoadAllNative = Void Function();
+typedef _GgmlBackendLoadAllDart = void Function();
+typedef _GgmlBackendLoadAllFromPathNative = Void Function(Pointer<Char>);
+typedef _GgmlBackendLoadAllFromPathDart = void Function(Pointer<Char>);
+typedef _GgmlBackendRegisterNative = Void Function(ggml_backend_reg_t);
+typedef _GgmlBackendRegisterDart = void Function(ggml_backend_reg_t);
+typedef _LlamaDartSetLogLevelNative = Void Function(Int32);
+typedef _LlamaDartSetLogLevelDart = void Function(int);
+typedef _MtmdDefaultMarkerNative = Pointer<Char> Function();
+typedef _MtmdDefaultMarkerDart = Pointer<Char> Function();
+typedef _MtmdContextParamsDefaultNative = mtmd_context_params Function();
+typedef _MtmdContextParamsDefaultDart = mtmd_context_params Function();
+typedef _MtmdInitFromFileNative =
+    Pointer<mtmd_context> Function(
+      Pointer<Char>,
+      Pointer<llama_model>,
+      mtmd_context_params,
+    );
+typedef _MtmdInitFromFileDart =
+    Pointer<mtmd_context> Function(
+      Pointer<Char>,
+      Pointer<llama_model>,
+      mtmd_context_params,
+    );
+typedef _MtmdFreeNative = Void Function(Pointer<mtmd_context>);
+typedef _MtmdFreeDart = void Function(Pointer<mtmd_context>);
+typedef _MtmdInputChunksInitNative = Pointer<mtmd_input_chunks> Function();
+typedef _MtmdInputChunksInitDart = Pointer<mtmd_input_chunks> Function();
+typedef _MtmdInputChunksFreeNative = Void Function(Pointer<mtmd_input_chunks>);
+typedef _MtmdInputChunksFreeDart = void Function(Pointer<mtmd_input_chunks>);
+typedef _MtmdHelperBitmapInitFromFileNative =
+    Pointer<mtmd_bitmap> Function(Pointer<mtmd_context>, Pointer<Char>);
+typedef _MtmdHelperBitmapInitFromFileDart =
+    Pointer<mtmd_bitmap> Function(Pointer<mtmd_context>, Pointer<Char>);
+typedef _MtmdHelperBitmapInitFromBufNative =
+    Pointer<mtmd_bitmap> Function(
+      Pointer<mtmd_context>,
+      Pointer<UnsignedChar>,
+      Size,
+    );
+typedef _MtmdHelperBitmapInitFromBufDart =
+    Pointer<mtmd_bitmap> Function(
+      Pointer<mtmd_context>,
+      Pointer<UnsignedChar>,
+      int,
+    );
+typedef _MtmdBitmapInitFromAudioNative =
+    Pointer<mtmd_bitmap> Function(Size, Pointer<Float>);
+typedef _MtmdBitmapInitFromAudioDart =
+    Pointer<mtmd_bitmap> Function(int, Pointer<Float>);
+typedef _MtmdBitmapFreeNative = Void Function(Pointer<mtmd_bitmap>);
+typedef _MtmdBitmapFreeDart = void Function(Pointer<mtmd_bitmap>);
+typedef _MtmdTokenizeNative =
+    Int32 Function(
+      Pointer<mtmd_context>,
+      Pointer<mtmd_input_chunks>,
+      Pointer<mtmd_input_text>,
+      Pointer<Pointer<mtmd_bitmap>>,
+      Size,
+    );
+typedef _MtmdTokenizeDart =
+    int Function(
+      Pointer<mtmd_context>,
+      Pointer<mtmd_input_chunks>,
+      Pointer<mtmd_input_text>,
+      Pointer<Pointer<mtmd_bitmap>>,
+      int,
+    );
+typedef _MtmdHelperEvalChunksNative =
+    Int32 Function(
+      Pointer<mtmd_context>,
+      Pointer<llama_context>,
+      Pointer<mtmd_input_chunks>,
+      llama_pos,
+      llama_seq_id,
+      Int32,
+      Bool,
+      Pointer<llama_pos>,
+    );
+typedef _MtmdHelperEvalChunksDart =
+    int Function(
+      Pointer<mtmd_context>,
+      Pointer<llama_context>,
+      Pointer<mtmd_input_chunks>,
+      int,
+      int,
+      int,
+      bool,
+      Pointer<llama_pos>,
+    );
+typedef _MtmdLogSetNative = Void Function(ggml_log_callback, Pointer<Void>);
+typedef _MtmdLogSetDart = void Function(ggml_log_callback, Pointer<Void>);
+
 /// Service responsible for managing Llama.cpp models and contexts.
 ///
 /// This service handles the direct interaction with the native Llama.cpp library,
 /// including loading models, creating contexts, managing memory, and running inference.
 class LlamaCppService {
   int _nextHandle = 1;
+  String? _backendModuleDirectory;
+  final Set<String> _loadedBackendModules = <String>{};
+  final Map<String, DynamicLibrary> _loadedBackendLibraries =
+      <String, DynamicLibrary>{};
+  final List<DynamicLibrary> _preloadedCoreLibraries = <DynamicLibrary>[];
+  bool _backendLoadAllSymbolUnavailable = false;
+  bool _backendLoadAllFromPathSymbolUnavailable = false;
+  bool _backendLoadSymbolUnavailable = false;
+  bool _backendRegistrySymbolUnavailable = false;
+  bool _linuxCorePreloadAttempted = false;
+  bool _linuxRuntimeDepsPrepared = false;
+  String? _linuxPreparedLibraryDirectory;
+  bool _ggmlFallbackLookupAttempted = false;
+  _GgmlBackendLoadDart? _ggmlBackendLoadFallback;
+  _GgmlBackendLoadAllDart? _ggmlBackendLoadAllFallback;
+  _GgmlBackendLoadAllFromPathDart? _ggmlBackendLoadAllFromPathFallback;
+  _GgmlBackendRegisterDart? _ggmlBackendRegisterFallback;
+  bool _logLevelFallbackLookupAttempted = false;
+  String? _logLevelFallbackLookupSearchKey;
+  _LlamaDartSetLogLevelDart? _llamaDartSetLogLevelFallback;
+  LlamaLogLevel _configuredLogLevel = LlamaLogLevel.warn;
+  bool _mtmdFallbackLookupAttempted = false;
+  bool _mtmdPrimarySymbolsUnavailable = false;
+  _MtmdApi? _mtmdFallbackApi;
 
   // --- Internal State ---
   final Map<int, _LlamaModelWrapper> _models = {};
@@ -48,15 +170,631 @@ class LlamaCppService {
 
   /// Sets the log level for the Llama.cpp library.
   void setLogLevel(LlamaLogLevel level) {
-    llama_dart_set_log_level(level.index);
+    _configuredLogLevel = level;
+    _applyConfiguredLogLevel();
+  }
+
+  void _applyConfiguredLogLevel() {
+    var applied = false;
+    try {
+      llama_dart_set_log_level(_configuredLogLevel.index);
+      applied = true;
+    } on ArgumentError {
+      // Continue with explicit fallback lookup below.
+    }
+
+    // Apply via explicit wrapper lookup as well. On Windows split bundles the
+    // primary @DefaultAsset can resolve to a different loaded copy than the
+    // runtime backend modules, so applying to both keeps log-level state in
+    // sync across module-loading layouts.
+    _resolveLogLevelFallbackFunction();
+    final fallback = _llamaDartSetLogLevelFallback;
+    if (fallback != null) {
+      try {
+        fallback(_configuredLogLevel.index);
+        applied = true;
+      } catch (_) {
+        // Ignore fallback invocation errors and preserve existing behavior.
+      }
+    }
+
+    if (!applied) {
+      // No applicable symbol found for this runtime layout.
+    }
+
+    // mtmd/clip uses its own logger callback chain; mirror llama logger so
+    // multimodal projector logs honor the same configured native log level.
+    _syncMtmdLogCallbackToLlamaLogger();
+  }
+
+  void _syncMtmdLogCallbackToLlamaLogger() {
+    final logCallbackPtr = malloc<ggml_log_callback>();
+    final userDataPtr = malloc<Pointer<Void>>();
+
+    try {
+      try {
+        llama_log_get(logCallbackPtr, userDataPtr);
+      } on ArgumentError {
+        return;
+      }
+
+      final callback = logCallbackPtr.value;
+      final userData = userDataPtr.value;
+      if (callback == nullptr) {
+        return;
+      }
+
+      var applied = false;
+      if (!_mtmdPrimarySymbolsUnavailable) {
+        try {
+          mtmd_log_set(callback, userData);
+          mtmd_helper_log_set(callback, userData);
+          applied = true;
+        } on ArgumentError {
+          _mtmdPrimarySymbolsUnavailable = true;
+        }
+      }
+
+      if (!applied) {
+        final fallback = _resolveMtmdFallbackApi();
+        if (fallback != null) {
+          fallback.logSet?.call(callback, userData);
+          fallback.helperLogSet?.call(callback, userData);
+        }
+      }
+    } finally {
+      malloc.free(logCallbackPtr);
+      malloc.free(userDataPtr);
+    }
   }
 
   /// Initializes the Llama.cpp backend.
   ///
   /// This must be called before loading any models.
   void initializeBackend() {
-    ggml_backend_load_all();
+    _prepareLinuxRuntimeDependenciesBeforeBinding();
+    _preloadLinuxCoreLibrariesForSonameResolution();
+    _backendModuleDirectory = resolveBackendModuleDirectory();
+    if (_backendModuleDirectory == null && Platform.isLinux) {
+      _backendModuleDirectory =
+          _linuxPreparedLibraryDirectory ??
+          _resolveLinuxPrimaryLibraryDirectory();
+    }
+    _applyConfiguredLogLevel();
     llama_backend_init();
+    _applyConfiguredLogLevel();
+
+    if (_backendModuleDirectory == null) {
+      _tryLoadAllBackendsBestEffort();
+    } else {
+      _tryLoadAllBackendsFromPathBestEffort(_backendModuleDirectory!);
+
+      // Split-module bundles: load CPU and proactively probe optional
+      // backend modules so capability discovery works before first model load.
+      _tryLoadBackendModule('cpu');
+      _prepareBackendsForModelLoad(GpuBackend.auto);
+    }
+
+    if (_backendRegistryOr<int>(0, ggml_backend_reg_count) == 0) {
+      // Fallback path: attempt to load CPU backend by filename resolution.
+      _tryLoadBackendModule('cpu');
+    }
+  }
+
+  void _preloadLinuxCoreLibrariesForSonameResolution() {
+    if (!Platform.isLinux || _linuxCorePreloadAttempted) {
+      return;
+    }
+
+    _linuxCorePreloadAttempted = true;
+
+    // Linux split bundles expose versioned SONAMEs (e.g. libllama.so.0).
+    // Preloading dependency libraries through native-asset URIs ensures their
+    // SONAMEs are already registered before @Native resolves libllamadart.
+    final moduleDir = _resolveLinuxPrimaryLibraryDirectory();
+
+    final preloadCandidates = <List<String>>[
+      <String>[
+        'package:llamadart/ggml-base',
+        if (moduleDir != null) path.join(moduleDir, 'libggml-base.so.0'),
+        if (moduleDir != null) path.join(moduleDir, 'libggml-base.so'),
+      ],
+      <String>[
+        'package:llamadart/ggml',
+        if (moduleDir != null) path.join(moduleDir, 'libggml.so.0'),
+        if (moduleDir != null) path.join(moduleDir, 'libggml.so'),
+      ],
+      <String>[
+        'package:llamadart/llama',
+        if (moduleDir != null) path.join(moduleDir, 'libllama.so.0'),
+        if (moduleDir != null) path.join(moduleDir, 'libllama.so'),
+      ],
+    ];
+
+    for (final candidates in preloadCandidates) {
+      var loaded = false;
+      for (final candidate in candidates) {
+        try {
+          _preloadedCoreLibraries.add(DynamicLibrary.open(candidate));
+          loaded = true;
+          break;
+        } catch (_) {
+          continue;
+        }
+      }
+
+      if (!loaded) {
+        // Best effort: continue and let normal fallback paths handle loading.
+      }
+    }
+  }
+
+  void _prepareLinuxRuntimeDependenciesBeforeBinding() {
+    if (!Platform.isLinux || _linuxRuntimeDepsPrepared) {
+      return;
+    }
+    _linuxRuntimeDepsPrepared = true;
+
+    final targetDir = _resolveLinuxPrimaryLibraryDirectory();
+    if (targetDir == null) {
+      return;
+    }
+
+    final sourceDirectories = _linuxDependencySourceDirectories(targetDir);
+    const coreLibraries = <String>[
+      'libggml-base.so',
+      'libggml.so',
+      'libllama.so',
+    ];
+
+    for (final libraryFileName in coreLibraries) {
+      _ensureLinuxLibraryPresent(
+        targetDirectory: targetDir,
+        sourceDirectories: sourceDirectories,
+        fileName: libraryFileName,
+      );
+      _ensureLinuxSonameAlias(targetDir, libraryFileName);
+    }
+
+    const backendModuleLibraries = <String>[
+      'libggml-cpu.so',
+      'libggml-vulkan.so',
+      'libggml-opencl.so',
+      'libggml-cuda.so',
+      'libggml-blas.so',
+    ];
+
+    for (final libraryFileName in backendModuleLibraries) {
+      _ensureLinuxLibraryPresent(
+        targetDirectory: targetDir,
+        sourceDirectories: sourceDirectories,
+        fileName: libraryFileName,
+      );
+      _ensureLinuxSonameAlias(targetDir, libraryFileName);
+    }
+
+    _linuxPreparedLibraryDirectory = targetDir;
+  }
+
+  String? _resolveLinuxPrimaryLibraryDirectory() {
+    final candidates = <String>{
+      path.join(Directory.current.path, '.dart_tool', 'lib'),
+      path.dirname(Platform.resolvedExecutable),
+      Directory.current.path,
+    };
+
+    for (final candidate in candidates) {
+      final directory = Directory(candidate);
+      if (!directory.existsSync()) {
+        continue;
+      }
+      final hasPrimary =
+          File(path.join(candidate, 'libllamadart.so')).existsSync() ||
+          File(path.join(candidate, 'libllamadart.so.0')).existsSync();
+      if (hasPrimary) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  List<String> _linuxDependencySourceDirectories(String targetDirectory) {
+    final dirs = <String>{targetDirectory};
+    final cacheRoot = Directory(
+      path.join(
+        Directory.current.path,
+        '.dart_tool',
+        'llamadart',
+        'native_bundles',
+      ),
+    );
+    if (!cacheRoot.existsSync()) {
+      return dirs.toList(growable: false);
+    }
+
+    for (final tagDir in cacheRoot.listSync()) {
+      if (tagDir is! Directory) {
+        continue;
+      }
+      for (final bundleDir in tagDir.listSync()) {
+        if (bundleDir is! Directory) {
+          continue;
+        }
+        final bundleName = path.basename(bundleDir.path).toLowerCase();
+        if (!bundleName.startsWith('linux-')) {
+          continue;
+        }
+        final extractedDir = Directory(path.join(bundleDir.path, 'extracted'));
+        if (extractedDir.existsSync()) {
+          dirs.add(extractedDir.path);
+        }
+      }
+    }
+
+    return dirs.toList(growable: false);
+  }
+
+  void _ensureLinuxLibraryPresent({
+    required String targetDirectory,
+    required List<String> sourceDirectories,
+    required String fileName,
+  }) {
+    final targetPath = path.join(targetDirectory, fileName);
+    if (File(targetPath).existsSync()) {
+      return;
+    }
+
+    for (final sourceDirectory in sourceDirectories) {
+      final sourcePath = path.join(sourceDirectory, fileName);
+      final sourceFile = File(sourcePath);
+      if (!sourceFile.existsSync()) {
+        continue;
+      }
+      try {
+        sourceFile.copySync(targetPath);
+        return;
+      } catch (_) {
+        continue;
+      }
+    }
+  }
+
+  void _ensureLinuxSonameAlias(String directory, String baseFileName) {
+    final sourcePath = path.join(directory, baseFileName);
+    final sourceFile = File(sourcePath);
+    if (!sourceFile.existsSync()) {
+      return;
+    }
+
+    final aliasPath = '$sourcePath.0';
+    final aliasFile = File(aliasPath);
+    if (aliasFile.existsSync()) {
+      return;
+    }
+
+    try {
+      Link(aliasPath).createSync(baseFileName);
+      return;
+    } catch (_) {
+      // Fall through to copying when symlinks are unavailable.
+    }
+
+    try {
+      sourceFile.copySync(aliasPath);
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+
+  void _tryLoadAllBackendsBestEffort() {
+    if (_backendLoadAllSymbolUnavailable) {
+      return;
+    }
+
+    try {
+      ggml_backend_load_all();
+    } on ArgumentError {
+      _resolveGgmlFallbackFunctions();
+      final fallback = _ggmlBackendLoadAllFallback;
+      if (fallback != null) {
+        fallback();
+        return;
+      }
+
+      // Some split bundles don't expose this symbol on the primary FFI asset.
+      // Continue with explicit backend-module loading fallback.
+      _backendLoadAllSymbolUnavailable = true;
+    }
+  }
+
+  bool _tryLoadAllBackendsFromPathBestEffort(String directoryPath) {
+    if (_backendLoadAllFromPathSymbolUnavailable) {
+      return false;
+    }
+
+    final directoryPathPtr = directoryPath.toNativeUtf8();
+    try {
+      try {
+        ggml_backend_load_all_from_path(directoryPathPtr.cast());
+        return true;
+      } on ArgumentError {
+        _resolveGgmlFallbackFunctions();
+        final fallback = _ggmlBackendLoadAllFromPathFallback;
+        if (fallback != null) {
+          fallback(directoryPathPtr.cast());
+          return true;
+        }
+
+        _backendLoadAllFromPathSymbolUnavailable = true;
+        return false;
+      }
+    } finally {
+      malloc.free(directoryPathPtr);
+    }
+  }
+
+  /// Resolves the native backend module directory for dynamic backend loading.
+  ///
+  /// On Android/Linux we inspect `/proc/self/maps` to find the loaded
+  /// `libllamadart.so` location, then load backend modules from that directory.
+  /// Returns `null` when the path cannot be resolved.
+  static String? resolveBackendModuleDirectory() {
+    if (Platform.isWindows) {
+      return resolveWindowsBackendModuleDirectory(
+        resolvedExecutablePath: Platform.resolvedExecutable,
+        currentDirectoryPath: Directory.current.path,
+        environment: Platform.environment,
+      );
+    }
+
+    if (!Platform.isAndroid && !Platform.isLinux) {
+      return null;
+    }
+
+    try {
+      final mapsFile = File('/proc/self/maps');
+      if (!mapsFile.existsSync()) {
+        return null;
+      }
+
+      final mapsContent = mapsFile.readAsStringSync();
+      return parseBackendModuleDirectoryFromProcMaps(mapsContent);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Resolves Windows backend-module directory for dynamic backend loading.
+  ///
+  /// Resolution order:
+  /// 1. Explicit environment override (`LLAMADART_NATIVE_LIB_DIR` or
+  ///    `LLAMADART_BACKEND_MODULE_DIR`)
+  /// 2. Directory of resolved executable (if it looks like a native bundle)
+  /// 3. Current working directory (if it looks like a native bundle)
+  /// 4. Hook cache under `.dart_tool/llamadart/native_bundles/*/windows-*/`
+  /// 5. Directory of resolved executable (best-effort fallback)
+  static String? resolveWindowsBackendModuleDirectory({
+    required String resolvedExecutablePath,
+    required String currentDirectoryPath,
+    required Map<String, String> environment,
+  }) {
+    final overrideCandidates = <String>[
+      environment['LLAMADART_NATIVE_LIB_DIR'] ?? '',
+      environment['LLAMADART_BACKEND_MODULE_DIR'] ?? '',
+    ];
+    for (final override in overrideCandidates) {
+      if (override.isEmpty) {
+        continue;
+      }
+      if (_containsWindowsNativeModules(override)) {
+        return override;
+      }
+    }
+
+    final executableDir = path.dirname(resolvedExecutablePath);
+    if (_containsWindowsNativeModules(executableDir)) {
+      return executableDir;
+    }
+
+    if (_containsWindowsNativeModules(currentDirectoryPath)) {
+      return currentDirectoryPath;
+    }
+
+    final dartToolLibDir = _findDartToolLibDirectory(currentDirectoryPath);
+    if (dartToolLibDir != null) {
+      return dartToolLibDir;
+    }
+
+    final preferredBundle = _preferredWindowsBundleName();
+    final hookCacheDir = _findHookCacheWindowsBundleDirectory(
+      currentDirectoryPath,
+      preferredBundleName: preferredBundle,
+    );
+    if (hookCacheDir != null) {
+      return hookCacheDir;
+    }
+
+    return executableDir;
+  }
+
+  static String? _preferredWindowsBundleName() {
+    switch (Abi.current()) {
+      case Abi.windowsX64:
+        return 'windows-x64';
+      case Abi.windowsArm64:
+        return 'windows-arm64';
+      default:
+        return null;
+    }
+  }
+
+  static String? _findHookCacheWindowsBundleDirectory(
+    String currentDirectoryPath, {
+    String? preferredBundleName,
+  }) {
+    var cursor = Directory(currentDirectoryPath).absolute;
+    while (true) {
+      final cacheRoot = Directory(
+        path.join(cursor.path, '.dart_tool', 'llamadart', 'native_bundles'),
+      );
+      if (cacheRoot.existsSync()) {
+        final found = _selectWindowsBundleDirectoryFromCache(
+          cacheRoot.path,
+          preferredBundleName: preferredBundleName,
+        );
+        if (found != null) {
+          return found;
+        }
+      }
+
+      final parent = cursor.parent;
+      if (parent.path == cursor.path) {
+        break;
+      }
+      cursor = parent;
+    }
+
+    return null;
+  }
+
+  static String? _selectWindowsBundleDirectoryFromCache(
+    String cacheRootPath, {
+    String? preferredBundleName,
+  }) {
+    final cacheRoot = Directory(cacheRootPath);
+    List<Directory> tagDirectories;
+    try {
+      tagDirectories = cacheRoot.listSync().whereType<Directory>().toList(
+        growable: false,
+      );
+    } catch (_) {
+      return null;
+    }
+
+    tagDirectories.sort(
+      (a, b) => path.basename(b.path).compareTo(path.basename(a.path)),
+    );
+
+    for (final tagDirectory in tagDirectories) {
+      final bundleDirs = <Directory>[];
+      if (preferredBundleName != null) {
+        final preferred = Directory(
+          path.join(tagDirectory.path, preferredBundleName),
+        );
+        if (preferred.existsSync()) {
+          bundleDirs.add(preferred);
+        }
+      }
+
+      try {
+        final otherWindowsBundles = tagDirectory
+            .listSync()
+            .whereType<Directory>()
+            .where(
+              (directory) =>
+                  path.basename(directory.path).startsWith('windows-'),
+            )
+            .toList(growable: false);
+        bundleDirs.addAll(otherWindowsBundles);
+      } catch (_) {
+        // Ignore and continue with what we have.
+      }
+
+      final seen = <String>{};
+      for (final bundleDir in bundleDirs) {
+        final normalizedBundle = path.normalize(bundleDir.path);
+        if (!seen.add(normalizedBundle)) {
+          continue;
+        }
+
+        final extractedDir = path.join(bundleDir.path, 'extracted');
+        if (_containsWindowsNativeModules(extractedDir)) {
+          return extractedDir;
+        }
+        if (_containsWindowsNativeModules(bundleDir.path)) {
+          return bundleDir.path;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  static bool _containsWindowsNativeModules(String directoryPath) {
+    try {
+      final directory = Directory(directoryPath);
+      if (!directory.existsSync()) {
+        return false;
+      }
+
+      final fileNames = directory
+          .listSync()
+          .whereType<File>()
+          .map((file) => path.basename(file.path).toLowerCase())
+          .toSet();
+
+      final hasLlama = fileNames.any(
+        (name) => RegExp(r'^llama(?:-[^.\\/]+)*\.dll$').hasMatch(name),
+      );
+      final hasGgml = fileNames.any(
+        (name) => RegExp(r'^ggml(?:-[^.\\/]+)*\.dll$').hasMatch(name),
+      );
+      final hasCpuBackend = fileNames.any(
+        (name) => RegExp(r'^ggml-cpu(?:-[^.\\/]+)*\.dll$').hasMatch(name),
+      );
+      return hasLlama && hasGgml && hasCpuBackend;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static String? _findDartToolLibDirectory(String currentDirectoryPath) {
+    var cursor = Directory(currentDirectoryPath).absolute;
+    while (true) {
+      final dartToolLib = path.join(cursor.path, '.dart_tool', 'lib');
+      if (_containsWindowsNativeModules(dartToolLib)) {
+        return dartToolLib;
+      }
+
+      final parent = cursor.parent;
+      if (parent.path == cursor.path) {
+        break;
+      }
+      cursor = parent;
+    }
+
+    return null;
+  }
+
+  /// Parses `/proc/self/maps` content and returns the module directory.
+  ///
+  /// This is exposed for testability.
+  static String? parseBackendModuleDirectoryFromProcMaps(String mapsContent) {
+    for (final rawLine in mapsContent.split('\n')) {
+      final line = rawLine.trim();
+      if (line.isEmpty) {
+        continue;
+      }
+
+      final slashIndex = line.indexOf('/');
+      if (slashIndex < 0) {
+        continue;
+      }
+
+      final mappedPath = line.substring(slashIndex).trim();
+      final normalizedPath = mappedPath.endsWith(' (deleted)')
+          ? mappedPath.substring(0, mappedPath.length - ' (deleted)'.length)
+          : mappedPath;
+
+      if (!normalizedPath.endsWith('/libllamadart.so')) {
+        continue;
+      }
+
+      return path.dirname(normalizedPath);
+    }
+
+    return null;
   }
 
   /// Loads a model from the specified [modelPath].
@@ -64,15 +802,42 @@ class LlamaCppService {
   /// Returns a handle to the loaded model.
   /// Throws an [Exception] if the file does not exist or fails to load.
   int loadModel(String modelPath, ModelParams modelParams) {
-    if (!File(modelPath).existsSync()) {
+    final modelFile = File(modelPath);
+    if (!modelFile.existsSync()) {
       throw Exception("File not found: $modelPath");
     }
+    final modelFileSize = modelFile.lengthSync();
+    if (modelFileSize <= 0) {
+      throw Exception("Model file is empty: $modelPath");
+    }
+    if (!_looksLikeGguf(modelFile)) {
+      throw Exception(
+        "Model file does not appear to be GGUF: $modelPath. "
+        "Please verify the download completed correctly.",
+      );
+    }
+
+    _applyConfiguredLogLevel();
+    _prepareBackendsForModelLoad(modelParams.preferredBackend);
+
     final modelPathPtr = modelPath.toNativeUtf8();
     final mparams = llama_model_default_params();
-    final preferredDevices = _createPreferredDeviceList(
+    var preferredDevices = _createPreferredDeviceList(
       modelParams.preferredBackend,
     );
-    mparams.n_gpu_layers = resolveGpuLayersForLoad(modelParams);
+    var gpuLayers = resolveGpuLayersForLoad(modelParams);
+
+    final explicitGpuBackend =
+        modelParams.preferredBackend != GpuBackend.auto &&
+        modelParams.preferredBackend != GpuBackend.cpu;
+    if (explicitGpuBackend && preferredDevices == null) {
+      // Honor explicit backend intent: if requested GPU backend is unavailable,
+      // fall back to CPU instead of letting another GPU backend auto-select.
+      preferredDevices = _createPreferredDeviceList(GpuBackend.cpu);
+      gpuLayers = 0;
+    }
+
+    mparams.n_gpu_layers = gpuLayers;
     mparams.use_mmap = true;
     if (preferredDevices != null) {
       mparams.devices = preferredDevices;
@@ -89,7 +854,11 @@ class LlamaCppService {
     }
 
     if (modelPtr == nullptr) {
-      throw Exception("Failed to load model");
+      final diagnostics = _backendDiagnostics();
+      throw Exception(
+        "Failed to load model (size=$modelFileSize bytes, "
+        "diagnostics=$diagnostics)",
+      );
     }
 
     final handle = _getHandle();
@@ -97,6 +866,559 @@ class LlamaCppService {
     _loraAdapters[handle] = {};
 
     return handle;
+  }
+
+  void _prepareBackendsForModelLoad(GpuBackend preferredBackend) {
+    // Apple bundles are consolidated into a single native library and do not
+    // ship separate ggml backend modules.
+    if ((Platform.isMacOS || Platform.isIOS) &&
+        _backendModuleDirectory == null) {
+      return;
+    }
+
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory != null) {
+      _tryLoadAllBackendsFromPathBestEffort(backendModuleDirectory);
+    }
+
+    // Always try CPU first; _tryLoadBackendModule can use either absolute path
+    // (when module dir is known) or filename resolution fallback.
+    _tryLoadBackendModule('cpu');
+
+    // Probe Vulkan on desktop/mobile platforms where it is commonly provided as
+    // a separate backend module, even if user preference is currently CPU.
+    if (Platform.isAndroid || Platform.isLinux || Platform.isWindows) {
+      _tryLoadBackendModule('vulkan');
+    }
+    if (Platform.isLinux || Platform.isWindows) {
+      _tryLoadBackendModule('blas');
+      _tryLoadBackendModule('cuda');
+    }
+    if (Platform.isLinux) {
+      _tryLoadBackendModule('hip');
+    }
+
+    switch (preferredBackend) {
+      case GpuBackend.auto:
+        return;
+      case GpuBackend.vulkan:
+        return;
+      case GpuBackend.metal:
+        _tryLoadBackendModule('metal');
+        return;
+      case GpuBackend.cuda:
+        _tryLoadBackendModule('cuda');
+        return;
+      case GpuBackend.blas:
+        _tryLoadBackendModule('blas');
+        return;
+      case GpuBackend.opencl:
+        _tryLoadBackendModule('opencl');
+        return;
+      case GpuBackend.hip:
+        _tryLoadBackendModule('hip');
+        return;
+      case GpuBackend.cpu:
+        return;
+    }
+  }
+
+  bool _tryLoadBackendModule(String backend) {
+    if (_backendLoadSymbolUnavailable) {
+      return false;
+    }
+
+    if (_loadedBackendModules.contains(backend)) {
+      return true;
+    }
+
+    final fileNameCandidates = _backendLibraryCandidateFileNames(backend);
+    final candidates = <String>{};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory != null) {
+      for (final fileName in fileNameCandidates) {
+        candidates.add(path.join(backendModuleDirectory, fileName));
+      }
+    }
+    // Keep bare-name fallback last so module-dir resolution wins when present.
+    candidates.addAll(fileNameCandidates);
+
+    for (final candidate in candidates) {
+      if (path.isAbsolute(candidate) && !File(candidate).existsSync()) {
+        continue;
+      }
+
+      final libraryPathPtr = candidate.toNativeUtf8();
+      try {
+        ggml_backend_reg_t reg;
+        try {
+          reg = ggml_backend_load(libraryPathPtr.cast());
+        } on ArgumentError {
+          _resolveGgmlFallbackFunctions();
+          final fallback = _ggmlBackendLoadFallback;
+          if (fallback == null) {
+            // Optional dynamic-loader symbol can be missing from the primary
+            // FFI asset in split bundles. If ggml fallback is unavailable,
+            // stop retrying.
+            _backendLoadSymbolUnavailable = true;
+            return false;
+          }
+          reg = fallback(libraryPathPtr.cast());
+        }
+        if (reg == nullptr) {
+          continue;
+        }
+
+        // Best-effort compatibility call for runtimes where explicit register is
+        // required after dynamic load. We still consider the module load
+        // successful even if this symbol is unavailable.
+        _registerBackendRegBestEffort(reg);
+        _loadedBackendModules.add(backend);
+        return true;
+      } finally {
+        malloc.free(libraryPathPtr);
+      }
+    }
+
+    if (Platform.isWindows && _tryRegisterBackendModuleViaAsset(backend)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  bool _tryRegisterBackendModuleViaAsset(String backend) {
+    final assetCandidates = <String>[
+      'package:llamadart/$backend',
+      // Keep a conservative fallback for future naming differences.
+      'package:llamadart/ggml_$backend',
+    ];
+
+    for (final assetUri in assetCandidates) {
+      try {
+        final library = DynamicLibrary.open(assetUri);
+        final init = library
+            .lookupFunction<_GgmlBackendInitNative, _GgmlBackendInitDart>(
+              'ggml_backend_init',
+            );
+        final reg = init();
+        if (reg == nullptr) {
+          continue;
+        }
+
+        // Asset init path requires explicit backend registration.
+        if (!_registerBackendRegBestEffort(reg)) {
+          continue;
+        }
+        _loadedBackendLibraries[backend] = library;
+        _loadedBackendModules.add(backend);
+        return true;
+      } catch (_) {
+        continue;
+      }
+    }
+
+    return false;
+  }
+
+  bool _registerBackendRegBestEffort(ggml_backend_reg_t reg) {
+    try {
+      ggml_backend_register(reg);
+      return true;
+    } on ArgumentError {
+      _resolveGgmlFallbackFunctions();
+      final fallback = _ggmlBackendRegisterFallback;
+      if (fallback == null) {
+        return false;
+      }
+      try {
+        fallback(reg);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+  }
+
+  void _resolveGgmlFallbackFunctions() {
+    if (_ggmlFallbackLookupAttempted) {
+      return;
+    }
+    _ggmlFallbackLookupAttempted = true;
+
+    final fileNameCandidates = _ggmlLibraryCandidateFileNames();
+    final candidates = <String>[..._ggmlAssetUriCandidates()];
+    final filesystemCandidates = <String>{};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory != null) {
+      for (final fileName in fileNameCandidates) {
+        filesystemCandidates.add(path.join(backendModuleDirectory, fileName));
+      }
+    }
+    // Keep bare-name fallback last so module-dir resolution wins when present.
+    filesystemCandidates.addAll(fileNameCandidates);
+    candidates.addAll(filesystemCandidates);
+
+    final seen = <String>{};
+    for (final candidate in candidates) {
+      if (!seen.add(candidate)) {
+        continue;
+      }
+
+      DynamicLibrary library;
+      try {
+        library = DynamicLibrary.open(candidate);
+      } catch (_) {
+        continue;
+      }
+
+      if (_ggmlBackendLoadFallback == null) {
+        try {
+          _ggmlBackendLoadFallback = library
+              .lookupFunction<_GgmlBackendLoadNative, _GgmlBackendLoadDart>(
+                'ggml_backend_load',
+              );
+        } catch (_) {
+          // Keep searching other candidates.
+        }
+      }
+
+      if (_ggmlBackendLoadAllFallback == null) {
+        try {
+          _ggmlBackendLoadAllFallback = library
+              .lookupFunction<
+                _GgmlBackendLoadAllNative,
+                _GgmlBackendLoadAllDart
+              >('ggml_backend_load_all');
+        } catch (_) {
+          // Keep searching other candidates.
+        }
+      }
+
+      if (_ggmlBackendLoadAllFromPathFallback == null) {
+        try {
+          _ggmlBackendLoadAllFromPathFallback = library
+              .lookupFunction<
+                _GgmlBackendLoadAllFromPathNative,
+                _GgmlBackendLoadAllFromPathDart
+              >('ggml_backend_load_all_from_path');
+        } catch (_) {
+          // Keep searching other candidates.
+        }
+      }
+
+      if (_ggmlBackendRegisterFallback == null) {
+        try {
+          _ggmlBackendRegisterFallback = library
+              .lookupFunction<
+                _GgmlBackendRegisterNative,
+                _GgmlBackendRegisterDart
+              >('ggml_backend_register');
+        } catch (_) {
+          // Keep searching other candidates.
+        }
+      }
+
+      if (_ggmlBackendLoadFallback != null &&
+          _ggmlBackendLoadAllFallback != null &&
+          _ggmlBackendLoadAllFromPathFallback != null &&
+          _ggmlBackendRegisterFallback != null) {
+        return;
+      }
+    }
+  }
+
+  List<String> _ggmlAssetUriCandidates() {
+    if (Platform.isWindows) {
+      return const <String>[
+        'package:llamadart/ggml',
+        'package:llamadart/ggml-base',
+      ];
+    }
+    return const <String>['package:llamadart/ggml'];
+  }
+
+  void _resolveLogLevelFallbackFunction() {
+    final directories = _llamadartFallbackLookupDirectories();
+    final searchKey = directories.map(path.normalize).join('|');
+
+    if (_logLevelFallbackLookupAttempted &&
+        _llamaDartSetLogLevelFallback != null) {
+      return;
+    }
+
+    if (_logLevelFallbackLookupAttempted &&
+        _llamaDartSetLogLevelFallback == null &&
+        _logLevelFallbackLookupSearchKey == searchKey) {
+      return;
+    }
+
+    _logLevelFallbackLookupAttempted = true;
+    _logLevelFallbackLookupSearchKey = searchKey;
+
+    final fileNameCandidates = _llamadartLibraryCandidateFileNames();
+    final candidates = <String>[..._llamadartAssetUriCandidates()];
+    final pattern = _llamadartLibraryPattern();
+    for (final directoryPath in directories) {
+      for (final fileName in fileNameCandidates) {
+        candidates.add(path.join(directoryPath, fileName));
+      }
+      for (final fileName in _matchingLibraryNames(directoryPath, pattern)) {
+        candidates.add(path.join(directoryPath, fileName));
+      }
+    }
+    // Keep bare-name fallback last so module-dir resolution wins when present.
+    candidates.addAll(fileNameCandidates);
+
+    final seen = <String>{};
+    for (final candidate in candidates) {
+      if (!seen.add(candidate)) {
+        continue;
+      }
+      try {
+        final library = DynamicLibrary.open(candidate);
+        _llamaDartSetLogLevelFallback = library
+            .lookupFunction<
+              _LlamaDartSetLogLevelNative,
+              _LlamaDartSetLogLevelDart
+            >('llama_dart_set_log_level');
+        return;
+      } catch (_) {
+        continue;
+      }
+    }
+  }
+
+  List<String> _llamadartAssetUriCandidates() {
+    // Prefer asset-URI resolution so Windows split bundles can reliably resolve
+    // the wrapper helper library without relying on process cwd/search paths.
+    if (Platform.isWindows) {
+      return const <String>[
+        'package:llamadart/llamadart_wrapper',
+        'package:llamadart/llamadart',
+      ];
+    }
+    return const <String>['package:llamadart/llamadart'];
+  }
+
+  List<String> _llamadartFallbackLookupDirectories() {
+    final directories = <String>{};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory != null) {
+      directories.add(backendModuleDirectory);
+    }
+
+    final executableDir = path.dirname(Platform.resolvedExecutable);
+    directories.add(executableDir);
+    directories.add(Directory.current.path);
+
+    if (Platform.isMacOS) {
+      directories.add(
+        path.normalize(path.join(executableDir, '..', 'Frameworks')),
+      );
+      directories.add(path.normalize(path.join(executableDir, 'Frameworks')));
+    }
+
+    return directories.toList(growable: false);
+  }
+
+  static String _ggmlLibraryFileName() {
+    if (Platform.isWindows) {
+      return 'ggml.dll';
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return 'libggml.dylib';
+    }
+    return 'libggml.so';
+  }
+
+  static String _llamadartLibraryFileName() {
+    if (Platform.isWindows) {
+      return 'llamadart.dll';
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return 'libllamadart.dylib';
+    }
+    return 'libllamadart.so';
+  }
+
+  List<String> _backendLibraryCandidateFileNames(String backend) {
+    final baseName = _backendLibraryFileName(backend);
+    final candidates = <String>{baseName};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory == null) {
+      return candidates.toList(growable: false);
+    }
+
+    final dynamicNames = _matchingLibraryNames(
+      backendModuleDirectory,
+      _backendLibraryPattern(backend),
+    );
+    candidates.addAll(dynamicNames);
+    return candidates.toList(growable: false);
+  }
+
+  List<String> _ggmlLibraryCandidateFileNames() {
+    final baseName = _ggmlLibraryFileName();
+    final candidates = <String>{baseName};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory == null) {
+      return candidates.toList(growable: false);
+    }
+
+    final dynamicNames = _matchingLibraryNames(
+      backendModuleDirectory,
+      _ggmlLibraryPattern(),
+    );
+    candidates.addAll(dynamicNames);
+    return candidates.toList(growable: false);
+  }
+
+  List<String> _llamadartLibraryCandidateFileNames() {
+    final candidates = _llamadartStaticCandidateFileNames();
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory == null) {
+      return candidates.toList(growable: false);
+    }
+
+    final dynamicNames = _matchingLibraryNames(
+      backendModuleDirectory,
+      _llamadartLibraryPattern(),
+    );
+    candidates.addAll(dynamicNames);
+    return candidates.toList(growable: false);
+  }
+
+  Set<String> _llamadartStaticCandidateFileNames() {
+    final candidates = <String>{_llamadartLibraryFileName()};
+    if (Platform.isWindows) {
+      // Hook asset naming can expose wrapper helper as `llamadart_wrapper.dll`.
+      candidates.add('llamadart_wrapper.dll');
+    }
+    return candidates;
+  }
+
+  RegExp _backendLibraryPattern(String backend) {
+    final escapedBackend = RegExp.escape(backend);
+    if (Platform.isWindows) {
+      return RegExp('^ggml-$escapedBackend(?:-[^.\\\\/]+)*\\.dll\$');
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return RegExp('^libggml-$escapedBackend(?:-[^.\\\\/]+)*\\.dylib\$');
+    }
+    return RegExp('^libggml-$escapedBackend(?:-[^.\\\\/]+)*\\.so\$');
+  }
+
+  RegExp _ggmlLibraryPattern() {
+    if (Platform.isWindows) {
+      return RegExp(r'^ggml(?:-[^.\\/]+)*\.dll$');
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return RegExp(r'^libggml(?:-[^.\\/]+)*\.dylib$');
+    }
+    return RegExp(r'^libggml(?:-[^.\\/]+)*\.so$');
+  }
+
+  RegExp _llamadartLibraryPattern() {
+    if (Platform.isWindows) {
+      return RegExp(r'^llamadart(?:[-_][^.\\/]+)*\.dll$');
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return RegExp(r'^libllamadart(?:[-_][^.\\/]+)*\.dylib$');
+    }
+    return RegExp(r'^libllamadart(?:[-_][^.\\/]+)*\.so$');
+  }
+
+  static List<String> _matchingLibraryNames(
+    String directoryPath,
+    RegExp regex,
+  ) {
+    try {
+      final names = <String>[];
+      for (final entity in Directory(directoryPath).listSync()) {
+        if (entity is! File) {
+          continue;
+        }
+        final name = path.basename(entity.path);
+        if (regex.hasMatch(name)) {
+          names.add(name);
+        }
+      }
+      names.sort();
+      return names;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  T _backendRegistryOr<T>(T fallback, T Function() call) {
+    try {
+      return call();
+    } on ArgumentError {
+      // Some split bundles may omit a subset of registry symbols on the
+      // primary lookup target. Treat this call as unavailable, but continue
+      // attempting other registry APIs that may still be present.
+      _backendRegistrySymbolUnavailable = true;
+      return fallback;
+    }
+  }
+
+  static String _backendLibraryFileName(String backend) {
+    if (Platform.isWindows) {
+      return 'ggml-$backend.dll';
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return 'libggml-$backend.dylib';
+    }
+    return 'libggml-$backend.so';
+  }
+
+  static bool _looksLikeGguf(File modelFile) {
+    try {
+      final header = modelFile.openSync(mode: FileMode.read);
+      try {
+        final magic = header.readSync(4);
+        if (magic.length < 4) {
+          return false;
+        }
+        return magic[0] == 0x47 &&
+            magic[1] == 0x47 &&
+            magic[2] == 0x55 &&
+            magic[3] == 0x46;
+      } finally {
+        header.closeSync();
+      }
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String _backendDiagnostics() {
+    final regs = <String>[];
+    final regCount = _backendRegistryOr<int>(0, ggml_backend_reg_count);
+    for (var i = 0; i < regCount; i++) {
+      final reg = _backendRegistryOr<ggml_backend_reg_t>(
+        nullptr,
+        () => ggml_backend_reg_get(i),
+      );
+      if (reg == nullptr) {
+        continue;
+      }
+      final regNamePtr = _backendRegistryOr<Pointer<Char>>(
+        nullptr,
+        () => ggml_backend_reg_name(reg),
+      );
+      if (regNamePtr == nullptr) {
+        continue;
+      }
+      regs.add(regNamePtr.cast<Utf8>().toDartString());
+    }
+
+    final devices = getBackendInfo();
+    return '{moduleDir=${_backendModuleDirectory ?? "null"}, '
+        'loadedModules=${_loadedBackendModules.toList(growable: false)}, '
+        'registeredBackends=$regs, devices=$devices, '
+        'registryApisUnavailable=$_backendRegistrySymbolUnavailable}';
   }
 
   Pointer<ggml_backend_dev_t>? _createPreferredDeviceList(GpuBackend backend) {
@@ -118,8 +1440,11 @@ class LlamaCppService {
       case GpuBackend.auto:
         return null;
       case GpuBackend.cpu:
-        final cpuDev = ggml_backend_dev_by_type(
-          ggml_backend_dev_type.GGML_BACKEND_DEVICE_TYPE_CPU,
+        final cpuDev = _backendRegistryOr<ggml_backend_dev_t>(
+          nullptr,
+          () => ggml_backend_dev_by_type(
+            ggml_backend_dev_type.GGML_BACKEND_DEVICE_TYPE_CPU,
+          ),
         );
         if (cpuDev == nullptr) {
           return null;
@@ -133,25 +1458,38 @@ class LlamaCppService {
         return _devicesForBackendRegName('CUDA');
       case GpuBackend.blas:
         return _devicesForBackendRegName('BLAS');
+      case GpuBackend.opencl:
+        return _devicesForBackendRegName('OpenCL');
+      case GpuBackend.hip:
+        return _devicesForBackendRegName('HIP');
     }
   }
 
   List<ggml_backend_dev_t>? _devicesForBackendRegName(String regName) {
     final regNamePtr = regName.toNativeUtf8();
     try {
-      final reg = ggml_backend_reg_by_name(regNamePtr.cast());
+      final reg = _backendRegistryOr<ggml_backend_reg_t>(
+        nullptr,
+        () => ggml_backend_reg_by_name(regNamePtr.cast()),
+      );
       if (reg == nullptr) {
         return null;
       }
 
-      final count = ggml_backend_reg_dev_count(reg);
+      final count = _backendRegistryOr<int>(
+        0,
+        () => ggml_backend_reg_dev_count(reg),
+      );
       if (count <= 0) {
         return null;
       }
 
       final devices = <ggml_backend_dev_t>[];
       for (var i = 0; i < count; i++) {
-        final dev = ggml_backend_reg_dev_get(reg, i);
+        final dev = _backendRegistryOr<ggml_backend_dev_t>(
+          nullptr,
+          () => ggml_backend_reg_dev_get(reg, i),
+        );
         if (dev != nullptr) {
           devices.add(dev);
         }
@@ -187,7 +1525,7 @@ class LlamaCppService {
       final mmHandle = _modelToMtmd.remove(modelHandle);
       if (mmHandle != null) {
         final mmCtx = _mtmdContexts.remove(mmHandle);
-        if (mmCtx != null) mtmd_free(mmCtx);
+        if (mmCtx != null) _mtmdFree(mmCtx);
       }
 
       model.dispose();
@@ -410,7 +1748,7 @@ class LlamaCppService {
   ) {
     int initialTokens = 0;
     final bitmaps = malloc<Pointer<mtmd_bitmap>>(mediaParts.length);
-    final chunks = mtmd_input_chunks_init();
+    final chunks = _mtmdInputChunksInit();
 
     try {
       for (int i = 0; i < mediaParts.length; i++) {
@@ -419,15 +1757,12 @@ class LlamaCppService {
         if (p is LlamaImageContent) {
           if (p.path != null) {
             final pathPtr = p.path!.toNativeUtf8();
-            bitmaps[i] = mtmd_helper_bitmap_init_from_file(
-              mmCtx,
-              pathPtr.cast(),
-            );
+            bitmaps[i] = _mtmdHelperBitmapInitFromFile(mmCtx, pathPtr.cast());
             malloc.free(pathPtr);
           } else if (p.bytes != null) {
             final dataPtr = malloc<Uint8>(p.bytes!.length);
             dataPtr.asTypedList(p.bytes!.length).setAll(0, p.bytes!);
-            bitmaps[i] = mtmd_helper_bitmap_init_from_buf(
+            bitmaps[i] = _mtmdHelperBitmapInitFromBuf(
               mmCtx,
               dataPtr.cast(),
               p.bytes!.length,
@@ -437,15 +1772,12 @@ class LlamaCppService {
         } else if (p is LlamaAudioContent) {
           if (p.path != null) {
             final pathPtr = p.path!.toNativeUtf8();
-            bitmaps[i] = mtmd_helper_bitmap_init_from_file(
-              mmCtx,
-              pathPtr.cast(),
-            );
+            bitmaps[i] = _mtmdHelperBitmapInitFromFile(mmCtx, pathPtr.cast());
             malloc.free(pathPtr);
           } else if (p.bytes != null) {
             final dataPtr = malloc<Uint8>(p.bytes!.length);
             dataPtr.asTypedList(p.bytes!.length).setAll(0, p.bytes!);
-            bitmaps[i] = mtmd_helper_bitmap_init_from_buf(
+            bitmaps[i] = _mtmdHelperBitmapInitFromBuf(
               mmCtx,
               dataPtr.cast(),
               p.bytes!.length,
@@ -454,7 +1786,7 @@ class LlamaCppService {
           } else if (p.samples != null) {
             final dataPtr = malloc<Float>(p.samples!.length);
             dataPtr.asTypedList(p.samples!.length).setAll(0, p.samples!);
-            bitmaps[i] = mtmd_bitmap_init_from_audio(
+            bitmaps[i] = _mtmdBitmapInitFromAudio(
               p.samples!.length,
               dataPtr.cast(),
             );
@@ -480,7 +1812,7 @@ class LlamaCppService {
       inputText.ref.add_special = (bos != eos && bos != -1);
       inputText.ref.parse_special = true;
 
-      final res = mtmd_tokenize(
+      final res = _mtmdTokenize(
         mmCtx,
         chunks,
         inputText,
@@ -490,7 +1822,7 @@ class LlamaCppService {
 
       if (res == 0) {
         final newPast = malloc<llama_pos>();
-        if (mtmd_helper_eval_chunks(
+        if (_mtmdHelperEvalChunks(
               mmCtx,
               ctx.pointer,
               chunks,
@@ -512,16 +1844,16 @@ class LlamaCppService {
       malloc.free(inputText);
     } finally {
       for (int i = 0; i < mediaParts.length; i++) {
-        if (bitmaps[i] != nullptr) mtmd_bitmap_free(bitmaps[i]);
+        if (bitmaps[i] != nullptr) _mtmdBitmapFree(bitmaps[i]);
       }
       malloc.free(bitmaps);
-      mtmd_input_chunks_free(chunks);
+      _mtmdInputChunksFree(chunks);
     }
     return initialTokens;
   }
 
   String _normalizeMtmdPromptMarkers(String prompt, int mediaPartCount) {
-    final markerPtr = mtmd_default_marker();
+    final markerPtr = _mtmdDefaultMarker();
     final marker = markerPtr == nullptr
         ? '<__media__>'
         : markerPtr.cast<Utf8>().toDartString();
@@ -975,9 +2307,21 @@ class LlamaCppService {
     final ctx = _contexts[contextHandle];
     final modelHandle = _contextToModel[contextHandle];
     if (ctx == null || modelHandle == null) return;
+
+    final modelAdapters = _loraAdapters[modelHandle];
+    final activeLoras = _activeLoras[contextHandle];
+    if (modelAdapters == null || activeLoras == null) return;
+
     try {
       if (op == 'set') {
-        var adapter = _loraAdapters[modelHandle]![path!];
+        if (path == null) {
+          throw Exception('LoRA path is required for set operation');
+        }
+        if (scale == null) {
+          throw Exception('LoRA scale is required for set operation');
+        }
+
+        var adapter = modelAdapters[path];
         if (adapter == null) {
           final pathPtr = path.toNativeUtf8();
           final adapterPtr = llama_adapter_lora_init(
@@ -989,41 +2333,102 @@ class LlamaCppService {
             throw Exception("Failed to load LoRA at $path");
           }
           adapter = _LlamaLoraWrapper(adapterPtr);
-          _loraAdapters[modelHandle]![path] = adapter;
+          modelAdapters[path] = adapter;
         }
-        llama_set_adapter_lora(ctx.pointer, adapter.pointer, scale!);
-        _activeLoras[contextHandle]![path] = scale;
+        activeLoras[path] = scale;
+        _applyActiveLoras(ctx.pointer, modelAdapters, activeLoras);
       } else if (op == 'remove') {
-        final adapter = _loraAdapters[modelHandle]![path!];
-        if (adapter != null) {
-          llama_rm_adapter_lora(ctx.pointer, adapter.pointer);
+        if (path == null) {
+          throw Exception('LoRA path is required for remove operation');
         }
-        _activeLoras[contextHandle]!.remove(path);
+        activeLoras.remove(path);
+        _applyActiveLoras(ctx.pointer, modelAdapters, activeLoras);
       } else if (op == 'clear') {
-        llama_clear_adapter_lora(ctx.pointer);
-        _activeLoras[contextHandle]!.clear();
+        activeLoras.clear();
+        _applyActiveLoras(ctx.pointer, modelAdapters, activeLoras);
+      } else {
+        throw Exception('Unknown LoRA operation: $op');
       }
     } catch (e) {
       rethrow;
     }
   }
 
+  void _applyActiveLoras(
+    Pointer<llama_context> context,
+    Map<String, _LlamaLoraWrapper> loadedAdapters,
+    Map<String, double> activeLoras,
+  ) {
+    if (activeLoras.isEmpty) {
+      final result = llama_set_adapters_lora(context, nullptr, 0, nullptr);
+      if (result != 0) {
+        throw Exception('Failed to clear LoRA adapters (code: $result)');
+      }
+      return;
+    }
+
+    final activeEntries = activeLoras.entries.toList(growable: false);
+    final adapterPointers = malloc<Pointer<llama_adapter_lora>>(
+      activeEntries.length,
+    );
+    final scalesPointer = malloc<Float>(activeEntries.length);
+
+    try {
+      for (var i = 0; i < activeEntries.length; i++) {
+        final entry = activeEntries[i];
+        final adapter = loadedAdapters[entry.key];
+        if (adapter == null) {
+          throw Exception(
+            'LoRA adapter not loaded for active path: ${entry.key}',
+          );
+        }
+        adapterPointers[i] = adapter.pointer;
+        scalesPointer[i] = entry.value;
+      }
+
+      final result = llama_set_adapters_lora(
+        context,
+        adapterPointers,
+        activeEntries.length,
+        scalesPointer,
+      );
+      if (result != 0) {
+        throw Exception('Failed to apply LoRA adapters (code: $result)');
+      }
+    } finally {
+      malloc.free(adapterPointers);
+      malloc.free(scalesPointer);
+    }
+  }
+
   /// Returns information about available backend devices.
   List<String> getBackendInfo() {
-    final count = ggml_backend_dev_count();
+    final count = _backendRegistryOr<int>(0, ggml_backend_dev_count);
     final devices = <String>{};
     for (var i = 0; i < count; i++) {
-      final dev = ggml_backend_dev_get(i);
+      final dev = _backendRegistryOr<ggml_backend_dev_t>(
+        nullptr,
+        () => ggml_backend_dev_get(i),
+      );
       if (dev == nullptr) continue;
 
-      final devNamePtr = ggml_backend_dev_name(dev);
+      final devNamePtr = _backendRegistryOr<Pointer<Char>>(
+        nullptr,
+        () => ggml_backend_dev_name(dev),
+      );
       if (devNamePtr == nullptr) continue;
       final devName = devNamePtr.cast<Utf8>().toDartString();
 
       String label = devName;
-      final reg = ggml_backend_dev_backend_reg(dev);
+      final reg = _backendRegistryOr<ggml_backend_reg_t>(
+        nullptr,
+        () => ggml_backend_dev_backend_reg(dev),
+      );
       if (reg != nullptr) {
-        final regNamePtr = ggml_backend_reg_name(reg);
+        final regNamePtr = _backendRegistryOr<Pointer<Char>>(
+          nullptr,
+          () => ggml_backend_reg_name(reg),
+        );
         if (regNamePtr != nullptr) {
           final regName = regNamePtr.cast<Utf8>().toDartString();
           if (regName.toLowerCase() == devName.toLowerCase()) {
@@ -1036,7 +2441,41 @@ class LlamaCppService {
 
       devices.add(label);
     }
-    return devices.toList(growable: false);
+    if (devices.isNotEmpty) {
+      return devices.toList(growable: false);
+    }
+
+    // Fallback when device-enumeration symbols are unavailable: surface loaded
+    // backend modules so UI can still present selectable backends.
+    final moduleBackends =
+        _loadedBackendModules
+            .map(_backendDisplayName)
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList(growable: false)
+          ..sort();
+    return moduleBackends;
+  }
+
+  static String _backendDisplayName(String backend) {
+    switch (backend.toLowerCase()) {
+      case 'cpu':
+        return 'CPU';
+      case 'vulkan':
+        return 'Vulkan';
+      case 'opencl':
+        return 'OpenCL';
+      case 'metal':
+        return 'Metal';
+      case 'cuda':
+        return 'CUDA';
+      case 'hip':
+        return 'HIP';
+      case 'blas':
+        return 'BLAS';
+      default:
+        return backend;
+    }
   }
 
   /// Returns whether GPU offloading is supported.
@@ -1055,7 +2494,7 @@ class LlamaCppService {
     }
     _models.clear();
     for (final m in _mtmdContexts.values) {
-      mtmd_free(m);
+      _mtmdFree(m);
     }
     _mtmdContexts.clear();
     // llama_backend_free(); // DISABLED: Prevents race conditions with other isolates
@@ -1067,17 +2506,16 @@ class LlamaCppService {
     if (model == null) {
       throw Exception("Invalid model handle");
     }
+    _applyConfiguredLogLevel();
 
     final mmProjPathPtr = mmProjPath.toNativeUtf8();
-    final ctxParams = mtmd_context_params_default();
-
-    final mmCtx = mtmd_init_from_file(
-      mmProjPathPtr.cast(),
-      model.pointer,
-      ctxParams,
-    );
-
-    malloc.free(mmProjPathPtr);
+    Pointer<mtmd_context> mmCtx = nullptr;
+    try {
+      final ctxParams = _mtmdContextParamsDefault();
+      mmCtx = _mtmdInitFromFile(mmProjPathPtr.cast(), model.pointer, ctxParams);
+    } finally {
+      malloc.free(mmProjPathPtr);
+    }
 
     if (mmCtx == nullptr) {
       throw Exception("Failed to load multimodal projector");
@@ -1093,9 +2531,310 @@ class LlamaCppService {
   void freeMultimodalContext(int mmContextHandle) {
     final mmCtx = _mtmdContexts.remove(mmContextHandle);
     if (mmCtx != null) {
-      mtmd_free(mmCtx);
+      _mtmdFree(mmCtx);
       _modelToMtmd.removeWhere((k, v) => v == mmContextHandle);
     }
+  }
+
+  Pointer<Char> _mtmdDefaultMarker() {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_default_marker();
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    return fallback?.defaultMarker() ?? nullptr;
+  }
+
+  mtmd_context_params _mtmdContextParamsDefault() {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_context_params_default();
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(_mtmdUnavailableMessage('mtmd_context_params_default'));
+    }
+    return fallback.contextParamsDefault();
+  }
+
+  Pointer<mtmd_context> _mtmdInitFromFile(
+    Pointer<Char> mmProjPath,
+    Pointer<llama_model> model,
+    mtmd_context_params ctxParams,
+  ) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_init_from_file(mmProjPath, model, ctxParams);
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(_mtmdUnavailableMessage('mtmd_init_from_file'));
+    }
+    return fallback.initFromFile(mmProjPath, model, ctxParams);
+  }
+
+  void _mtmdFree(Pointer<mtmd_context> ctx) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        mtmd_free(ctx);
+        return;
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      return;
+    }
+    fallback.free(ctx);
+  }
+
+  Pointer<mtmd_input_chunks> _mtmdInputChunksInit() {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_input_chunks_init();
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(_mtmdUnavailableMessage('mtmd_input_chunks_init'));
+    }
+    return fallback.inputChunksInit();
+  }
+
+  void _mtmdInputChunksFree(Pointer<mtmd_input_chunks> chunks) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        mtmd_input_chunks_free(chunks);
+        return;
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      return;
+    }
+    fallback.inputChunksFree(chunks);
+  }
+
+  Pointer<mtmd_bitmap> _mtmdHelperBitmapInitFromFile(
+    Pointer<mtmd_context> ctx,
+    Pointer<Char> pathPtr,
+  ) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_helper_bitmap_init_from_file(ctx, pathPtr);
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(
+        _mtmdUnavailableMessage('mtmd_helper_bitmap_init_from_file'),
+      );
+    }
+    return fallback.helperBitmapInitFromFile(ctx, pathPtr);
+  }
+
+  Pointer<mtmd_bitmap> _mtmdHelperBitmapInitFromBuf(
+    Pointer<mtmd_context> ctx,
+    Pointer<UnsignedChar> data,
+    int size,
+  ) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_helper_bitmap_init_from_buf(ctx, data, size);
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(
+        _mtmdUnavailableMessage('mtmd_helper_bitmap_init_from_buf'),
+      );
+    }
+    return fallback.helperBitmapInitFromBuf(ctx, data, size);
+  }
+
+  Pointer<mtmd_bitmap> _mtmdBitmapInitFromAudio(int n, Pointer<Float> samples) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_bitmap_init_from_audio(n, samples);
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(_mtmdUnavailableMessage('mtmd_bitmap_init_from_audio'));
+    }
+    return fallback.bitmapInitFromAudio(n, samples);
+  }
+
+  void _mtmdBitmapFree(Pointer<mtmd_bitmap> bitmap) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        mtmd_bitmap_free(bitmap);
+        return;
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      return;
+    }
+    fallback.bitmapFree(bitmap);
+  }
+
+  int _mtmdTokenize(
+    Pointer<mtmd_context> ctx,
+    Pointer<mtmd_input_chunks> output,
+    Pointer<mtmd_input_text> text,
+    Pointer<Pointer<mtmd_bitmap>> bitmaps,
+    int nBitmaps,
+  ) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_tokenize(ctx, output, text, bitmaps, nBitmaps);
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(_mtmdUnavailableMessage('mtmd_tokenize'));
+    }
+    return fallback.tokenize(ctx, output, text, bitmaps, nBitmaps);
+  }
+
+  int _mtmdHelperEvalChunks(
+    Pointer<mtmd_context> ctx,
+    Pointer<llama_context> lctx,
+    Pointer<mtmd_input_chunks> chunks,
+    int nPast,
+    int seqId,
+    int nBatch,
+    bool logitsLast,
+    Pointer<llama_pos> newNPast,
+  ) {
+    if (!_mtmdPrimarySymbolsUnavailable) {
+      try {
+        return mtmd_helper_eval_chunks(
+          ctx,
+          lctx,
+          chunks,
+          nPast,
+          seqId,
+          nBatch,
+          logitsLast,
+          newNPast,
+        );
+      } on ArgumentError {
+        _mtmdPrimarySymbolsUnavailable = true;
+      }
+    }
+    final fallback = _resolveMtmdFallbackApi();
+    if (fallback == null) {
+      throw Exception(_mtmdUnavailableMessage('mtmd_helper_eval_chunks'));
+    }
+    return fallback.helperEvalChunks(
+      ctx,
+      lctx,
+      chunks,
+      nPast,
+      seqId,
+      nBatch,
+      logitsLast,
+      newNPast,
+    );
+  }
+
+  _MtmdApi? _resolveMtmdFallbackApi() {
+    if (_mtmdFallbackLookupAttempted) {
+      return _mtmdFallbackApi;
+    }
+    _mtmdFallbackLookupAttempted = true;
+
+    final fileNameCandidates = _mtmdLibraryCandidateFileNames();
+    final candidates = <String>{...fileNameCandidates};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory != null) {
+      for (final fileName in fileNameCandidates) {
+        candidates.add(path.join(backendModuleDirectory, fileName));
+      }
+    }
+
+    DynamicLibrary? library;
+    for (final candidate in candidates) {
+      try {
+        library = DynamicLibrary.open(candidate);
+        break;
+      } catch (_) {
+        continue;
+      }
+    }
+    if (library == null) {
+      return null;
+    }
+
+    _mtmdFallbackApi = _MtmdApi.tryLoad(library);
+    return _mtmdFallbackApi;
+  }
+
+  List<String> _mtmdLibraryCandidateFileNames() {
+    final baseName = _mtmdLibraryFileName();
+    final candidates = <String>{baseName};
+    final backendModuleDirectory = _backendModuleDirectory;
+    if (backendModuleDirectory == null) {
+      return candidates.toList(growable: false);
+    }
+
+    final dynamicNames = _matchingLibraryNames(
+      backendModuleDirectory,
+      _mtmdLibraryPattern(),
+    );
+    candidates.addAll(dynamicNames);
+    return candidates.toList(growable: false);
+  }
+
+  static String _mtmdLibraryFileName() {
+    if (Platform.isWindows) {
+      return 'mtmd.dll';
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return 'libmtmd.dylib';
+    }
+    return 'libmtmd.so';
+  }
+
+  RegExp _mtmdLibraryPattern() {
+    if (Platform.isWindows) {
+      return RegExp(r'^mtmd(?:-[^.\\/]+)*\.dll$');
+    }
+    if (Platform.isMacOS || Platform.isIOS) {
+      return RegExp(r'^libmtmd(?:-[^.\\/]+)*\.dylib$');
+    }
+    return RegExp(r'^libmtmd(?:-[^.\\/]+)*\.so$');
+  }
+
+  String _mtmdUnavailableMessage(String symbol) {
+    return 'Multimodal support is unavailable in this native runtime bundle '
+        '(missing `$symbol` in both primary and mtmd libraries).';
   }
 
   // --- Helper Getters ---
@@ -1138,6 +2877,119 @@ class _LazyGrammarConfig {
     }
     if (triggerTokens != nullptr) {
       malloc.free(triggerTokens);
+    }
+  }
+}
+
+class _MtmdApi {
+  final _MtmdDefaultMarkerDart defaultMarker;
+  final _MtmdContextParamsDefaultDart contextParamsDefault;
+  final _MtmdInitFromFileDart initFromFile;
+  final _MtmdFreeDart free;
+  final _MtmdInputChunksInitDart inputChunksInit;
+  final _MtmdInputChunksFreeDart inputChunksFree;
+  final _MtmdHelperBitmapInitFromFileDart helperBitmapInitFromFile;
+  final _MtmdHelperBitmapInitFromBufDart helperBitmapInitFromBuf;
+  final _MtmdBitmapInitFromAudioDart bitmapInitFromAudio;
+  final _MtmdBitmapFreeDart bitmapFree;
+  final _MtmdTokenizeDart tokenize;
+  final _MtmdHelperEvalChunksDart helperEvalChunks;
+  final _MtmdLogSetDart? logSet;
+  final _MtmdLogSetDart? helperLogSet;
+
+  const _MtmdApi({
+    required this.defaultMarker,
+    required this.contextParamsDefault,
+    required this.initFromFile,
+    required this.free,
+    required this.inputChunksInit,
+    required this.inputChunksFree,
+    required this.helperBitmapInitFromFile,
+    required this.helperBitmapInitFromBuf,
+    required this.bitmapInitFromAudio,
+    required this.bitmapFree,
+    required this.tokenize,
+    required this.helperEvalChunks,
+    required this.logSet,
+    required this.helperLogSet,
+  });
+
+  static _MtmdApi? tryLoad(DynamicLibrary library) {
+    try {
+      _MtmdLogSetDart? logSet;
+      _MtmdLogSetDart? helperLogSet;
+      try {
+        logSet = library.lookupFunction<_MtmdLogSetNative, _MtmdLogSetDart>(
+          'mtmd_log_set',
+        );
+      } catch (_) {}
+      try {
+        helperLogSet = library
+            .lookupFunction<_MtmdLogSetNative, _MtmdLogSetDart>(
+              'mtmd_helper_log_set',
+            );
+      } catch (_) {}
+
+      return _MtmdApi(
+        defaultMarker: library
+            .lookupFunction<_MtmdDefaultMarkerNative, _MtmdDefaultMarkerDart>(
+              'mtmd_default_marker',
+            ),
+        contextParamsDefault: library
+            .lookupFunction<
+              _MtmdContextParamsDefaultNative,
+              _MtmdContextParamsDefaultDart
+            >('mtmd_context_params_default'),
+        initFromFile: library
+            .lookupFunction<_MtmdInitFromFileNative, _MtmdInitFromFileDart>(
+              'mtmd_init_from_file',
+            ),
+        free: library.lookupFunction<_MtmdFreeNative, _MtmdFreeDart>(
+          'mtmd_free',
+        ),
+        inputChunksInit: library
+            .lookupFunction<
+              _MtmdInputChunksInitNative,
+              _MtmdInputChunksInitDart
+            >('mtmd_input_chunks_init'),
+        inputChunksFree: library
+            .lookupFunction<
+              _MtmdInputChunksFreeNative,
+              _MtmdInputChunksFreeDart
+            >('mtmd_input_chunks_free'),
+        helperBitmapInitFromFile: library
+            .lookupFunction<
+              _MtmdHelperBitmapInitFromFileNative,
+              _MtmdHelperBitmapInitFromFileDart
+            >('mtmd_helper_bitmap_init_from_file'),
+        helperBitmapInitFromBuf: library
+            .lookupFunction<
+              _MtmdHelperBitmapInitFromBufNative,
+              _MtmdHelperBitmapInitFromBufDart
+            >('mtmd_helper_bitmap_init_from_buf'),
+        bitmapInitFromAudio: library
+            .lookupFunction<
+              _MtmdBitmapInitFromAudioNative,
+              _MtmdBitmapInitFromAudioDart
+            >('mtmd_bitmap_init_from_audio'),
+        bitmapFree: library
+            .lookupFunction<_MtmdBitmapFreeNative, _MtmdBitmapFreeDart>(
+              'mtmd_bitmap_free',
+            ),
+        tokenize: library
+            .lookupFunction<_MtmdTokenizeNative, _MtmdTokenizeDart>(
+              'mtmd_tokenize',
+            ),
+        helperEvalChunks: library
+            .lookupFunction<
+              _MtmdHelperEvalChunksNative,
+              _MtmdHelperEvalChunksDart
+            >('mtmd_helper_eval_chunks'),
+        logSet: logSet,
+        helperLogSet: helperLogSet,
+      );
+    } catch (_) {
+      return null;
     }
   }
 }

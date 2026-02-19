@@ -159,6 +159,7 @@ class WebGpuLlamaBackend implements LlamaBackend {
       wasmUrl: _bridgeWasmUrl?.toJS,
       workerUrl: _bridgeWorkerUrl?.toJS,
       coreModuleUrl: coreModuleUrl?.toJS,
+      logLevel: _logLevel.index,
       logger: logger,
     );
   }
@@ -238,6 +239,20 @@ class WebGpuLlamaBackend implements LlamaBackend {
     }
 
     _usingBridge = true;
+    _syncBridgeLogLevel();
+  }
+
+  void _syncBridgeLogLevel() {
+    final bridge = _bridge;
+    if (bridge == null) {
+      return;
+    }
+
+    try {
+      bridge.setLogLevel(_logLevel.index);
+    } catch (_) {
+      // Older bridge bundles may not expose runtime log-level updates.
+    }
   }
 
   String _buildBridgeUnavailableMessage(String? loadError) {
@@ -845,6 +860,7 @@ class WebGpuLlamaBackend implements LlamaBackend {
   @override
   Future<void> setLogLevel(LlamaLogLevel level) {
     _logLevel = level;
+    _syncBridgeLogLevel();
     return Future<void>.value();
   }
 

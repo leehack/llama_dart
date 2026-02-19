@@ -3,23 +3,23 @@ description: Bindings to llama.cpp
 output: 'lib/src/backends/llama_cpp/bindings.dart'
 headers:
   entry-points:
-    - 'third_party/llama_cpp/include/llama.h'
-    - 'third_party/llama_cpp/ggml/include/ggml.h'
-    - 'third_party/llama_cpp/ggml/include/ggml-backend.h'
-    - 'third_party/llama_cpp/tools/mtmd/mtmd.h'
-    - 'third_party/llama_cpp/tools/mtmd/mtmd-helper.h'
-    - 'third_party/libllamadart/llama_dart_wrapper.h'
+    - '.dart_tool/llamadart/ffigen_headers/llama_cpp/include/llama.h'
+    - '.dart_tool/llamadart/ffigen_headers/llama_cpp/ggml/include/ggml.h'
+    - '.dart_tool/llamadart/ffigen_headers/llama_cpp/ggml/include/ggml-backend.h'
+    - '.dart_tool/llamadart/ffigen_headers/llama_cpp/tools/mtmd/mtmd.h'
+    - '.dart_tool/llamadart/ffigen_headers/llama_cpp/tools/mtmd/mtmd-helper.h'
+    - '.dart_tool/llamadart/ffigen_headers/libllamadart/llama_dart_wrapper.h'
   include-directives:
-    - 'third_party/llama_cpp/include/llama.h'
-    - 'third_party/llama_cpp/ggml/include/ggml.h'
-    - 'third_party/llama_cpp/ggml/include/ggml-backend.h'
-    - 'third_party/llama_cpp/tools/mtmd/mtmd.h'
-    - 'third_party/llama_cpp/tools/mtmd/mtmd-helper.h'
-    - 'third_party/libllamadart/llama_dart_wrapper.h'
+    - '.dart_tool/llamadart/ffigen_headers/llama_cpp/include/llama.h'
+    - '.dart_tool/llamadart/ffigen_headers/llama_cpp/ggml/include/ggml.h'
+    - '.dart_tool/llamadart/ffigen_headers/llama_cpp/ggml/include/ggml-backend.h'
+    - '.dart_tool/llamadart/ffigen_headers/llama_cpp/tools/mtmd/mtmd.h'
+    - '.dart_tool/llamadart/ffigen_headers/llama_cpp/tools/mtmd/mtmd-helper.h'
+    - '.dart_tool/llamadart/ffigen_headers/libllamadart/llama_dart_wrapper.h'
 compiler-opts:
-  - '-Ithird_party/llama_cpp/ggml/include'
-  - '-Ithird_party/llama_cpp/include'
-  - '-Ithird_party/llama_cpp/tools/mtmd'
+  - '-I.dart_tool/llamadart/ffigen_headers/llama_cpp/ggml/include'
+  - '-I.dart_tool/llamadart/ffigen_headers/llama_cpp/include'
+  - '-I.dart_tool/llamadart/ffigen_headers/llama_cpp/tools/mtmd'
 preamble: |
   // coverage:ignore-file
   // ignore_for_file: always_specify_types, unused_field

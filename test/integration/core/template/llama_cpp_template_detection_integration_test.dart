@@ -14,8 +14,8 @@ import 'package:test/test.dart';
 import 'llama_cpp_template_parse_samples.dart';
 
 void main() {
-  final templatesDir = Directory('third_party/llama_cpp/models/templates');
-  final hasVendoredLlamaCppTemplates = templatesDir.existsSync();
+  final templatesDir = _resolveTemplatesDir();
+  final hasLlamaCppTemplates = templatesDir.existsSync();
   const metadata = <String, String>{
     'tokenizer.ggml.bos_token': '<s>',
     'tokenizer.ggml.eos_token': '</s>',
@@ -79,9 +79,7 @@ void main() {
       test(
         'detects ${entry.key}',
         () {
-          final file = File(
-            'third_party/llama_cpp/models/templates/${entry.key}',
-          );
+          final file = File('${templatesDir.path}/${entry.key}');
           expect(
             file.existsSync(),
             isTrue,
@@ -92,9 +90,9 @@ void main() {
           final detected = detectChatFormat(source);
           expect(detected, equals(entry.value));
         },
-        skip: hasVendoredLlamaCppTemplates
+        skip: hasLlamaCppTemplates
             ? false
-            : 'Requires local third_party llama.cpp template fixtures.',
+            : 'Requires llama.cpp template fixtures (run tool/testing/prepare_llama_cpp_source.sh).',
       );
     }
 
@@ -119,9 +117,9 @@ void main() {
               'Unmapped llama.cpp templates detected. Add expectations for: ${missing.join(', ')}',
         );
       },
-      skip: hasVendoredLlamaCppTemplates
+      skip: hasLlamaCppTemplates
           ? false
-          : 'Requires local third_party llama.cpp template fixtures.',
+          : 'Requires llama.cpp template fixtures (run tool/testing/prepare_llama_cpp_source.sh).',
     );
 
     test(
@@ -188,9 +186,17 @@ void main() {
           }
         }
       },
-      skip: hasVendoredLlamaCppTemplates
+      skip: hasLlamaCppTemplates
           ? false
-          : 'Requires local third_party llama.cpp template fixtures.',
+          : 'Requires llama.cpp template fixtures (run tool/testing/prepare_llama_cpp_source.sh).',
     );
   });
+}
+
+Directory _resolveTemplatesDir() {
+  final envPath = Platform.environment['LLAMA_CPP_TEMPLATES_DIR'];
+  if (envPath != null && envPath.trim().isNotEmpty) {
+    return Directory(envPath);
+  }
+  return Directory('.dart_tool/llama_cpp/models/templates');
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:llamadart/llamadart.dart';
 import 'package:provider/provider.dart';
@@ -21,7 +22,9 @@ class SettingsSheet extends StatelessWidget {
         final selectedBackend =
             availableBackends.contains(provider.preferredBackend)
             ? provider.preferredBackend
-            : GpuBackend.auto;
+            : availableBackends.contains(GpuBackend.cpu)
+            ? GpuBackend.cpu
+            : availableBackends.first;
 
         return Padding(
           padding: EdgeInsets.only(
@@ -243,7 +246,7 @@ class SettingsSheet extends StatelessWidget {
                             items: availableBackends.map((backend) {
                               return DropdownMenuItem(
                                 value: backend,
-                                child: Text(backend.name.toUpperCase()),
+                                child: Text(_backendLabel(backend)),
                               );
                             }).toList(),
                             onChanged: (value) {
@@ -616,7 +619,11 @@ class SettingsSheet extends StatelessWidget {
   }
 
   List<GpuBackend> _getAvailableBackends(ChatProvider provider) {
-    final Set<GpuBackend> backends = {GpuBackend.auto};
+    final Set<GpuBackend> backends = {GpuBackend.cpu};
+    if (kIsWeb) {
+      // On web, "auto" maps to bridge-driven WebGPU acceleration.
+      backends.add(GpuBackend.auto);
+    }
 
     for (final device in provider.availableDevices) {
       final d = device.toLowerCase();
@@ -624,6 +631,8 @@ class SettingsSheet extends StatelessWidget {
         backends.add(GpuBackend.metal);
       }
       if (d.contains('vulkan')) backends.add(GpuBackend.vulkan);
+      if (d.contains('opencl')) backends.add(GpuBackend.opencl);
+      if (d.contains('hip')) backends.add(GpuBackend.hip);
       if (d.contains('cuda')) backends.add(GpuBackend.cuda);
       if (d.contains('blas')) backends.add(GpuBackend.blas);
       if (d.contains('cpu') || d.contains('llvm')) backends.add(GpuBackend.cpu);
@@ -634,19 +643,24 @@ class SettingsSheet extends StatelessWidget {
       backends.add(GpuBackend.metal);
     }
     if (active.contains('vulkan')) backends.add(GpuBackend.vulkan);
+    if (active.contains('opencl')) backends.add(GpuBackend.opencl);
+    if (active.contains('hip')) backends.add(GpuBackend.hip);
     if (active.contains('cuda')) backends.add(GpuBackend.cuda);
     if (active.contains('blas')) backends.add(GpuBackend.blas);
     if (active.contains('cpu') || active.contains('llvm')) {
       backends.add(GpuBackend.cpu);
     }
 
-    if (backends.length == 1) {
-      backends.add(GpuBackend.cpu);
-    }
-
     final ordered = backends.toList(growable: false)
       ..sort((a, b) => a.index.compareTo(b.index));
     return ordered;
+  }
+
+  String _backendLabel(GpuBackend backend) {
+    if (kIsWeb && backend == GpuBackend.auto) {
+      return 'WEBGPU';
+    }
+    return backend.name.toUpperCase();
   }
 
   List<int> _buildContextSizeOptions(int currentValue) {
