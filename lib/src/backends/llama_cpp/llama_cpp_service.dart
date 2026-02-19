@@ -120,10 +120,12 @@ class LlamaCppService {
   final Set<String> _loadedBackendModules = <String>{};
   final Map<String, DynamicLibrary> _loadedBackendLibraries =
       <String, DynamicLibrary>{};
+  final List<DynamicLibrary> _preloadedCoreLibraries = <DynamicLibrary>[];
   bool _backendLoadAllSymbolUnavailable = false;
   bool _backendLoadAllFromPathSymbolUnavailable = false;
   bool _backendLoadSymbolUnavailable = false;
   bool _backendRegistrySymbolUnavailable = false;
+  bool _linuxCorePreloadAttempted = false;
   bool _ggmlFallbackLookupAttempted = false;
   _GgmlBackendLoadDart? _ggmlBackendLoadFallback;
   _GgmlBackendLoadAllDart? _ggmlBackendLoadAllFallback;
@@ -248,6 +250,7 @@ class LlamaCppService {
   ///
   /// This must be called before loading any models.
   void initializeBackend() {
+    _preloadLinuxCoreLibrariesForSonameResolution();
     _backendModuleDirectory = resolveBackendModuleDirectory();
     _applyConfiguredLogLevel();
     llama_backend_init();
@@ -267,6 +270,31 @@ class LlamaCppService {
     if (_backendRegistryOr<int>(0, ggml_backend_reg_count) == 0) {
       // Fallback path: attempt to load CPU backend by filename resolution.
       _tryLoadBackendModule('cpu');
+    }
+  }
+
+  void _preloadLinuxCoreLibrariesForSonameResolution() {
+    if (!Platform.isLinux || _linuxCorePreloadAttempted) {
+      return;
+    }
+
+    _linuxCorePreloadAttempted = true;
+
+    // Linux split bundles expose versioned SONAMEs (e.g. libllama.so.0).
+    // Preloading dependency libraries through native-asset URIs ensures their
+    // SONAMEs are already registered before @Native resolves libllamadart.
+    const preloadAssets = <String>[
+      'package:llamadart/ggml-base',
+      'package:llamadart/ggml',
+      'package:llamadart/llama',
+    ];
+
+    for (final assetUri in preloadAssets) {
+      try {
+        _preloadedCoreLibraries.add(DynamicLibrary.open(assetUri));
+      } catch (_) {
+        // Best effort: continue and let normal fallback paths handle loading.
+      }
     }
   }
 
