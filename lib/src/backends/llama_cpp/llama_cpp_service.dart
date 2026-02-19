@@ -157,13 +157,31 @@ class LlamaCppService {
   }
 
   void _applyConfiguredLogLevel() {
+    var applied = false;
     try {
       llama_dart_set_log_level(_configuredLogLevel.index);
+      applied = true;
     } on ArgumentError {
-      // Some split bundles expose this helper in the wrapper library instead
-      // of the primary lookup target.
-      _resolveLogLevelFallbackFunction();
-      _llamaDartSetLogLevelFallback?.call(_configuredLogLevel.index);
+      // Continue with explicit fallback lookup below.
+    }
+
+    // Apply via explicit wrapper lookup as well. On Windows split bundles the
+    // primary @DefaultAsset can resolve to a different loaded copy than the
+    // runtime backend modules, so applying to both keeps log-level state in
+    // sync across module-loading layouts.
+    _resolveLogLevelFallbackFunction();
+    final fallback = _llamaDartSetLogLevelFallback;
+    if (fallback != null) {
+      try {
+        fallback(_configuredLogLevel.index);
+        applied = true;
+      } catch (_) {
+        // Ignore fallback invocation errors and preserve existing behavior.
+      }
+    }
+
+    if (!applied) {
+      // No applicable symbol found for this runtime layout.
     }
   }
 
