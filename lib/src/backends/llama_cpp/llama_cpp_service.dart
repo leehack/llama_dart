@@ -797,65 +797,95 @@ class LlamaCppService {
     _ggmlFallbackLookupAttempted = true;
 
     final fileNameCandidates = _ggmlLibraryCandidateFileNames();
-    final candidates = <String>{};
+    final candidates = <String>[..._ggmlAssetUriCandidates()];
+    final filesystemCandidates = <String>{};
     final backendModuleDirectory = _backendModuleDirectory;
     if (backendModuleDirectory != null) {
       for (final fileName in fileNameCandidates) {
-        candidates.add(path.join(backendModuleDirectory, fileName));
+        filesystemCandidates.add(path.join(backendModuleDirectory, fileName));
       }
     }
     // Keep bare-name fallback last so module-dir resolution wins when present.
-    candidates.addAll(fileNameCandidates);
+    filesystemCandidates.addAll(fileNameCandidates);
+    candidates.addAll(filesystemCandidates);
 
-    DynamicLibrary? library;
+    final seen = <String>{};
     for (final candidate in candidates) {
+      if (!seen.add(candidate)) {
+        continue;
+      }
+
+      DynamicLibrary library;
       try {
         library = DynamicLibrary.open(candidate);
-        break;
       } catch (_) {
         continue;
       }
-    }
-    if (library == null) {
-      return;
-    }
 
-    try {
-      _ggmlBackendLoadFallback = library
-          .lookupFunction<_GgmlBackendLoadNative, _GgmlBackendLoadDart>(
-            'ggml_backend_load',
-          );
-    } catch (_) {
-      _ggmlBackendLoadFallback = null;
-    }
+      if (_ggmlBackendLoadFallback == null) {
+        try {
+          _ggmlBackendLoadFallback = library
+              .lookupFunction<_GgmlBackendLoadNative, _GgmlBackendLoadDart>(
+                'ggml_backend_load',
+              );
+        } catch (_) {
+          // Keep searching other candidates.
+        }
+      }
 
-    try {
-      _ggmlBackendLoadAllFallback = library
-          .lookupFunction<_GgmlBackendLoadAllNative, _GgmlBackendLoadAllDart>(
-            'ggml_backend_load_all',
-          );
-    } catch (_) {
-      _ggmlBackendLoadAllFallback = null;
-    }
+      if (_ggmlBackendLoadAllFallback == null) {
+        try {
+          _ggmlBackendLoadAllFallback = library
+              .lookupFunction<
+                _GgmlBackendLoadAllNative,
+                _GgmlBackendLoadAllDart
+              >('ggml_backend_load_all');
+        } catch (_) {
+          // Keep searching other candidates.
+        }
+      }
 
-    try {
-      _ggmlBackendLoadAllFromPathFallback = library
-          .lookupFunction<
-            _GgmlBackendLoadAllFromPathNative,
-            _GgmlBackendLoadAllFromPathDart
-          >('ggml_backend_load_all_from_path');
-    } catch (_) {
-      _ggmlBackendLoadAllFromPathFallback = null;
-    }
+      if (_ggmlBackendLoadAllFromPathFallback == null) {
+        try {
+          _ggmlBackendLoadAllFromPathFallback = library
+              .lookupFunction<
+                _GgmlBackendLoadAllFromPathNative,
+                _GgmlBackendLoadAllFromPathDart
+              >('ggml_backend_load_all_from_path');
+        } catch (_) {
+          // Keep searching other candidates.
+        }
+      }
 
-    try {
-      _ggmlBackendRegisterFallback = library
-          .lookupFunction<_GgmlBackendRegisterNative, _GgmlBackendRegisterDart>(
-            'ggml_backend_register',
-          );
-    } catch (_) {
-      _ggmlBackendRegisterFallback = null;
+      if (_ggmlBackendRegisterFallback == null) {
+        try {
+          _ggmlBackendRegisterFallback = library
+              .lookupFunction<
+                _GgmlBackendRegisterNative,
+                _GgmlBackendRegisterDart
+              >('ggml_backend_register');
+        } catch (_) {
+          // Keep searching other candidates.
+        }
+      }
+
+      if (_ggmlBackendLoadFallback != null &&
+          _ggmlBackendLoadAllFallback != null &&
+          _ggmlBackendLoadAllFromPathFallback != null &&
+          _ggmlBackendRegisterFallback != null) {
+        return;
+      }
     }
+  }
+
+  List<String> _ggmlAssetUriCandidates() {
+    if (Platform.isWindows) {
+      return const <String>[
+        'package:llamadart/ggml',
+        'package:llamadart/ggml-base',
+      ];
+    }
+    return const <String>['package:llamadart/ggml'];
   }
 
   void _resolveLogLevelFallbackFunction() {
