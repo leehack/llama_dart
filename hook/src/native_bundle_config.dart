@@ -451,23 +451,8 @@ String? _inferBackend(String canonicalName) {
     return _normalizeBackend(suffix.split('-').first);
   }
 
-  if (canonicalName.contains('opencl')) {
+  if (canonicalName == 'opencl') {
     return 'opencl';
-  }
-  if (canonicalName.contains('vulkan')) {
-    return 'vulkan';
-  }
-  if (canonicalName.contains('cuda')) {
-    return 'cuda';
-  }
-  if (canonicalName.contains('blas')) {
-    return 'blas';
-  }
-  if (canonicalName.contains('metal')) {
-    return 'metal';
-  }
-  if (canonicalName.contains('hip')) {
-    return 'hip';
   }
 
   return null;

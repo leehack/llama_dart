@@ -68,6 +68,13 @@ void main() {
       expect(descriptor.canonicalName, 'opencl');
       expect(descriptor.backend, 'opencl');
     });
+
+    test('does not classify cublas runtime as a backend module', () {
+      final descriptor = describeNativeLibrary('/tmp/cublas64_12.dll');
+
+      expect(descriptor.canonicalName, 'cublas64_12');
+      expect(descriptor.backend, isNull);
+    });
   });
 
   group('parseRequestedBackends', () {

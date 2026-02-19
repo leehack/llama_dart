@@ -24,6 +24,8 @@ const _reportDir = 'llamadart_bin';
 const _allowLegacyLocalBundleEnv = 'LLAMADART_ALLOW_LEGACY_LOCAL_BUNDLES';
 
 const _dynamicLibraryExtensions = {'.so', '.dylib', '.dll'};
+final _windowsCudartPattern = RegExp(r'^cudart64(?:[_-]?\d+)?\.dll$');
+final _windowsCublasPattern = RegExp(r'^cublas64(?:[_-]?\d+)?\.dll$');
 
 void main(List<String> args) async {
   Logger.root.level = Level.ALL;
@@ -173,9 +175,26 @@ Future<Directory> _acquireBundleDirectory({
     bundle,
   );
   final extractedDir = Directory(path.join(cacheDir, 'extracted'));
-  if (_collectDynamicLibraryPaths(extractedDir).isNotEmpty) {
+  final archiveName = 'llamadart-native-$bundle-$_llamaCppTag.tar.gz';
+  final archivePath = path.join(cacheDir, archiveName);
+  final archiveFile = File(archivePath);
+
+  final cachedLibraryPaths = _collectDynamicLibraryPaths(extractedDir);
+  if (cachedLibraryPaths.isNotEmpty &&
+      _isBundleLayoutCompatible(
+        bundle: bundle,
+        libraryPaths: cachedLibraryPaths,
+        log: log,
+      )) {
     log.info('Using cached native bundle: ${extractedDir.path}');
     return extractedDir;
+  }
+
+  if (cachedLibraryPaths.isNotEmpty) {
+    log.warning('Cached native bundle appears stale; refreshing: $bundle');
+    if (extractedDir.existsSync()) {
+      await extractedDir.delete(recursive: true);
+    }
   }
 
   if (allowLegacyLocalBundles) {
@@ -185,7 +204,13 @@ Future<Directory> _acquireBundleDirectory({
     );
     for (final candidatePath in localCandidates) {
       final candidate = Directory(candidatePath);
-      if (_collectDynamicLibraryPaths(candidate).isNotEmpty) {
+      final candidatePaths = _collectDynamicLibraryPaths(candidate);
+      if (candidatePaths.isNotEmpty &&
+          _isBundleLayoutCompatible(
+            bundle: bundle,
+            libraryPaths: candidatePaths,
+            log: log,
+          )) {
         log.info(
           'Using legacy local native bundle directory: ${candidate.path}',
         );
@@ -196,39 +221,52 @@ Future<Directory> _acquireBundleDirectory({
 
   await Directory(cacheDir).create(recursive: true);
 
-  final archiveName = 'llamadart-native-$bundle-$_llamaCppTag.tar.gz';
-  final archivePath = path.join(cacheDir, archiveName);
+  var extractedLibraryPaths = const <String>[];
+  if (archiveFile.existsSync()) {
+    extractedLibraryPaths = await _extractCachedArchive(
+      archivePath: archivePath,
+      extractedDir: extractedDir,
+      cacheDir: cacheDir,
+      log: log,
+    );
+    if (_isBundleLayoutCompatible(
+      bundle: bundle,
+      libraryPaths: extractedLibraryPaths,
+      log: log,
+    )) {
+      log.info('Using cached native bundle archive: $archivePath');
+      return extractedDir;
+    }
 
-  if (!File(archivePath).existsSync()) {
+    log.warning(
+      'Cached native bundle archive is stale; redownloading: $archivePath',
+    );
+    await archiveFile.delete();
+    if (extractedDir.existsSync()) {
+      await extractedDir.delete(recursive: true);
+    }
+  }
+
+  if (!archiveFile.existsSync()) {
     await _downloadReleaseAsset(
       assetName: archiveName,
       destinationPath: archivePath,
       log: log,
     );
   }
-
-  final tmpExtractDir = Directory(path.join(cacheDir, 'extracting'));
-  if (tmpExtractDir.existsSync()) {
-    await tmpExtractDir.delete(recursive: true);
-  }
-  await tmpExtractDir.create(recursive: true);
-
-  await _extractArchive(
+  extractedLibraryPaths = await _extractCachedArchive(
     archivePath: archivePath,
-    outputDirectory: tmpExtractDir.path,
+    extractedDir: extractedDir,
+    cacheDir: cacheDir,
     log: log,
   );
-
-  if (_collectDynamicLibraryPaths(tmpExtractDir).isEmpty) {
-    throw Exception('Downloaded bundle $archiveName contains no dynamic libs.');
+  if (!_isBundleLayoutCompatible(
+    bundle: bundle,
+    libraryPaths: extractedLibraryPaths,
+    log: log,
+  )) {
+    throw Exception('Downloaded bundle $archiveName is missing runtime deps.');
   }
-
-  if (extractedDir.existsSync()) {
-    await extractedDir.delete(recursive: true);
-  }
-  await tmpExtractDir.rename(extractedDir.path);
-
-  log.info('Extracted native bundle to ${extractedDir.path}');
   return extractedDir;
 }
 
@@ -322,6 +360,95 @@ List<String> _collectDynamicLibraryPaths(Directory directory) {
 
   paths.sort();
   return paths;
+}
+
+bool _isBundleLayoutCompatible({
+  required String bundle,
+  required List<String> libraryPaths,
+  required Logger log,
+}) {
+  if (libraryPaths.isEmpty) {
+    return false;
+  }
+
+  if (bundle != 'windows-x64') {
+    return true;
+  }
+
+  final fileNames = libraryPaths
+      .map((entry) => path.basename(entry).toLowerCase())
+      .toSet();
+
+  if (_hasWindowsBackendModule(fileNames, 'cuda')) {
+    final hasCudart = fileNames.any(_windowsCudartPattern.hasMatch);
+    final hasCublas = fileNames.any(_windowsCublasPattern.hasMatch);
+    if (!hasCudart || !hasCublas) {
+      log.warning(
+        'Windows CUDA backend module detected without required runtime '
+        'dependencies (cudart/cublas).',
+      );
+      return false;
+    }
+  }
+
+  if (_hasWindowsBackendModule(fileNames, 'blas')) {
+    final hasOpenBlas = fileNames.any((name) => name.contains('openblas'));
+    if (!hasOpenBlas) {
+      log.warning(
+        'Windows BLAS backend module detected without openblas runtime.',
+      );
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool _hasWindowsBackendModule(Set<String> fileNames, String backend) {
+  for (final fileName in fileNames) {
+    if (!fileName.endsWith('.dll')) {
+      continue;
+    }
+    if (!fileName.startsWith('ggml-$backend')) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+Future<List<String>> _extractCachedArchive({
+  required String archivePath,
+  required Directory extractedDir,
+  required String cacheDir,
+  required Logger log,
+}) async {
+  final tmpExtractDir = Directory(path.join(cacheDir, 'extracting'));
+  if (tmpExtractDir.existsSync()) {
+    await tmpExtractDir.delete(recursive: true);
+  }
+  await tmpExtractDir.create(recursive: true);
+
+  await _extractArchive(
+    archivePath: archivePath,
+    outputDirectory: tmpExtractDir.path,
+    log: log,
+  );
+
+  final extractedLibraryPaths = _collectDynamicLibraryPaths(tmpExtractDir);
+  if (extractedLibraryPaths.isEmpty) {
+    throw Exception(
+      'Downloaded bundle archive contains no dynamic libs: $archivePath',
+    );
+  }
+
+  if (extractedDir.existsSync()) {
+    await extractedDir.delete(recursive: true);
+  }
+  await tmpExtractDir.rename(extractedDir.path);
+
+  log.info('Extracted native bundle to ${extractedDir.path}');
+  return extractedLibraryPaths;
 }
 
 Future<void> _downloadReleaseAsset({
