@@ -127,6 +127,7 @@ class LlamaCppService {
   bool _backendRegistrySymbolUnavailable = false;
   bool _linuxCorePreloadAttempted = false;
   bool _linuxRuntimeDepsPrepared = false;
+  String? _linuxPreparedLibraryDirectory;
   bool _ggmlFallbackLookupAttempted = false;
   _GgmlBackendLoadDart? _ggmlBackendLoadFallback;
   _GgmlBackendLoadAllDart? _ggmlBackendLoadAllFallback;
@@ -254,6 +255,11 @@ class LlamaCppService {
     _prepareLinuxRuntimeDependenciesBeforeBinding();
     _preloadLinuxCoreLibrariesForSonameResolution();
     _backendModuleDirectory = resolveBackendModuleDirectory();
+    if (_backendModuleDirectory == null && Platform.isLinux) {
+      _backendModuleDirectory =
+          _linuxPreparedLibraryDirectory ??
+          _resolveLinuxPrimaryLibraryDirectory();
+    }
     _applyConfiguredLogLevel();
     llama_backend_init();
     _applyConfiguredLogLevel();
@@ -349,6 +355,25 @@ class LlamaCppService {
       );
       _ensureLinuxSonameAlias(targetDir, libraryFileName);
     }
+
+    const backendModuleLibraries = <String>[
+      'libggml-cpu.so',
+      'libggml-vulkan.so',
+      'libggml-opencl.so',
+      'libggml-cuda.so',
+      'libggml-blas.so',
+    ];
+
+    for (final libraryFileName in backendModuleLibraries) {
+      _ensureLinuxLibraryPresent(
+        targetDirectory: targetDir,
+        sourceDirectories: sourceDirectories,
+        fileName: libraryFileName,
+      );
+      _ensureLinuxSonameAlias(targetDir, libraryFileName);
+    }
+
+    _linuxPreparedLibraryDirectory = targetDir;
   }
 
   String? _resolveLinuxPrimaryLibraryDirectory() {
