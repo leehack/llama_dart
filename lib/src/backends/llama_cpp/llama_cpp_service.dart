@@ -250,6 +250,8 @@ class LlamaCppService {
   void initializeBackend() {
     _backendModuleDirectory = resolveBackendModuleDirectory();
     _applyConfiguredLogLevel();
+    llama_backend_init();
+    _applyConfiguredLogLevel();
 
     if (_backendModuleDirectory == null) {
       _tryLoadAllBackendsBestEffort();
@@ -266,9 +268,6 @@ class LlamaCppService {
       // Fallback path: attempt to load CPU backend by filename resolution.
       _tryLoadBackendModule('cpu');
     }
-
-    llama_backend_init();
-    _applyConfiguredLogLevel();
   }
 
   void _tryLoadAllBackendsBestEffort() {

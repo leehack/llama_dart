@@ -75,6 +75,22 @@ void main() {
       expect(descriptor.canonicalName, 'cublas64_12');
       expect(descriptor.backend, isNull);
     });
+
+    test('normalizes Linux SONAME suffix for core libraries', () {
+      final descriptor = describeNativeLibrary('/tmp/libllama.so.0');
+
+      expect(descriptor.canonicalName, 'llama');
+      expect(descriptor.isCore, isTrue);
+      expect(descriptor.backend, isNull);
+    });
+
+    test('normalizes Linux SONAME suffix for ggml base library', () {
+      final descriptor = describeNativeLibrary('/tmp/libggml-base.so.1');
+
+      expect(descriptor.canonicalName, 'ggml-base');
+      expect(descriptor.isCore, isTrue);
+      expect(descriptor.backend, isNull);
+    });
   });
 
   group('parseRequestedBackends', () {

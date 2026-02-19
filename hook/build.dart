@@ -26,6 +26,7 @@ const _allowLegacyLocalBundleEnv = 'LLAMADART_ALLOW_LEGACY_LOCAL_BUNDLES';
 const _dynamicLibraryExtensions = {'.so', '.dylib', '.dll'};
 final _windowsCudartPattern = RegExp(r'^cudart64(?:[_-]?\d+)?\.dll$');
 final _windowsCublasPattern = RegExp(r'^cublas64(?:[_-]?\d+)?\.dll$');
+final _linuxVersionedSoPattern = RegExp(r'\.so\.\d+$');
 
 void main(List<String> args) async {
   Logger.root.level = Level.ALL;
@@ -104,23 +105,38 @@ void main(List<String> args) async {
     final copiedFileNames = <String>{};
     final usedAssetNames = <String>{};
 
+    final emittedLibraries = <NativeLibraryDescriptor>[];
+
     for (final library in selectedLibraries) {
-      final loweredFileName = library.fileName.toLowerCase();
-      if (copiedFileNames.contains(loweredFileName)) {
-        log.warning(
-          'Duplicate library filename detected, skipping: ${library.fileName}',
-        );
-        continue;
-      }
-
-      copiedFileNames.add(loweredFileName);
-
-      final destinationPath = path.join(reportDirPath, library.fileName);
-      await File(library.filePath).copy(destinationPath);
-
-      final baseAssetName = codeAssetNameForLibrary(
+      final emittedFileNames = _emittedFileNamesForLibrary(
         spec: spec,
         library: library,
+      );
+
+      for (final emittedFileName in emittedFileNames) {
+        final loweredFileName = emittedFileName.toLowerCase();
+        if (copiedFileNames.contains(loweredFileName)) {
+          if (emittedFileName == library.fileName) {
+            log.warning(
+              'Duplicate library filename detected, skipping: '
+              '${library.fileName}',
+            );
+          }
+          continue;
+        }
+
+        copiedFileNames.add(loweredFileName);
+
+        final destinationPath = path.join(reportDirPath, emittedFileName);
+        await File(library.filePath).copy(destinationPath);
+        emittedLibraries.add(describeNativeLibrary(destinationPath));
+      }
+    }
+
+    for (final emittedLibrary in emittedLibraries) {
+      final baseAssetName = codeAssetNameForLibrary(
+        spec: spec,
+        library: emittedLibrary,
       );
       final assetName = _dedupeAssetName(baseAssetName, usedAssetNames);
 
@@ -129,12 +145,12 @@ void main(List<String> args) async {
           package: _packageName,
           name: assetName,
           linkMode: DynamicLoadingBundled(),
-          file: Uri.file(path.absolute(destinationPath)),
+          file: Uri.file(path.absolute(emittedLibrary.filePath)),
         ),
       );
 
       log.info(
-        'Reporting native library `${library.fileName}` as code asset '
+        'Reporting native library `${emittedLibrary.fileName}` as code asset '
         '`package:$_packageName/$assetName`.',
       );
     }
@@ -356,14 +372,35 @@ List<String> _collectDynamicLibraryPaths(Directory directory) {
     if (entity is! File) {
       continue;
     }
+    final fileName = path.basename(entity.path).toLowerCase();
     final extension = path.extension(entity.path).toLowerCase();
-    if (_dynamicLibraryExtensions.contains(extension)) {
+    if (_dynamicLibraryExtensions.contains(extension) ||
+        _linuxVersionedSoPattern.hasMatch(fileName)) {
       paths.add(entity.path);
     }
   }
 
   paths.sort();
   return paths;
+}
+
+List<String> _emittedFileNamesForLibrary({
+  required NativeBundleSpec spec,
+  required NativeLibraryDescriptor library,
+}) {
+  final fileNames = <String>[library.fileName];
+
+  // Linux shared objects in native bundles can encode SONAME dependencies such
+  // as `libllama.so.0`. Emit `.so.0` aliases so runtime dynamic loading
+  // resolves those dependencies in `.dart_tool/lib`.
+  if (spec.bundle.startsWith('linux-')) {
+    final lowered = library.fileName.toLowerCase();
+    if (lowered.endsWith('.so') && !lowered.endsWith('.so.0')) {
+      fileNames.add('${library.fileName}.0');
+    }
+  }
+
+  return fileNames;
 }
 
 bool _isBundleLayoutCompatible({

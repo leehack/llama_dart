@@ -421,17 +421,19 @@ String? _normalizeBackend(String value) {
 }
 
 String _canonicalLibraryName(String fileName) {
-  var stem = fileName;
-  final dotIndex = stem.lastIndexOf('.');
-  if (dotIndex > 0) {
-    stem = stem.substring(0, dotIndex);
+  var stem = fileName.toLowerCase();
+
+  if (stem.endsWith('.dll')) {
+    stem = stem.substring(0, stem.length - '.dll'.length);
+  } else if (stem.endsWith('.dylib')) {
+    stem = stem.substring(0, stem.length - '.dylib'.length);
+  } else {
+    stem = stem.replaceFirst(RegExp(r'\.so(?:\.\d+)*$'), '');
   }
 
   if (stem.startsWith('lib') && stem.length > 3) {
     stem = stem.substring(3);
   }
-
-  stem = stem.toLowerCase();
 
   for (final suffix in _platformSuffixes) {
     if (stem.endsWith(suffix)) {
