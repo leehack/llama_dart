@@ -21,6 +21,7 @@ void main() {
     late bool sawAudioParts;
     late bool sawAudioBytes;
     int? lastRequestedGpuLayers;
+    int? lastBridgeLogLevel;
     WebGpuBridgeConfig? lastBridgeConfig;
 
     void clearBridgeGlobals() {
@@ -43,6 +44,7 @@ void main() {
       sawAudioParts = false;
       sawAudioBytes = false;
       lastRequestedGpuLayers = null;
+      lastBridgeLogLevel = null;
       lastBridgeConfig = null;
 
       bridge.setProperty(
@@ -146,6 +148,12 @@ void main() {
       bridge.setProperty('getBackendName'.toJS, (() => 'WebGPU (Mock)').toJS);
       bridge.setProperty('cancel'.toJS, (() {}).toJS);
       bridge.setProperty(
+        'setLogLevel'.toJS,
+        ((int level) {
+          lastBridgeLogLevel = level;
+        }).toJS,
+      );
+      bridge.setProperty(
         'dispose'.toJS,
         (() {
           return Future<void>.value().toJS;
@@ -216,8 +224,24 @@ void main() {
         final value = config!.getProperty('coreModuleUrl'.toJS);
         expect(value.isA<JSString>(), isTrue);
         expect((value as JSString).toDart, 'https://example.com/core.js');
+
+        final logLevel = config.getProperty('logLevel'.toJS);
+        expect(logLevel.isA<JSNumber>(), isTrue);
+        expect((logLevel as JSNumber).toDartInt, LlamaLogLevel.info.index);
       },
     );
+
+    test('propagates runtime log level updates to bridge', () async {
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(),
+      );
+
+      expect(lastBridgeLogLevel, LlamaLogLevel.info.index);
+
+      await backend.setLogLevel(LlamaLogLevel.error);
+      expect(lastBridgeLogLevel, LlamaLogLevel.error.index);
+    });
 
     test('forces CPU fallback on Safari unless override is enabled', () async {
       globalContext.setProperty(

@@ -51,6 +51,9 @@ extension type LlamaWebGpuBridge._(JSObject _) implements JSObject {
   /// Returns a backend display name.
   external JSString? getBackendName();
 
+  /// Updates runtime log level in the underlying core.
+  external JSAny? setLogLevel(int level);
+
   /// Cancels active generation.
   external JSAny? cancel();
 
@@ -74,6 +77,7 @@ extension type WebGpuBridgeConfig._(JSObject _) implements JSObject {
     JSString? wasmUrl,
     JSString? workerUrl,
     @JS('coreModuleUrl') JSString? coreModuleUrl,
+    int? logLevel,
     JSObject? logger,
   });
 }
