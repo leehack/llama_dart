@@ -21,6 +21,8 @@ class LlamaCppService {
   int _nextHandle = 1;
   String? _backendModuleDirectory;
   final Set<String> _loadedBackendModules = <String>{};
+  bool _backendLoadAllSymbolUnavailable = false;
+  bool _backendLoadSymbolUnavailable = false;
 
   // --- Internal State ---
   final Map<int, _LlamaModelWrapper> _models = {};
@@ -61,7 +63,7 @@ class LlamaCppService {
     _backendModuleDirectory = resolveBackendModuleDirectory();
 
     if (_backendModuleDirectory == null) {
-      ggml_backend_load_all();
+      _tryLoadAllBackendsBestEffort();
     } else {
       // Android/Linux stability: load CPU first and defer GPU module loading.
       _tryLoadBackendModule('cpu');
@@ -73,6 +75,21 @@ class LlamaCppService {
     }
 
     llama_backend_init();
+  }
+
+  void _tryLoadAllBackendsBestEffort() {
+    if (_backendLoadAllSymbolUnavailable) {
+      return;
+    }
+
+    try {
+      ggml_backend_load_all();
+    } on ArgumentError {
+      // Some builds (notably certain Windows bundles) don't export this
+      // optional convenience symbol. Treat it as unavailable and continue
+      // with explicit backend loading/fallback.
+      _backendLoadAllSymbolUnavailable = true;
+    }
   }
 
   /// Resolves the native backend module directory for dynamic backend loading.
@@ -242,6 +259,10 @@ class LlamaCppService {
   }
 
   bool _tryLoadBackendModule(String backend) {
+    if (_backendLoadSymbolUnavailable) {
+      return false;
+    }
+
     if (_loadedBackendModules.contains(backend)) {
       return true;
     }
@@ -260,7 +281,15 @@ class LlamaCppService {
 
       final libraryPathPtr = candidate.toNativeUtf8();
       try {
-        final reg = ggml_backend_load(libraryPathPtr.cast());
+        ggml_backend_reg_t reg;
+        try {
+          reg = ggml_backend_load(libraryPathPtr.cast());
+        } on ArgumentError {
+          // Optional dynamic-loader symbol can be missing in some native
+          // builds. Mark unavailable to avoid repeated failures.
+          _backendLoadSymbolUnavailable = true;
+          return false;
+        }
         if (reg == nullptr) {
           continue;
         }
