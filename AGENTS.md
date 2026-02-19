@@ -139,6 +139,43 @@ throw LlamaUnsupportedException('GPU acceleration not available on this platform
 - Native build/source ownership lives in `llamadart-native`
 - This repository should not add local `llama.cpp` patches or build scripts
 - Keep local native integration focused on hook/config/bindings consumption
+- Web bridge source/build ownership lives in `llama-web-bridge`
+- Web bridge runtime asset publishing ownership lives in `llama-web-bridge-assets`
+- Keep local web integration focused on bridge tag pinning, fetch flow, and runtime wiring
+
+## Multi-Repo Workspace Guidance
+
+### Ownership Map
+- `llamadart` (this repo): Dart API, hook integration, runtime selection, docs/tests
+- `llamadart-native`: native build graph, C/C++ wrapper behavior, backend bundle matrix, releases
+- `llama-web-bridge`: web bridge source/runtime behavior
+- `llama-web-bridge-assets`: published bridge artifacts consumed by this repo
+
+### Local Path Convention
+Many maintainer environments keep sibling checkouts one level above this repo:
+
+```text
+../llamadart
+../llamadart-native
+../llama-web-bridge
+../llama-web-bridge-assets
+```
+
+This is a convenience convention and may differ by environment.
+Before operating on sibling repos, verify they exist:
+
+```bash
+test -d ../llamadart-native
+test -d ../llama-web-bridge
+test -d ../llama-web-bridge-assets
+```
+
+### Cross-Repo Change Flow
+1. Make/runtime-fix changes in the owning repository (`llamadart-native` or `llama-web-bridge`).
+2. Commit/push there first.
+3. Publish/update artifacts in the owning release/assets repo.
+4. Update pins/tags/hook/docs in `llamadart`.
+5. Run `dart analyze` and relevant tests in `llamadart` before final commit.
 
 ## Development Workflow
 
@@ -158,6 +195,13 @@ When you need to update native version + bindings in this repository:
 For local regeneration workflows, sync headers from `llamadart-native` and run:
 ```bash
 tool/native/sync_native_headers_and_bindings.sh --tag latest
+```
+
+### Syncing Web Bridge Assets
+To refresh local pinned bridge assets for `example/chat_app/web`:
+
+```bash
+WEBGPU_BRIDGE_ASSETS_TAG=<tag> ./scripts/fetch_webgpu_bridge_assets.sh
 ```
 
 ### Adding New Features

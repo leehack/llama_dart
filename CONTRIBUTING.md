@@ -89,6 +89,29 @@ When a user adds `llamadart` as a dependency and runs their app:
     ```
     The `hook/build.dart` will automatically download the correct pre-compiled binaries for your platform.
 
+## Maintainer Workspace Conventions (Multi-Repo)
+
+Maintainers often keep related repositories as siblings one level above
+`llamadart`:
+
+```text
+../llamadart
+../llamadart-native
+../llama-web-bridge
+../llama-web-bridge-assets
+```
+
+This is a convenience convention, not a hard requirement.
+Always verify paths in your environment before using them.
+
+- If changing native runtime behavior: edit `../llamadart-native`, release there,
+  then sync/update `llamadart`.
+- If changing web bridge runtime behavior: edit `../llama-web-bridge`,
+  publish assets to `../llama-web-bridge-assets`, then update pinned tag/docs
+  in `llamadart`.
+- Keep ownership boundaries clear: this repo should avoid direct upstream
+  source patching for native/web runtime internals.
+
 ## 🧪 Testing
 
 We take testing seriously. CI enforces **>=70% line coverage on maintainable `lib/` code**. Auto-generated files are excluded when they are marked with `// coverage:ignore-file`.

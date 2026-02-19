@@ -34,6 +34,17 @@ llamadart uses a modern, decoupled architecture designed for flexibility and pla
 - **ChatSession**: A stateful wrapper for `LlamaEngine` that automatically manages conversation history, system prompts, and enforces context window limits (sliding window).
 - **LlamaBackend**: A platform-agnostic interface with a default `LlamaBackend()` factory constructor that auto-selects native (`llama.cpp`) or web (WebGPU bridge first, WASM fallback) implementations.
 
+### Runtime Ownership
+
+- Native source/build/release ownership:
+  [`leehack/llamadart-native`](https://github.com/leehack/llamadart-native)
+- Web bridge source/build ownership:
+  [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge)
+- Web bridge runtime assets ownership:
+  [`leehack/llama-web-bridge-assets`](https://github.com/leehack/llama-web-bridge-assets)
+- This repository is the consumer/integration layer: it pins and consumes
+  published native and web bridge artifacts.
+
 ---
 
 ## 🚀 Quick Start
