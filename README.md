@@ -62,6 +62,8 @@ Current limitations:
   [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge)
   to
   [`leehack/llama-web-bridge-assets`](https://github.com/leehack/llama-web-bridge-assets).
+- These bridge repos are maintained alongside `llamadart`; this package
+  consumes their published release assets.
 - [`example/chat_app`](https://github.com/leehack/llamadart/blob/main/example/chat_app/README.md) uses local bridge files first and
   falls back to jsDelivr assets when local assets are missing.
 - Bridge model loading now uses browser Cache Storage when `useCache` is true

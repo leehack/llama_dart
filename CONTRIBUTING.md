@@ -44,6 +44,16 @@ Native binaries are built and released from
 That repository publishes multi-library native bundles for
 **Android, iOS, macOS, Linux, and Windows**.
 
+### 1b. Web Bridge Asset Production (CI)
+Web bridge source/build and published runtime assets are managed in:
+
+- [`leehack/llama-web-bridge`](https://github.com/leehack/llama-web-bridge)
+- [`leehack/llama-web-bridge-assets`](https://github.com/leehack/llama-web-bridge-assets)
+
+`llamadart` consumes pinned bridge assets from `llama-web-bridge-assets`
+for `example/chat_app` and web backend testing via
+`scripts/fetch_webgpu_bridge_assets.sh`.
+
 ### 2. Binary Consumption (Hook)
 When a user adds `llamadart` as a dependency and runs their app:
 - The **`hook/build.dart`** script executes automatically.
