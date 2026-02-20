@@ -46,6 +46,7 @@ test/unit/backends/wllama/
 
 # Local scratch docs directory
 docs/
+website/
 
 # Agent-only maintainer notes
 AGENTS.md
