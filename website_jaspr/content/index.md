@@ -1,61 +1,96 @@
 ---
 title: llamadart documentation
-description: Local LLM inference for Dart and Flutter across native and web.
+description: Run llama.cpp from Dart and Flutter across native and web.
 image: /images/logo.svg
 ---
 
-<div class="home-landing">
-  <section class="home-hero">
-    <p class="home-eyebrow">llamadart</p>
-    <h2 class="home-title">Run local LLMs in Dart and Flutter</h2>
-    <p class="home-subtitle">
-      Use llama.cpp from a clean Dart API across desktop, mobile, and web.
-      The docs below are organized for fast onboarding and production tuning.
-    </p>
-    <div class="home-actions">
-      <a class="primary" href="/docs/getting-started/installation">Get started</a>
-      <a class="secondary" href="/docs/getting-started/quickstart">Quickstart</a>
-      <a class="secondary" href="/docs/platforms/support-matrix">Platform matrix</a>
-    </div>
-  </section>
+<div class="landingRoot">
+<section class="heroShell">
+<div class="heroLeft">
+<p class="heroKicker">Dart + Flutter local inference runtime</p>
+<h1>Build offline-ready AI features with llamadart</h1>
+<p class="heroLead">Documentation for product engineers and maintainers shipping local LLM features across Android, iOS, macOS, Linux, Windows, and web.</p>
+<div class="heroActions">
+<a class="button button--primary button--lg" href="/docs/intro">Read documentation</a>
+<a class="button button--secondary button--lg" href="https://pub.dev/packages/llamadart">API on pub.dev</a>
+</div>
+<ul class="heroChecklist">
+<li>Single Dart API across native and browser targets</li>
+<li>GGUF model lifecycle and streaming-first generation</li>
+<li>OpenAI-compatible local server example included</li>
+</ul>
+<div class="platformChips" aria-label="Supported platforms">
+<span>Android</span><span>iOS</span><span>macOS</span><span>Linux</span><span>Windows</span><span>Web</span>
+</div>
+</div>
+<div class="heroRight" aria-label="Quick start examples">
+<h2>Quick start examples</h2>
+<p class="heroAsideText"><code>dart pub add llamadart</code></p>
+<p class="heroAsideText">Load a GGUF model and stream output from a single Dart API.</p>
+<p class="heroAsideText">For OpenAI-compatible HTTP flows, start from <a href="/docs/examples/llamadart-server"><code>llamadart_server</code></a>.</p>
+</div>
+</section>
 
-  <section class="home-grid">
-    <a class="home-card" href="/docs/guides/architecture">
-      <strong>Architecture</strong>
-      <span>Understand runtime ownership, API layers, and generation flow.</span>
-    </a>
-    <a class="home-card" href="/docs/guides/chat-template-and-parsing">
-      <strong>Template and Parsing</strong>
-      <span>How chat templates, parsing, and tool-call extraction work.</span>
-    </a>
-    <a class="home-card" href="/docs/guides/lora-adapters">
-      <strong>LoRA</strong>
-      <span>Load adapters, stack weights, and practical integration notes.</span>
-    </a>
-    <a class="home-card" href="/docs/guides/performance-tuning">
-      <strong>Performance</strong>
-      <span>Tune context, batch, and backend settings by target workload.</span>
-    </a>
-    <a class="home-card" href="/docs/examples/overview">
-      <strong>Examples</strong>
-      <span>Reference apps for CLI, server, and chat interface patterns.</span>
-    </a>
-    <a class="home-card" href="/docs/migration/upgrade-checklist">
-      <strong>Migration</strong>
-      <span>Upgrade paths for 0.4.x to 0.5.x and 0.5.x to 0.6.x.</span>
-    </a>
-  </section>
+<section class="sectionShell" aria-label="Documentation paths">
+<header class="sectionHeader">
+<p class="sectionKicker">Start here</p>
+<h2>Choose a path based on what you are shipping</h2>
+</header>
+<div class="pathGrid">
+<article class="pathCard"><h3>Start in 10 minutes</h3><p>Install, load a GGUF model, and stream your first response.</p><a href="/docs/getting-started/quickstart">Open quickstart</a></article>
+<article class="pathCard"><h3>Ship chat and tools</h3><p>Build tool calling, structured chat prompts, and streaming UX.</p><a href="/docs/guides/tool-calling">Read guides</a></article>
+<article class="pathCard"><h3>Tune for production</h3><p>Choose backends and tune context/runtime parameters.</p><a href="/docs/configuration/runtime-parameters">Tune runtime</a></article>
+<article class="pathCard"><h3>Run OpenAI-style server</h3><p>Expose local models over HTTP for existing OpenAI clients.</p><a href="/docs/examples/llamadart-server">See server example</a></article>
+</div>
+</section>
+
+<section class="sectionShell" aria-label="Feature guides">
+<header class="sectionHeader">
+<p class="sectionKicker">Core guides</p>
+<h2>Reference docs for real production workflows</h2>
+</header>
+<div class="featureGrid">
+<article class="featureCard"><h3>Model lifecycle</h3><p>Predictable loading/unloading flow and resource cleanup patterns.</p><a href="/docs/guides/model-lifecycle">Lifecycle guide</a></article>
+<article class="featureCard"><h3>Generation and streaming</h3><p>Token streaming patterns for CLI apps, servers, and Flutter UIs.</p><a href="/docs/guides/generation-and-streaming">Streaming guide</a></article>
+<article class="featureCard"><h3>Multimodal</h3><p>Image + text prompting with platform-specific constraints.</p><a href="/docs/guides/multimodal">Multimodal guide</a></article>
+<article class="featureCard"><h3>Platform matrix</h3><p>Understand native/web support boundaries before shipping.</p><a href="/docs/platforms/support-matrix">Support matrix</a></article>
+<article class="featureCard"><h3>Performance tuning</h3><p>Tune context length, threads, and generation settings safely.</p><a href="/docs/guides/performance-tuning">Tuning guide</a></article>
+<article class="featureCard"><h3>Troubleshooting</h3><p>Fast fixes for model loading, runtime, and platform issues.</p><a href="/docs/troubleshooting/common-issues">Debug issues</a></article>
+</div>
+</section>
+
+<section class="sectionShell maintainerShell" aria-label="Maintainer docs">
+<header class="sectionHeader">
+<p class="sectionKicker">Maintainers</p>
+<h2>llamadart-specific maintenance and release operations</h2>
+</header>
+<div class="maintainerGrid">
+<article class="maintainerCard"><h3>Maintainer overview</h3><p>Repository ownership map and routine responsibilities.</p><a href="/docs/maintainers/docs-site">Maintainer docs</a></article>
+<article class="maintainerCard"><h3>Runtime ownership</h3><p>Where to change native runtime, web bridge, and assets.</p><a href="/docs/maintainers/runtime-ownership">Ownership boundaries</a></article>
+<article class="maintainerCard"><h3>Release checklist</h3><p>Versioning, docs validation, and post-release verification sequence.</p><a href="/docs/maintainers/release-workflow">Release workflow</a></article>
+</div>
+</section>
 </div>
 
-## Core documentation
+## Quick start snippets
 
-1. [Installation](/docs/getting-started/installation)
-2. [First chat session](/docs/getting-started/first-chat-session)
-3. [API levels](/docs/guides/api-levels)
-4. [Generation and streaming](/docs/guides/generation-and-streaming)
-5. [Platform and backend matrix](/docs/platforms/support-matrix)
-6. [Troubleshooting common issues](/docs/troubleshooting/common-issues)
+```bash
+dart pub add llamadart
+```
 
-<Info>
-API reference: [pub.dev/packages/llamadart](https://pub.dev/packages/llamadart)
-</Info>
+```dart
+import 'package:llamadart/llamadart.dart';
+
+Future<void> main() async {
+  final LlamaEngine engine = LlamaEngine(LlamaBackend());
+
+  try {
+    await engine.loadModel('path/to/model.gguf');
+    await for (final token in engine.generate('Hello from llamadart')) {
+      print(token);
+    }
+  } finally {
+    await engine.dispose();
+  }
+}
+```

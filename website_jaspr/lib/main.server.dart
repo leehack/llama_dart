@@ -8,15 +8,13 @@ library;
 import 'package:jaspr/server.dart';
 
 import 'package:jaspr_content/components/callout.dart';
-import 'package:jaspr_content/components/github_button.dart';
-import 'package:jaspr_content/components/header.dart';
 import 'package:jaspr_content/components/image.dart';
 import 'package:jaspr_content/components/sidebar.dart';
-import 'package:jaspr_content/components/theme_toggle.dart';
 import 'package:jaspr_content/jaspr_content.dart';
 import 'package:jaspr_content/theme.dart';
 
 import 'components/llamadart_docs_layout.dart';
+import 'components/llamadart_navbar.dart';
 import 'components/safe_code_block.dart';
 
 // This file is generated automatically by Jaspr, do not remove or edit.
@@ -56,16 +54,7 @@ void main() {
       layouts: [
         // Out-of-the-box layout for documentation sites.
         LlamadartDocsLayout(
-          topHeader: Header(
-            title: 'llamadart',
-            logo: '/images/logo.svg',
-            items: [
-              // Enables switching between light and dark mode.
-              ThemeToggle(),
-              // Shows github stats.
-              GitHubButton(repo: 'leehack/llamadart'),
-            ],
-          ),
+          topHeader: const LlamadartNavbar(),
           navigationSidebar: Sidebar(
             groups: [
               SidebarGroup(
@@ -263,15 +252,15 @@ void main() {
       theme: ContentTheme(
         // Customizes the default theme colors.
         primary: ThemeColor(
-          ThemeColors.teal.$600,
-          dark: ThemeColors.teal.$300,
+          ThemeColors.blue.$700,
+          dark: ThemeColors.blue.$300,
         ),
         background: ThemeColor(
-          ThemeColors.sky.$50,
-          dark: ThemeColors.zinc.$950,
+          ThemeColors.slate.$50,
+          dark: ThemeColors.slate.$950,
         ),
         colors: [
-          ContentColors.quoteBorders.apply(ThemeColors.teal.$400),
+          ContentColors.quoteBorders.apply(ThemeColors.blue.$400),
         ],
       ),
     ),
