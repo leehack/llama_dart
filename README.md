@@ -1,9 +1,9 @@
 # llamadart
 
 [![Pub Version](https://img.shields.io/pub/v/llamadart?logo=dart&color=blue)](https://pub.dev/packages/llamadart)
-[![codecov](https://codecov.io/gh/leehack/llamadart/graph/badge.svg?token=)](https://codecov.io/gh/leehack/llamadart)
+[![CI](https://github.com/leehack/llamadart/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/leehack/llamadart/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-purple.svg)](https://opensource.org/licenses/MIT)
-[![GitHub](https://img.shields.io/github/stars/leehack/llamadart?style=social)](https://github.com/leehack/llamadart)
+[![GitHub](https://img.shields.io/github/stars/leehack/llamadart.svg?style=social)](https://github.com/leehack/llamadart)
 
 **llamadart** is a high-performance Dart and Flutter plugin for [llama.cpp](https://github.com/ggml-org/llama.cpp). It lets you run GGUF LLMs locally across native platforms and web (CPU/WebGPU bridge path).
 
