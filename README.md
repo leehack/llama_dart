@@ -9,7 +9,7 @@
 
 ## 📚 Documentation
 
-- Docs site: https://leehack.github.io/llamadart/
+- Docs site: https://llamadart.leehack.com/
 - API reference: https://pub.dev/documentation/llamadart/latest/
 - Migration guide: [`MIGRATION.md`](https://github.com/leehack/llamadart/blob/main/MIGRATION.md)
 
