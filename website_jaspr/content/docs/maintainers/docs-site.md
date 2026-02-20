@@ -2,7 +2,7 @@
 title: Maintainer Overview
 ---
 
-This section is for `llamadart` maintainers, not general Docusaurus usage.
+This section is for `llamadart` maintainers, not general framework usage.
 
 ## Repository ownership map
 

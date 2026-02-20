@@ -1,19 +1,16 @@
 ---
 title: Legacy Docusaurus Notes
-description: Source-of-truth references while migration is in progress.
+description: Historical references from the pre-Jaspr docs implementation.
 ---
 
-During migration, the current Docusaurus implementation remains the reference:
+These references are retained for historical context and rollback support:
 
 - Content: `website/docs`
 - Config: `website/docusaurus.config.ts`
 - Sidebar: `website/sidebars.ts`
-- Deploy workflows:
-  - `.github/workflows/docs_pages.yml`
-  - `.github/workflows/docs_version_cut.yml`
 
-Production docs currently resolve through:
+Current production docs target:
 
 - [llamadart.leehack.com]({{links.current_docs}})
 
-Use this page to track parity gaps until final cutover.
+Current build/deploy flow is Jaspr-based and uses `website_jaspr`.

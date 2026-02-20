@@ -1,6 +1,11 @@
 # Site Configuration
+title: llamadart
 titleBase: llamadart docs
-favicon: /favicon.ico
+description: Run llama.cpp from Dart and Flutter across native and web.
+favicon: /images/logo.svg
+image: /images/logo.svg
+siteUrl: https://llamadart.leehack.com
+lang: en
 
 # Social media links
 social:

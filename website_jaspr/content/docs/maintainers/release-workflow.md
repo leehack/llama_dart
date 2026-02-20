@@ -30,23 +30,21 @@ Tag with `vX.Y.Z` and push tag.
 Current workflows involved:
 
 - `publish_pubdev.yml`: publishes package release on version tags.
-- `docs_version_cut.yml`: creates versioned docs snapshot on `v*` tags.
+- `docs_version_cut.yml`: validates Jaspr docs build and internal links on `v*`
+  tags.
 - `docs_pages.yml`: deploys docs to GitHub Pages after successful
   `docs_version_cut.yml` runs (and can be manually triggered).
 
 ## 4. Post-release verification
 
 - Verify pub.dev package page and API docs for the new version.
-- Verify docs version selector includes the new release.
+- Verify docs site reflects the tagged release content.
 - Re-run smoke checks for representative examples.
 
 ## 5. If automation is blocked
 
-If `docs_version_cut.yml` cannot push directly to `main` (for example due to
-branch protections), run the version cut locally and open a PR:
+If tag-triggered docs deploy does not complete, run the pages workflow manually:
 
 ```bash
-cd website
-npm ci
-npm run docusaurus docs:version 0.6.2
+gh workflow run docs_pages.yml
 ```

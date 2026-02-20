@@ -1,26 +1,13 @@
+import 'package:jaspr/dom.dart';
 import 'package:jaspr/server.dart';
-import 'package:jaspr_content/components/code_block.dart';
+import 'package:jaspr_content/components/_internal/code_block_copy_button.dart';
 import 'package:jaspr_content/jaspr_content.dart';
-import 'package:syntax_highlight_lite/syntax_highlight_lite.dart';
 
-/// A safer code block renderer for jaspr_content.
-///
-/// `syntax_highlight_lite` only bundles Dart grammar by default, so attempting
-/// to highlight unsupported languages can throw. This component keeps Dart
-/// highlighting and falls back to plain `<pre><code>` rendering for others.
+/// A resilient code block renderer that supports Mermaid and highlight.js.
 class SafeCodeBlock extends CustomComponent {
-  SafeCodeBlock({
-    this.defaultLanguage = 'dart',
-    this.grammars = const {},
-    this.codeTheme,
-  }) : super.base();
+  SafeCodeBlock({this.defaultLanguage = 'plaintext'}) : super.base();
 
   final String defaultLanguage;
-  final Map<String, String> grammars;
-  final HighlighterTheme? codeTheme;
-
-  bool _initialized = false;
-  HighlighterTheme? _defaultTheme;
 
   @override
   Component? create(Node node, NodesBuilder builder) {
@@ -35,50 +22,89 @@ class SafeCodeBlock extends CustomComponent {
         language = attributes['class']!.substring('language-'.length);
       }
 
-      if (!_initialized) {
-        Highlighter.initialize(['dart']);
-        for (final entry in grammars.entries) {
-          Highlighter.addLanguage(entry.key, entry.value);
-        }
-        _initialized = true;
+      final source = children?.map((c) => c.innerText).join(' ') ?? '';
+      final resolvedLanguage = _resolveLanguage(language);
+
+      if (resolvedLanguage == 'mermaid') {
+        return _MermaidBlock(source: source);
       }
 
-      return AsyncBuilder(
-        builder: (context) async {
-          final source = children?.map((c) => c.innerText).join(' ') ?? '';
-          final resolvedLanguage = _resolveLanguage(language);
-          Highlighter? highlighter;
-
-          if (resolvedLanguage != null) {
-            highlighter = Highlighter(
-              language: resolvedLanguage,
-              theme: codeTheme ?? (_defaultTheme ??= await HighlighterTheme.loadDarkTheme()),
-            );
-          }
-
-          return CodeBlock.from(source: source, highlighter: highlighter);
-        },
+      return _PlainCodeBlock(
+        source: source,
+        language: resolvedLanguage,
       );
     }
 
     return null;
   }
 
-  String? _resolveLanguage(String? rawLanguage) {
+  String _resolveLanguage(String? rawLanguage) {
     final normalized = (rawLanguage == null || rawLanguage.trim().isEmpty)
         ? defaultLanguage
         : rawLanguage.trim().toLowerCase();
 
-    if (normalized == 'dart') {
-      return 'dart';
+    if (normalized == 'text' || normalized == 'txt' || normalized == 'plain') {
+      return 'plaintext';
     }
 
-    if (grammars.containsKey(normalized)) {
-      return normalized;
+    if (normalized == 'shell' || normalized == 'sh' || normalized == 'zsh') {
+      return 'bash';
     }
 
-    // Return null for unsupported languages so the code block is rendered
-    // without syntax highlighting instead of throwing during static generation.
-    return null;
+    if (normalized == 'yml') {
+      return 'yaml';
+    }
+
+    return normalized;
+  }
+
+  @css
+  static List<StyleRule> get styles => [
+    css('.code-block', [
+      css('&').styles(position: Position.relative()),
+      css('button').styles(
+        position: Position.absolute(top: 1.rem, right: 1.rem),
+        opacity: 0,
+        color: Colors.white,
+        width: 1.25.rem,
+        height: 1.25.rem,
+        zIndex: ZIndex(10),
+      ),
+      css('&:hover button').styles(opacity: 0.75),
+    ]),
+  ];
+}
+
+class _MermaidBlock extends StatelessComponent {
+  const _MermaidBlock({required this.source});
+
+  final String source;
+
+  @override
+  Component build(BuildContext context) {
+    return pre(classes: 'mermaid', [Component.text(source)]);
+  }
+}
+
+class _PlainCodeBlock extends StatelessComponent {
+  const _PlainCodeBlock({
+    required this.source,
+    required this.language,
+  });
+
+  final String source;
+  final String language;
+
+  @override
+  Component build(BuildContext context) {
+    return div(classes: 'code-block', [
+      const CodeBlockCopyButton(),
+      pre([
+        code(
+          classes: 'language-$language',
+          [Component.text(source)],
+        ),
+      ]),
+    ]);
   }
 }

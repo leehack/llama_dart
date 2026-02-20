@@ -16,6 +16,7 @@ import 'package:jaspr_content/components/theme_toggle.dart';
 import 'package:jaspr_content/jaspr_content.dart';
 import 'package:jaspr_content/theme.dart';
 
+import 'components/llamadart_docs_layout.dart';
 import 'components/safe_code_block.dart';
 
 // This file is generated automatically by Jaspr, do not remove or edit.
@@ -54,8 +55,8 @@ void main() {
       ],
       layouts: [
         // Out-of-the-box layout for documentation sites.
-        DocsLayout(
-          header: Header(
+        LlamadartDocsLayout(
+          topHeader: Header(
             title: 'llamadart',
             logo: '/images/logo.svg',
             items: [
@@ -65,7 +66,7 @@ void main() {
               GitHubButton(repo: 'leehack/llamadart'),
             ],
           ),
-          sidebar: Sidebar(
+          navigationSidebar: Sidebar(
             groups: [
               SidebarGroup(
                 title: 'Getting Started',
@@ -262,15 +263,15 @@ void main() {
       theme: ContentTheme(
         // Customizes the default theme colors.
         primary: ThemeColor(
-          ThemeColors.emerald.$600,
-          dark: ThemeColors.emerald.$300,
+          ThemeColors.teal.$600,
+          dark: ThemeColors.teal.$300,
         ),
         background: ThemeColor(
-          ThemeColors.stone.$50,
+          ThemeColors.sky.$50,
           dark: ThemeColors.zinc.$950,
         ),
         colors: [
-          ContentColors.quoteBorders.apply(ThemeColors.emerald.$400),
+          ContentColors.quoteBorders.apply(ThemeColors.teal.$400),
         ],
       ),
     ),
