@@ -47,6 +47,7 @@ test/unit/backends/wllama/
 # Local scratch docs directory
 docs/
 website/
+website_jaspr/
 
 # Agent-only maintainer notes
 AGENTS.md

@@ -1,0 +1,12 @@
+# Site Configuration
+titleBase: LLAMADART
+favicon: favicon.ico
+
+# Social media links
+social:
+  - name: GitHub
+    url: https://github.com/leehack/llamadart
+  - name: Pub.dev
+    url: https://pub.dev/packages/llamadart
+  - name: Docs
+    url: https://llamadart.leehack.com
