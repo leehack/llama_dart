@@ -7,8 +7,8 @@ const config: Config = {
   tagline: 'Run llama.cpp from Dart and Flutter across native and web',
   favicon: 'img/logo.svg',
 
-  url: 'https://leehack.github.io',
-  baseUrl: '/llamadart/',
+  url: 'https://llamadart.leehack.com',
+  baseUrl: '/',
 
   organizationName: 'leehack',
   projectName: 'llamadart',
