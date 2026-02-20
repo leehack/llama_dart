@@ -31,7 +31,8 @@ Current workflows involved:
 
 - `publish_pubdev.yml`: publishes package release on version tags.
 - `docs_version_cut.yml`: creates versioned docs snapshot on `v*` tags.
-- `docs_pages.yml`: deploys docs from `main` to GitHub Pages.
+- `docs_pages.yml`: deploys docs to GitHub Pages after successful
+  `docs_version_cut.yml` runs (and can be manually triggered).
 
 ## 4. Post-release verification
 

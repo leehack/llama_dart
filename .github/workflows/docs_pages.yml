@@ -1,9 +1,6 @@
 name: Docs Pages
 
 on:
-  push:
-    branches:
-      - main
   workflow_run:
     workflows:
       - Docs Version Cut
