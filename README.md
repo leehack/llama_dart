@@ -28,7 +28,7 @@
 
 ```yaml
 dependencies:
-  llamadart: ^0.6.0
+  llamadart: ^0.6.1
 ```
 
 ### 2. Run with defaults
@@ -283,7 +283,7 @@ Core abstractions in this package:
 - `LlamaBackend`: platform-agnostic backend interface with native/web routing.
 
 ---
-## ⚠️ Breaking Changes in 0.6.0
+## ⚠️ Breaking Changes in 0.6.x
 
 If you are upgrading from `0.5.x`, read:
 

@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as path;
 
-import 'src/native_bundle_config.dart';
+import 'package:llamadart/src/hook/native_bundle_config.dart';
 
 const _llamaCppTag = 'b8099';
 const _nativeRepoSlug = 'leehack/llamadart-native';

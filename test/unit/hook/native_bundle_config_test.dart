@@ -4,7 +4,7 @@ library;
 import 'package:code_assets/code_assets.dart';
 import 'package:test/test.dart';
 
-import '../../../hook/src/native_bundle_config.dart';
+import 'package:llamadart/src/hook/native_bundle_config.dart';
 
 void main() {
   group('resolveNativeBundleSpec', () {

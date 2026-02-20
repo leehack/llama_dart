@@ -1,4 +1,11 @@
-## 0.6.0
+## 0.6.1
+
+*   **Publishing compatibility fix**:
+    *   Moved hook backend-config support code out of `hook/src/` into
+        `lib/src/hook/` because pub.dev currently only allows `hook/build.dart`
+        under hook files.
+    *   Updated hook/test imports accordingly to keep native-assets backend
+        selection behavior unchanged.
 
 *   **llama.cpp parity expansion (Dart-native template/parser pipeline)**:
     *   Reworked template detection/render/parse routing to align with llama.cpp semantics across supported chat formats, including format-specific tool-call parsing and fallback behavior.

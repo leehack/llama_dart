@@ -1,3 +1,5 @@
+// ignore_for_file: public_member_api_docs
+
 import 'package:code_assets/code_assets.dart';
 import 'package:path/path.dart' as path;
 
