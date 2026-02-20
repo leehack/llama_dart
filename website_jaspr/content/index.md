@@ -1,32 +1,44 @@
 ---
-title: llamadart Docs (Jaspr Migration)
-description: Initial Jaspr migration workspace for the llamadart documentation site.
+title: llamadart documentation
+description: Local LLM inference for Dart and Flutter across native and web.
 ---
 
-This site is the **Jaspr migration workspace** for `llamadart` docs.
+`llamadart` provides local LLM inference for Dart and Flutter with native and
+web runtimes.
 
-The current production docs remain available at:
+## Start here
 
-- [llamadart.leehack.com]({{links.current_docs}})
+1. [Install](/docs/getting-started/installation)
+2. [Quickstart](/docs/getting-started/quickstart)
+3. [First chat session](/docs/getting-started/first-chat-session)
+4. [Platform and backend matrix](/docs/platforms/support-matrix)
 
-## Current migration goals
+## Core guides
 
-1. Rebuild docs UI and routing in Jaspr.
-2. Keep markdown as the source format.
-3. Preserve Mermaid and syntax highlighting behavior.
-4. Preserve release-tag-based version cut + deploy flow.
+- [Architecture](/docs/guides/architecture)
+- [API levels](/docs/guides/api-levels)
+- [Model lifecycle](/docs/guides/model-lifecycle)
+- [Generation and streaming](/docs/guides/generation-and-streaming)
+- [Chat templates and parsing](/docs/guides/chat-template-and-parsing)
+- [Template engine internals](/docs/guides/template-engine-internals)
+- [LoRA adapters](/docs/guides/lora-adapters)
+- [Tool calling](/docs/guides/tool-calling)
+- [Performance tuning](/docs/guides/performance-tuning)
 
-## Next pages
+## Platforms and examples
 
-- [Migration Status](/migration-status)
-- [Legacy Docusaurus Notes](/legacy-docusaurus)
-- [Platform & Backend Matrix](/platform-backend-matrix)
+- [Native build hooks](/docs/platforms/native-build-hooks)
+- [Linux prerequisites](/docs/platforms/linux-prerequisites)
+- [WebGPU bridge](/docs/platforms/webgpu-bridge)
+- [Examples overview](/docs/examples/overview)
 
-## Tooling references
+## Migration and release notes
 
-- Jaspr: [jaspr.site]({{links.jaspr}})
-- Jaspr Content Docs: [docs.jaspr.site/content]({{links.jaspr_content}})
+- [Upgrade checklist](/docs/migration/upgrade-checklist)
+- [0.4.x to 0.5.x migration](/docs/migration/0-4-to-0-5)
+- [0.5.x to 0.6.x migration](/docs/migration/0-5-to-0-6)
+- [Recent releases](/docs/changelog/recent-releases)
 
 <Info>
-This is an initial scaffold. Content and navigation will expand as pages are migrated from `website/docs`.
+API reference: [pub.dev/packages/llamadart](https://pub.dev/packages/llamadart)
 </Info>

@@ -1,6 +1,6 @@
 # Site Configuration
-titleBase: LLAMADART
-favicon: favicon.ico
+titleBase: llamadart docs
+favicon: /favicon.ico
 
 # Social media links
 social:
