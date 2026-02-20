@@ -7,6 +7,12 @@
 
 **llamadart** is a high-performance Dart and Flutter plugin for [llama.cpp](https://github.com/ggml-org/llama.cpp). It lets you run GGUF LLMs locally across native platforms and web (CPU/WebGPU bridge path).
 
+## 📚 Documentation
+
+- Docs site: https://leehack.github.io/llamadart/
+- API reference: https://pub.dev/documentation/llamadart/latest/
+- Migration guide: [`MIGRATION.md`](https://github.com/leehack/llamadart/blob/main/MIGRATION.md)
+
 ## ✨ Features
 
 - 🚀 **High Performance**: Powered by `llama.cpp` kernels.

@@ -1,0 +1,57 @@
+name: Docs Version Cut
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  cut-version:
+    name: Cut docs version from release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install website dependencies
+        run: (cd website && npm ci)
+
+      - name: Cut docs version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Target docs version: ${VERSION}"
+
+          if [[ -f website/versions.json ]] && grep -q "\"${VERSION}\"" website/versions.json; then
+            echo "Version ${VERSION} already exists; skipping."
+            exit 0
+          fi
+
+          (cd website && npm run docusaurus docs:version "${VERSION}")
+
+      - name: Commit versioned docs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add website/versions.json website/versioned_docs website/versioned_sidebars
+
+          if git diff --cached --quiet; then
+            echo "No versioned docs changes to commit."
+            exit 0
+          fi
+
+          git commit -m "docs: cut version ${GITHUB_REF_NAME#v}"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main

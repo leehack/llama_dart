@@ -50,6 +50,32 @@ jobs:
       - name: Check Pana Score
         run: flutter pub global run pana . --exit-code-threshold 160
 
+  docs-check:
+    name: Docs Build Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          flutter pub get
+          (cd website && npm ci)
+
+      - name: Build documentation site
+        run: ./tool/docs/build_site.sh
+
   test-linux-coverage:
     name: Test Linux & Web (with Coverage)
     runs-on: ubuntu-latest
