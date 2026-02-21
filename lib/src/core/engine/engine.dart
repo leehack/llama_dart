@@ -829,7 +829,7 @@ class LlamaEngine {
         now: templateNow,
       );
 
-      final tokens = await tokenize(result.prompt);
+      final tokens = await tokenize(result.prompt, addSpecial: false);
       return LlamaChatTemplateResult(
         prompt: result.prompt,
         format: result.format,
@@ -900,7 +900,7 @@ class LlamaEngine {
 
   /// Utility to count the number of tokens in [text] without running inference.
   Future<int> getTokenCount(String text) async {
-    final tokens = await tokenize(text);
+    final tokens = await tokenize(text, addSpecial: false);
     return tokens.length;
   }
 

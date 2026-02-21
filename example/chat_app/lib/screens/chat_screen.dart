@@ -52,9 +52,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _onScrollChanged() {
     if (!_scrollController.hasClients) return;
 
-    final diff =
-        _scrollController.position.maxScrollExtent -
-        _scrollController.position.pixels;
+    final diff = _distanceFromBottom();
     final shouldShow = diff > 220;
 
     if (shouldShow != _showScrollToBottom && mounted) {
@@ -67,14 +65,22 @@ class _ChatScreenState extends State<ChatScreen> {
   void _onProviderUpdate() {
     if (!mounted) return;
     final provider = context.read<ChatProvider>();
+    final shouldAutoFollowAfterGeneration = _distanceFromBottom() < 1200;
 
     if (provider.isGenerating) {
       _scrollToBottom();
     }
 
-    if (_wasGenerating && !provider.isGenerating && provider.isReady) {
+    if (_wasGenerating && !provider.isGenerating) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
+        if (!mounted) {
+          return;
+        }
+
+        if (shouldAutoFollowAfterGeneration) {
+          _scrollToBottom(force: true);
+        }
+        if (provider.isReady) {
           _focusNode.requestFocus();
         }
       });
@@ -82,13 +88,13 @@ class _ChatScreenState extends State<ChatScreen> {
     _wasGenerating = provider.isGenerating;
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool force = false}) {
     if (!_scrollController.hasClients) return;
 
     final pos = _scrollController.position;
-    final diff = pos.maxScrollExtent - pos.pixels;
+    final diff = _distanceFromBottom();
 
-    if (diff < 50) {
+    if (force || diff < 50) {
       _scrollController.jumpTo(pos.maxScrollExtent);
     } else if (diff < 500) {
       _scrollController.animateTo(
@@ -105,6 +111,16 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  double _distanceFromBottom() {
+    if (!_scrollController.hasClients) {
+      return 0;
+    }
+
+    final pos = _scrollController.position;
+    final distance = pos.maxScrollExtent - pos.pixels;
+    return distance < 0 ? 0 : distance;
+  }
+
   void _sendMessage() {
     final text = _controller.text.trim();
     final provider = context.read<ChatProvider>();
@@ -113,16 +129,6 @@ class _ChatScreenState extends State<ChatScreen> {
     provider.sendMessage(text);
     _controller.value = TextEditingValue.empty;
     _focusNode.requestFocus();
-
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 280),
-          curve: Curves.easeOutCubic,
-        );
-      }
-    });
   }
 
   void _openModelSelection() {

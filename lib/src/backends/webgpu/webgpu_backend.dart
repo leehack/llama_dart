@@ -719,7 +719,8 @@ class WebGpuLlamaBackend implements LlamaBackend {
 
     Future<void>(() async {
       await Future<void>.delayed(Duration.zero);
-      final completion = bridge.createCompletion(prompt, options);
+      final normalizedPrompt = _normalizePromptForBridge(prompt, bridge);
+      final completion = bridge.createCompletion(normalizedPrompt, options);
       await _toFuture(completion);
       await controller.close();
     }).catchError((Object e, StackTrace st) {
@@ -747,6 +748,109 @@ class WebGpuLlamaBackend implements LlamaBackend {
     return value;
   }
 
+  String _normalizePromptForBridge(String prompt, LlamaWebGpuBridge bridge) {
+    final metadata = bridge.getModelMetadata();
+    if (metadata == null) {
+      return _stripLeadingKnownBosToken(prompt);
+    }
+
+    final addBosValue = _jsValueAsString(
+      metadata.getProperty('tokenizer.ggml.add_bos_token'.toJS),
+    );
+    final shouldBridgeAddBos = _parseBool(addBosValue, defaultValue: true);
+    if (!shouldBridgeAddBos) {
+      return prompt;
+    }
+
+    final bosToken = _jsValueAsString(
+      metadata.getProperty('tokenizer.ggml.bos_token'.toJS),
+    );
+
+    final candidates = <String>[
+      if (bosToken != null && bosToken.isNotEmpty) bosToken,
+      ..._knownBosTokens,
+    ];
+    return _stripLeadingToken(prompt, candidates);
+  }
+
+  String? _jsValueAsString(JSAny? value) {
+    if (value == null) {
+      return null;
+    }
+    if (value.isA<JSString>()) {
+      return (value as JSString).toDart;
+    }
+    if (value.isA<JSBoolean>()) {
+      return (value as JSBoolean).toDart ? 'true' : 'false';
+    }
+    if (value.isA<JSNumber>()) {
+      return (value as JSNumber).toDartDouble.toString();
+    }
+    return value.toString();
+  }
+
+  bool _parseBool(String? value, {required bool defaultValue}) {
+    if (value == null) {
+      return defaultValue;
+    }
+
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1') {
+      return true;
+    }
+    if (normalized == 'false' || normalized == '0') {
+      return false;
+    }
+    return defaultValue;
+  }
+
+  String _stripLeadingKnownBosToken(String prompt) {
+    return _stripLeadingToken(prompt, _knownBosTokens);
+  }
+
+  String _stripLeadingToken(String prompt, List<String> candidates) {
+    final trimmed = prompt.trimLeft();
+    final leadingWhitespaceLength = prompt.length - trimmed.length;
+    var body = trimmed;
+    var changed = false;
+
+    for (var i = 0; i < 8; i++) {
+      String? matched;
+      for (final token in candidates) {
+        if (token.isEmpty || !body.startsWith(token)) {
+          continue;
+        }
+        matched = token;
+        break;
+      }
+
+      if (matched == null) {
+        break;
+      }
+
+      body = body.substring(matched.length).trimLeft();
+      changed = true;
+    }
+
+    if (!changed) {
+      return prompt;
+    }
+
+    return prompt.substring(0, leadingWhitespaceLength) + body;
+  }
+
+  static const List<String> _knownBosTokens = <String>[
+    '<s>',
+    '<bos>',
+    '<|begin_of_text|>',
+    '<|begin_of_sentence|>',
+    '<|start_of_text|>',
+    '<|im_start|>',
+    '<|START_OF_TURN_TOKEN|>',
+    '<｜begin▁of▁sentence｜>',
+    '[gMASK]<sop>',
+  ];
+
   @override
   Future<List<int>> tokenize(
     int modelHandle,
@@ -754,7 +858,10 @@ class WebGpuLlamaBackend implements LlamaBackend {
     bool addSpecial = true,
   }) async {
     final bridge = _requireBridge();
-    final result = await _toFuture(bridge.tokenize(text, addSpecial));
+    final normalizedText = addSpecial
+        ? _normalizePromptForBridge(text, bridge)
+        : text;
+    final result = await _toFuture(bridge.tokenize(normalizedText, addSpecial));
     if (result == null) {
       return const <int>[];
     }

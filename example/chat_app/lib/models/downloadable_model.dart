@@ -1,5 +1,3 @@
-enum ModelCapability { toolCalling, thinking, vision, audio, video }
-
 class ModelPreset {
   final double temperature;
   final int topK;
@@ -9,7 +7,6 @@ class ModelPreset {
   final int thinkingBudgetTokens;
   final int contextSize;
   final int maxTokens;
-  final bool forceToolCall;
   final bool thinkingEnabled;
 
   /// A value of 99 keeps auto-estimation behavior in ChatProvider.
@@ -25,7 +22,6 @@ class ModelPreset {
     this.contextSize = 4096,
     this.maxTokens = 4096,
     this.gpuLayers = 99,
-    this.forceToolCall = false,
     this.thinkingEnabled = true,
   });
 }
@@ -69,14 +65,6 @@ class DownloadableModel {
 
   bool get isMultimodal => supportsVision || supportsAudio;
 
-  List<ModelCapability> get capabilities => [
-    if (supportsToolCalling) ModelCapability.toolCalling,
-    if (supportsThinking) ModelCapability.thinking,
-    if (supportsVision) ModelCapability.vision,
-    if (supportsAudio) ModelCapability.audio,
-    if (supportsVideo) ModelCapability.video,
-  ];
-
   String get sizeMb => (sizeBytes / (1024 * 1024)).toStringAsFixed(1);
 
   static const List<DownloadableModel> defaultModels = [
@@ -95,7 +83,6 @@ class DownloadableModel {
         topP: 0.9,
         contextSize: 4096,
         maxTokens: 1024,
-        forceToolCall: true,
       ),
     ),
     DownloadableModel(

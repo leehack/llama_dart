@@ -1,41 +1,50 @@
-import 'dart:convert';
 import 'dart:async';
-import 'dart:math';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:llamadart/llamadart.dart';
-import 'package:file_picker/file_picker.dart';
 
 import '../models/chat_conversation.dart';
 import '../models/chat_message.dart';
 import '../models/chat_settings.dart';
 import '../models/downloadable_model.dart';
+import '../services/assistant_output_service.dart';
 import '../services/chat_service.dart';
+import '../services/chat_generation_service.dart';
+import '../services/chat_session_service.dart';
+import '../services/conversation_state_service.dart';
+import '../services/runtime_profile_service.dart';
 import '../services/settings_service.dart';
+import '../services/tool_declaration_service.dart';
+import '../utils/backend_utils.dart';
 
 class ChatProvider extends ChangeNotifier {
-  static const String _toolLoopGuardSystemPrompt =
-      'When tools are available, call a tool only if external data is needed. '
-      'Never repeat the same tool call with identical arguments in one user turn. '
-      'After receiving tool results, provide a final answer directly and do not '
-      'call additional tools unless the previous result is clearly missing data or errored.';
-  static const String _postToolFollowupInstruction =
-      'Use the tool result messages above as authoritative facts. '
-      'Answer the user directly from those results. '
-      'Do not say you lack real-time access when tool results are present. '
-      'Do not output tool-call JSON, XML, or tool-call tags.';
-  static const List<String> _noToolModeStopSequences = <String>[
-    '<tool_call',
-    '</tool_call>',
-    '[TOOL_CALLS]',
-    '[/TOOL_CALLS]',
-    '"tool_calls"',
-    '"tool_call"',
-  ];
-  static const int _maxToolExecutionsPerToolPerTurn = 2;
+  static const String _defaultToolDeclarationsJson = '''
+[
+  {
+    "name": "getWeather",
+    "description": "gets the weather for a requested city",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string"
+        }
+      },
+      "required": ["city"]
+    }
+  }
+]
+''';
 
   final ChatService _chatService;
+  final ChatGenerationService _chatGenerationService;
+  final ChatSessionService _chatSessionService;
+  final ConversationStateService _conversationStateService;
+  final RuntimeProfileService _runtimeProfileService;
   final SettingsService _settingsService;
+  final AssistantOutputService _assistantOutputService;
+  final ToolDeclarationService _toolDeclarationService;
 
   final List<ChatMessage> _messages = [];
   final List<LlamaContentPart> _stagedParts = [];
@@ -48,13 +57,11 @@ class ChatProvider extends ChangeNotifier {
   // Chat session for stateful conversation
   ChatSession? _session;
 
-  // Tool definitions and handlers
-  final List<ToolDefinition> _tools = [];
-  final Map<String, Future<String> Function(Map<String, dynamic>)>
-  _toolHandlers = {};
+  // Tool declarations supplied by the user (schema only; no local execution).
+  List<ToolDefinition> _declaredTools = const <ToolDefinition>[];
+  String? _toolDeclarationsError;
 
   String _activeBackend = "Unknown";
-  bool _gpuSupported = false;
   bool _isInitializing = false;
   double _loadingProgress = 0.0;
   bool _isLoaded = false;
@@ -70,17 +77,10 @@ class ChatProvider extends ChangeNotifier {
   int _contextLimit = 2048;
   int _currentTokens = 0;
   bool _isPruning = false;
-  String _runtimeBackendRaw = '';
-  bool _runtimeGpuActive = false;
   int? _runtimeGpuLayers;
   int? _runtimeThreads;
-  String? _runtimeModelArchitecture;
-  String? _runtimeModelSource;
-  String? _runtimeModelCacheState;
-  String? _runtimeBridgeNotes;
   int? _lastFirstTokenLatencyMs;
   int? _lastGenerationLatencyMs;
-  int _lastGeneratedTokens = 0;
   double? _lastTokensPerSecond;
 
   List<String> _availableDevices = [];
@@ -99,7 +99,6 @@ class ChatProvider extends ChangeNotifier {
   String? get modelPath => _settings.modelPath;
   GpuBackend get preferredBackend => _settings.preferredBackend;
   String get activeBackend => _activeBackend;
-  bool get gpuSupported => _gpuSupported;
   bool get isInitializing => _isInitializing;
   double get loadingProgress => _loadingProgress;
   bool get isLoaded => _isLoaded;
@@ -107,7 +106,6 @@ class ChatProvider extends ChangeNotifier {
   bool get supportsVision => _supportsVision;
   bool get supportsAudio => _supportsAudio;
   bool get templateSupportsTools => _templateSupportsTools;
-  ChatFormat? get detectedChatFormat => _detectedChatFormat;
   String? get error => _error;
   double get temperature => _settings.temperature;
   int get topK => _settings.topK;
@@ -125,17 +123,10 @@ class ChatProvider extends ChangeNotifier {
   int get currentTokens => _currentTokens;
   bool get isPruning => _isPruning;
   List<String> get availableDevices => _availableDevices;
-  String get runtimeBackendRaw => _runtimeBackendRaw;
-  bool get runtimeGpuActive => _runtimeGpuActive;
   int? get runtimeGpuLayers => _runtimeGpuLayers;
   int? get runtimeThreads => _runtimeThreads;
-  String? get runtimeModelArchitecture => _runtimeModelArchitecture;
-  String? get runtimeModelSource => _runtimeModelSource;
-  String? get runtimeModelCacheState => _runtimeModelCacheState;
-  String? get runtimeBridgeNotes => _runtimeBridgeNotes;
   int? get lastFirstTokenLatencyMs => _lastFirstTokenLatencyMs;
   int? get lastGenerationLatencyMs => _lastGenerationLatencyMs;
-  int get lastGeneratedTokens => _lastGeneratedTokens;
   double? get lastTokensPerSecond => _lastTokensPerSecond;
   String get activeModelName {
     final modelPath = _settings.modelPath;
@@ -148,11 +139,11 @@ class ChatProvider extends ChangeNotifier {
     return file.split('?').first;
   }
 
-  bool get usingWebGpu =>
-      _runtimeBackendRaw.toLowerCase().contains('webgpu') ||
-      _activeBackend == 'WEBGPU';
   bool get toolsEnabled => _settings.toolsEnabled;
-  bool get forceToolCall => _settings.forceToolCall;
+  String get toolDeclarations => _settings.toolDeclarations;
+  String get defaultToolDeclarations => _defaultToolDeclarationsJson;
+  String? get toolDeclarationsError => _toolDeclarationsError;
+  int get declaredToolCount => _declaredTools.length;
   bool get thinkingEnabled => _settings.thinkingEnabled;
   int get thinkingBudgetTokens => _settings.thinkingBudgetTokens;
   bool get singleTurnMode => _settings.singleTurnMode;
@@ -161,76 +152,63 @@ class ChatProvider extends ChangeNotifier {
 
   ChatProvider({
     ChatService? chatService,
+    ChatGenerationService? chatGenerationService,
+    ChatSessionService? chatSessionService,
+    ConversationStateService? conversationStateService,
+    RuntimeProfileService? runtimeProfileService,
     SettingsService? settingsService,
+    AssistantOutputService? assistantOutputService,
+    ToolDeclarationService? toolDeclarationService,
     ChatSettings? initialSettings,
   }) : _chatService = chatService ?? ChatService(),
+       _chatGenerationService =
+           chatGenerationService ?? const ChatGenerationService(),
+       _chatSessionService = chatSessionService ?? const ChatSessionService(),
+       _conversationStateService =
+           conversationStateService ?? const ConversationStateService(),
+       _runtimeProfileService =
+           runtimeProfileService ?? const RuntimeProfileService(),
        _settingsService = settingsService ?? SettingsService(),
+       _assistantOutputService =
+           assistantOutputService ?? const AssistantOutputService(),
+       _toolDeclarationService =
+           toolDeclarationService ?? const ToolDeclarationService(),
        _settings = initialSettings ?? const ChatSettings() {
     _createInitialConversation();
-    _initTools();
+    _rebuildDeclaredToolsFromSettings();
     if (chatService == null && settingsService == null) {
       _init();
     }
   }
 
   void _createInitialConversation() {
-    final id = _newConversationId();
+    final id = _conversationStateService.newConversationId();
     _activeConversationId = id;
     _conversations.add(
-      ChatConversation(
+      _conversationStateService.createEmptyConversation(
         id: id,
-        title: 'New conversation',
-        updatedAt: DateTime.now(),
         settings: _settings,
-        messages: const [],
-        currentTokens: 0,
-        isPruning: false,
       ),
     );
   }
 
-  String _newConversationId() {
-    return DateTime.now().microsecondsSinceEpoch.toString();
-  }
-
-  int _activeConversationIndex() {
-    return _conversations.indexWhere((c) => c.id == _activeConversationId);
-  }
-
-  String _deriveConversationTitle({required String fallback}) {
-    for (final message in _messages) {
-      if (!message.isUser) {
-        continue;
-      }
-
-      final trimmed = message.text.trim();
-      if (trimmed.isEmpty) {
-        continue;
-      }
-
-      if (trimmed.length > 52) {
-        return '${trimmed.substring(0, 52)}...';
-      }
-      return trimmed;
-    }
-
-    return fallback;
-  }
-
   void _syncActiveConversationSnapshot({bool touchUpdatedAt = true}) {
-    final index = _activeConversationIndex();
+    final index = _conversationStateService.activeConversationIndex(
+      conversations: _conversations,
+      activeConversationId: _activeConversationId,
+    );
     if (index < 0) {
       return;
     }
 
     final existing = _conversations[index];
-    _conversations[index] = existing.copyWith(
-      title: _deriveConversationTitle(fallback: existing.title),
-      updatedAt: touchUpdatedAt ? DateTime.now() : existing.updatedAt,
+    _conversations[index] = _conversationStateService.buildSnapshot(
+      existing: existing,
+      messages: _messages,
       settings: _settings,
-      messages: List<ChatMessage>.from(_messages),
       currentTokens: _currentTokens,
       isPruning: _isPruning,
+      touchUpdatedAt: touchUpdatedAt,
     );
   }
 
@@ -241,47 +219,18 @@ class ChatProvider extends ChangeNotifier {
     }
 
     _session?.reset();
-    _session = ChatSession(
-      _chatService.engine,
-      maxContextTokens: _settings.contextSize > 0
-          ? _settings.contextSize
-          : null,
+    _session = _chatSessionService.rebuildFromMessages(
+      engine: _chatService.engine,
+      contextSize: _settings.contextSize,
       systemPrompt: _sessionSystemPrompt(),
+      messages: _messages,
     );
-
-    for (final message in _messages) {
-      final serialized = _toLlamaChatMessage(message);
-      if (serialized != null) {
-        _session!.addMessage(serialized);
-      }
-    }
-  }
-
-  LlamaChatMessage? _toLlamaChatMessage(ChatMessage message) {
-    if (message.isInfo) {
-      return null;
-    }
-
-    final role =
-        message.role ??
-        (message.isUser ? LlamaChatRole.user : LlamaChatRole.assistant);
-    final parts = message.parts != null && message.parts!.isNotEmpty
-        ? List<LlamaContentPart>.from(message.parts!)
-        : <LlamaContentPart>[
-            if (message.text.trim().isNotEmpty) LlamaTextContent(message.text),
-          ];
-
-    if (parts.isEmpty) {
-      return null;
-    }
-
-    return LlamaChatMessage.withContent(role: role, content: parts);
   }
 
   void createConversation() {
     _syncActiveConversationSnapshot();
 
-    final id = _newConversationId();
+    final id = _conversationStateService.newConversationId();
     final copiedSettings = _settings.copyWith();
 
     _messages.clear();
@@ -291,28 +240,22 @@ class ChatProvider extends ChangeNotifier {
     _error = null;
     _isGenerating = false;
     _settings = copiedSettings;
+    _rebuildDeclaredToolsFromSettings();
 
     _conversations.insert(
       0,
-      ChatConversation(
+      _conversationStateService.createEmptyConversation(
         id: id,
-        title: 'New conversation',
-        updatedAt: DateTime.now(),
         settings: copiedSettings,
-        messages: const [],
-        currentTokens: 0,
-        isPruning: false,
       ),
     );
     _activeConversationId = id;
 
     if (_chatService.engine.isReady && _isLoaded) {
       _session?.reset();
-      _session = ChatSession(
-        _chatService.engine,
-        maxContextTokens: _settings.contextSize > 0
-            ? _settings.contextSize
-            : null,
+      _session = _chatSessionService.createSession(
+        engine: _chatService.engine,
+        contextSize: _settings.contextSize,
         systemPrompt: _sessionSystemPrompt(),
       );
     } else {
@@ -337,6 +280,7 @@ class ChatProvider extends ChangeNotifier {
 
     _activeConversationId = target.id;
     _settings = target.settings;
+    _rebuildDeclaredToolsFromSettings();
     _messages
       ..clear()
       ..addAll(target.messages);
@@ -394,72 +338,36 @@ class ChatProvider extends ChangeNotifier {
     await switchConversation(_conversations.first.id);
   }
 
-  /// Initialize tool definitions with inline handlers.
-  void _initTools() {
-    // Time tool - no parameters
-    _toolHandlers['get_current_time'] = (args) async {
-      return DateTime.now().toIso8601String();
-    };
-    _tools.add(
-      ToolDefinition(
-        name: 'get_current_time',
-        description: 'Get the current date and time',
-        parameters: [],
-        handler: (params) async => DateTime.now().toIso8601String(),
-      ),
+  void _rebuildDeclaredToolsFromSettings() {
+    final raw = _toolDeclarationService.normalizeDeclarations(
+      _settings.toolDeclarations,
     );
+    try {
+      _declaredTools = _toolDeclarationService.parseDefinitions(
+        raw,
+        handler: _declarationOnlyToolHandler,
+      );
+      _toolDeclarationsError = null;
+    } catch (error) {
+      _declaredTools = const <ToolDefinition>[];
+      _toolDeclarationsError = _toolDeclarationService.formatError(
+        error,
+        fallback: 'Tool declarations are invalid.',
+      );
+    }
+  }
 
-    // Weather tool - with typed parameters
-    _toolHandlers['get_current_weather'] = (args) async {
-      final location =
-          args['location'] as String? ??
-          args['city'] as String? ??
-          args['place'] as String? ??
-          args['query'] as String? ??
-          'Unknown';
-      final unit = args['unit'] as String? ?? 'celsius';
-
-      // Mock weather response
-      final random = Random();
-      final temp = 15 + random.nextInt(20);
-      final conditions = [
-        'Sunny',
-        'Cloudy',
-        'Rainy',
-        'Clear',
-      ][random.nextInt(4)];
-
-      final unitSymbol = unit == 'fahrenheit' ? '°F' : '°C';
-      final displayTemp = unit == 'fahrenheit'
-          ? (temp * 9 / 5 + 32).round()
-          : temp;
-
-      return 'The weather in $location is $displayTemp$unitSymbol and $conditions.';
-    };
-    _tools.add(
-      ToolDefinition(
-        name: 'get_current_weather',
-        description: 'Get the current weather for a location',
-        parameters: [
-          ToolParam.string(
-            'location',
-            description: 'The city and state, e.g. San Francisco, CA',
-            required: true,
-          ),
-          ToolParam.enumType(
-            'unit',
-            values: ['celsius', 'fahrenheit'],
-            description: 'Temperature unit',
-          ),
-        ],
-        handler: (params) async => '', // Not used, we use _toolHandlers instead
-      ),
-    );
+  static Future<Object?> _declarationOnlyToolHandler(ToolParams _) async {
+    return 'Tool execution is disabled in this chat app.';
   }
 
   Future<void> _init() async {
     _settings = await _settingsService.loadSettings();
-    final index = _activeConversationIndex();
+    _rebuildDeclaredToolsFromSettings();
+    final index = _conversationStateService.activeConversationIndex(
+      conversations: _conversations,
+      activeConversationId: _activeConversationId,
+    );
     if (index >= 0) {
       _conversations[index] = _conversations[index].copyWith(
         settings: _settings,
@@ -476,8 +384,8 @@ class ChatProvider extends ChangeNotifier {
     await _resolveAutoPreferredBackend(backendInfo: backendInfo);
 
     if (backendInfo != null) {
-      _availableDevices = _parseBackendDevices(backendInfo);
-      _activeBackend = _deriveActiveBackendLabel(
+      _availableDevices = BackendUtils.parseBackendDevices(backendInfo);
+      _activeBackend = BackendUtils.deriveActiveBackendLabel(
         backendInfo,
         preferredBackend: _settings.preferredBackend,
         gpuLayers: _settings.gpuLayers,
@@ -539,7 +447,10 @@ class ChatProvider extends ChangeNotifier {
         _settings,
         onProgress: (progress) {
           final normalized = progress.clamp(0.0, 1.0);
-          _loadingProgress = 0.14 + (normalized * 0.7);
+          final staged = 0.14 + (normalized * 0.7);
+          if (staged > _loadingProgress) {
+            _loadingProgress = staged;
+          }
           _activeBackend =
               'Loading model ${(normalized * 100).toStringAsFixed(0)}%';
           notifyListeners();
@@ -552,19 +463,16 @@ class ChatProvider extends ChangeNotifier {
         throw Exception('Engine initialization did not complete.');
       }
 
-      // Create chat session
-      _session = ChatSession(
-        _chatService.engine,
-        maxContextTokens: _settings.contextSize > 0
-            ? _settings.contextSize
-            : null,
+      _session = _chatSessionService.createSession(
+        engine: _chatService.engine,
+        contextSize: _settings.contextSize,
         systemPrompt: _sessionSystemPrompt(),
       );
       setProgress(0.8);
 
       final rawBackend = await _chatService.engine.getBackendName();
-      _availableDevices = _parseBackendDevices(rawBackend);
-      _activeBackend = _deriveActiveBackendLabel(
+      _availableDevices = BackendUtils.parseBackendDevices(rawBackend);
+      _activeBackend = BackendUtils.deriveActiveBackendLabel(
         rawBackend,
         preferredBackend: _settings.preferredBackend,
         gpuLayers: _settings.gpuLayers,
@@ -577,20 +485,11 @@ class ChatProvider extends ChangeNotifier {
       _updateToolTemplateSupport(metadata);
       setProgress(0.9);
 
-      final libSupported = await _chatService.engine.isGpuSupported();
-      _updateRuntimeDiagnostics(
-        backendInfo: rawBackend,
+      final runtimeDiagnostics = _runtimeProfileService.buildDiagnostics(
         metadata: metadata,
-        gpuActive: libSupported,
       );
-
-      _gpuSupported =
-          libSupported ||
-          _availableDevices.any(
-            (d) =>
-                !d.toLowerCase().contains("cpu") &&
-                !d.toLowerCase().contains("llvm"),
-          );
+      _runtimeGpuLayers = runtimeDiagnostics.runtimeGpuLayers;
+      _runtimeThreads = runtimeDiagnostics.runtimeThreads;
 
       _addInfoMessage('Model loaded successfully! Ready to chat.');
       _isLoaded = true;
@@ -618,7 +517,6 @@ class ChatProvider extends ChangeNotifier {
     _isPruning = false;
     _isGenerating = false;
     _stagedParts.clear();
-    _lastGeneratedTokens = 0;
     _lastTokensPerSecond = null;
     _messages.add(
       ChatMessage(
@@ -669,17 +567,8 @@ class ChatProvider extends ChangeNotifier {
 
     await _yieldUiFrame();
 
-    await _generateResponse(
-      text,
-      parts: parts.isEmpty ? null : parts,
-      toolChoiceForTurn: _settings.forceToolCall
-          ? ToolChoice.required
-          : ToolChoice.auto,
-    );
+    await _generateResponse(text, parts: parts.isEmpty ? null : parts);
   }
-
-  /// Maximum number of tool call iterations per user message.
-  static const int _maxToolIterations = 5;
 
   Map<String, dynamic>? _thinkingTemplateKwargs() {
     if (_settings.thinkingEnabled && _settings.thinkingBudgetTokens <= 0) {
@@ -706,14 +595,18 @@ class ChatProvider extends ChangeNotifier {
       return null;
     }
 
-    if (_settings.forceToolCall) {
-      return 'You may use tools, but avoid loops. '
-          'Call each needed tool at most once per turn unless arguments change materially. '
-          'After tool results arrive, provide the final answer without additional tool calls. '
-          '$_toolLoopGuardSystemPrompt';
-    }
+    return 'When function declarations are available, call tools only when '
+        'they are needed. If no tool is needed, answer directly.';
+  }
 
-    return _toolLoopGuardSystemPrompt;
+  List<ToolDefinition>? _toolsForTurn() {
+    if (!_settings.toolsEnabled || !_templateSupportsTools) {
+      return null;
+    }
+    if (_declaredTools.isEmpty) {
+      return null;
+    }
+    return _declaredTools;
   }
 
   Future<void> _yieldUiFrame() async {
@@ -726,16 +619,16 @@ class ChatProvider extends ChangeNotifier {
   Future<void> _generateResponse(
     String text, {
     List<LlamaContentPart>? parts,
-    int remainingToolIterations = _maxToolIterations,
-    ToolChoice? toolChoiceForTurn,
-    bool includeTools = true,
   }) async {
-    final generationStopwatch = Stopwatch()..start();
-    var sawFirstToken = false;
-    String fullResponse = "";
-    String fullThinking = "";
-    var generatedTokensThisTurn = 0;
+    var generationResult = const GenerationStreamResult(
+      fullResponse: '',
+      fullThinking: '',
+      generatedTokens: 0,
+      firstTokenLatencyMs: null,
+      elapsedMs: 0,
+    );
     _lastFirstTokenLatencyMs = null;
+    final toolsForTurn = _toolsForTurn();
 
     try {
       _messages.add(ChatMessage(text: "...", isUser: false));
@@ -743,129 +636,81 @@ class ChatProvider extends ChangeNotifier {
 
       await _yieldUiFrame();
 
-      DateTime lastUpdate = DateTime.now();
-      final uiNotifyIntervalMs = kIsWeb ? 120 : 50;
-
-      // Use ChatSession for generation
-      final stopSequences = includeTools
-          ? const <String>[]
-          : _noToolModeStopSequences;
-      final params = GenerationParams(
-        maxTokens: _settings.maxTokens,
-        temp: _settings.temperature,
-        topK: _settings.topK,
-        topP: _settings.topP,
-        minP: _settings.minP,
-        penalty: _settings.penalty,
-        stopSequences: stopSequences,
+      final params = _chatGenerationService.buildParams(_settings);
+      final chatParts = _chatGenerationService.buildChatParts(
+        text: text,
+        stagedParts: parts,
       );
 
-      // Build parts list with text
-      final chatParts = <LlamaContentPart>[
-        ...?parts,
-        if (text.isNotEmpty) LlamaTextContent(text),
-      ];
-
-      // Tools passed per-request now (caller-managed pattern)
-      final tools = (_settings.toolsEnabled && includeTools) ? _tools : null;
       final templateKwargs = _thinkingTemplateKwargs();
       _session!.systemPrompt = _sessionSystemPrompt();
 
-      await for (final chunk in _session!.create(
-        chatParts,
-        params: params,
-        tools: tools,
-        toolChoice: tools != null ? toolChoiceForTurn : null,
-        enableThinking: _settings.thinkingEnabled,
-        chatTemplateKwargs: templateKwargs,
-      )) {
-        if (!_isGenerating) {
-          break;
-        }
-
-        final delta = chunk.choices.first.delta;
-
-        // Accumulate both content and thinking
-        final content = delta.content ?? '';
-        final thinking = _settings.thinkingEnabled
-            ? (delta.thinking ?? '')
-            : '';
-
-        if (!sawFirstToken &&
-            (content.isNotEmpty ||
-                thinking.isNotEmpty ||
-                (delta.toolCalls?.isNotEmpty ?? false))) {
-          _lastFirstTokenLatencyMs = generationStopwatch.elapsedMilliseconds;
-          sawFirstToken = true;
-        }
-
-        fullResponse += content;
-
-        // Unescape literal newlines/returns if they appear in thinking content
-        // This handles cases where the model outputs escaped strings
-        final unescapedThinking = thinking
-            .replaceAll(r'\n', '\n')
-            .replaceAll(r'\r', '\r');
-        fullThinking += unescapedThinking;
-
-        _currentTokens++;
-        generatedTokensThisTurn++;
-
-        final cleanText = _chatService.cleanResponse(fullResponse);
-
-        // Find the "current" assistant message (should be the last one)
-        if (_messages.isNotEmpty && !_messages.last.isUser) {
-          final parts = <LlamaContentPart>[];
-          if (fullThinking.isNotEmpty) {
-            parts.add(LlamaThinkingContent(fullThinking));
-          }
-          if (cleanText.isNotEmpty) {
-            parts.add(LlamaTextContent(cleanText));
-          }
-
-          _messages[_messages.length - 1] = _messages.last.copyWith(
-            text: cleanText,
-            parts: parts,
+      generationResult = await _chatGenerationService.consumeStream(
+        stream: _session!.create(
+          chatParts,
+          params: params,
+          tools: toolsForTurn,
+          toolChoice: toolsForTurn != null ? ToolChoice.auto : null,
+          enableThinking: _settings.thinkingEnabled,
+          chatTemplateKwargs: templateKwargs,
+        ),
+        thinkingEnabled: _settings.thinkingEnabled,
+        uiNotifyIntervalMs: kIsWeb ? 120 : 50,
+        cleanResponse: _chatService.cleanResponse,
+        shouldContinue: () => _isGenerating,
+        onUpdate: (update) {
+          _currentTokens++;
+          _updateStreamingAssistantMessage(
+            cleanText: update.cleanText,
+            fullThinking: update.fullThinking,
           );
-
-          if (DateTime.now().difference(lastUpdate).inMilliseconds >
-              uiNotifyIntervalMs) {
+          if (update.shouldNotify) {
             notifyListeners();
-            lastUpdate = DateTime.now();
           }
-        }
-      }
+        },
+      );
+
+      final fullResponse = generationResult.fullResponse;
+      final fullThinking = generationResult.fullThinking;
+      _lastFirstTokenLatencyMs = generationResult.firstTokenLatencyMs;
 
       // Final update
       if (_messages.isNotEmpty && !_messages.last.isUser) {
         final lastSessionMessage = _session!.history.isNotEmpty
             ? _session!.history.last
             : null;
-        final hasToolCallOnlyTurn =
-            (lastSessionMessage?.parts
-                    .whereType<LlamaToolCallContent>()
-                    .isNotEmpty ??
-                false) &&
-            fullResponse.trim().isEmpty &&
-            fullThinking.trim().isEmpty;
-
-        if (hasToolCallOnlyTurn) {
-          _messages.removeLast();
+        var toolCalls = lastSessionMessage == null
+            ? const <LlamaToolCallContent>[]
+            : lastSessionMessage.parts.whereType<LlamaToolCallContent>().toList(
+                growable: false,
+              );
+        if (toolCalls.isEmpty) {
+          toolCalls = _assistantOutputService.parseToolCallsForDisplay(
+            streamedContent: fullResponse,
+            detectedChatFormat: _detectedChatFormat,
+          );
         }
 
-        final hadRawThinkingTags = _containsReasoningTag(fullResponse);
+        final hadRawThinkingTags = _assistantOutputService.containsReasoningTag(
+          fullResponse,
+        );
         final hadThinkingStream = fullThinking.trim().isNotEmpty;
-        final normalized = _normalizeAssistantOutput(
+        final normalized = _assistantOutputService.normalizeAssistantOutput(
           streamedContent: fullResponse,
           streamedThinking: fullThinking,
+          toolsEnabled: _settings.toolsEnabled,
+          detectedChatFormat: _detectedChatFormat,
+          cleanResponse: _chatService.cleanResponse,
         );
         var finalText = normalized.text;
         var finalThinking = normalized.thinking;
         if (!_settings.thinkingEnabled) {
           finalThinking = '';
         }
+
         final debugBadges = kDebugMode
-            ? _buildAssistantDebugBadges(
+            ? _assistantOutputService.buildAssistantDebugBadges(
+                detectedChatFormat: _detectedChatFormat,
                 hadRawThinkingTags: hadRawThinkingTags,
                 hadThinkingStream: hadThinkingStream,
                 finalThinking: finalThinking,
@@ -873,60 +718,27 @@ class ChatProvider extends ChangeNotifier {
               )
             : <String>[];
 
-        if (!includeTools) {
-          final noToolCleanup = _sanitizeNoToolFollowupText(finalText);
-          finalText = noToolCleanup.text;
-          if (kDebugMode && noToolCleanup.debugBadge != null) {
-            debugBadges.add(noToolCleanup.debugBadge!);
-          }
-        }
-
-        if (_settings.toolsEnabled &&
-            _looksLikeToolResultDisclaimer(finalText)) {
-          final fallback = _buildRecentToolResultSummary();
-          if (fallback != null && fallback.isNotEmpty) {
-            finalText = fallback;
-            if (kDebugMode) {
-              debugBadges.add('fallback:tool-result');
-            }
-          }
-        }
-
         if (_messages.isNotEmpty && !_messages.last.isUser) {
-          final parts = <LlamaContentPart>[];
+          final messageParts = <LlamaContentPart>[];
           if (finalThinking.isNotEmpty) {
-            parts.add(LlamaThinkingContent(finalThinking));
+            messageParts.add(LlamaThinkingContent(finalThinking));
           }
-          if (finalText.isNotEmpty) {
-            parts.add(LlamaTextContent(finalText));
+          if (toolCalls.isNotEmpty) {
+            messageParts.addAll(toolCalls);
+            if (finalText.isEmpty) {
+              finalText = toolCalls.map((call) => call.rawJson).join('\n');
+            }
+          } else if (finalText.isNotEmpty) {
+            messageParts.add(LlamaTextContent(finalText));
           }
 
           _messages[_messages.length - 1] = _messages.last.copyWith(
             text: finalText,
-            parts: parts,
+            parts: messageParts,
             debugBadges: debugBadges,
           );
           _messages.last.tokenCount = await _chatService.engine.getTokenCount(
             finalText,
-          );
-        }
-      }
-
-      // Check for tool calls in the session history and execute them
-      if (_settings.toolsEnabled && _session!.history.isNotEmpty) {
-        final lastMsg = _session!.history.last;
-        final toolCalls = lastMsg.parts
-            .whereType<LlamaToolCallContent>()
-            .toList();
-
-        if (toolCalls.isNotEmpty) {
-          if (remainingToolIterations > 0) {
-            await _executeToolCalls(toolCalls, remainingToolIterations - 1);
-            return; // _executeToolCalls handles the rest
-          }
-
-          _addInfoMessage(
-            'Stopped after $_maxToolIterations tool-call rounds to prevent an infinite loop.',
           );
         }
       }
@@ -946,17 +758,18 @@ class ChatProvider extends ChangeNotifier {
         _messages.add(ChatMessage(text: 'Error: $e', isUser: false));
       }
     } finally {
-      generationStopwatch.stop();
-      final elapsedMs = generationStopwatch.elapsedMilliseconds;
-      _lastGeneratedTokens = generatedTokensThisTurn;
-      if (generatedTokensThisTurn > 0 && elapsedMs > 0) {
-        _lastTokensPerSecond = generatedTokensThisTurn / (elapsedMs / 1000);
+      final generatedTokens = generationResult.generatedTokens;
+      final elapsedMs = generationResult.elapsedMs;
+      if (generatedTokens > 0 && elapsedMs > 0) {
+        _lastTokensPerSecond = generatedTokens / (elapsedMs / 1000);
       } else {
         _lastTokensPerSecond = null;
       }
 
-      if (sawFirstToken || fullResponse.isNotEmpty || fullThinking.isNotEmpty) {
-        _lastGenerationLatencyMs = generationStopwatch.elapsedMilliseconds;
+      if (generationResult.firstTokenLatencyMs != null ||
+          generationResult.fullResponse.isNotEmpty ||
+          generationResult.fullThinking.isNotEmpty) {
+        _lastGenerationLatencyMs = elapsedMs;
       }
       _isGenerating = false;
       _syncActiveConversationSnapshot();
@@ -964,639 +777,26 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  ({String text, String thinking}) _normalizeAssistantOutput({
-    required String streamedContent,
-    required String streamedThinking,
+  void _updateStreamingAssistantMessage({
+    required String cleanText,
+    required String fullThinking,
   }) {
-    var normalizedText = _chatService.cleanResponse(streamedContent);
-    var normalizedThinking = streamedThinking;
-
-    final shouldParseForNormalization =
-        _settings.toolsEnabled ||
-        normalizedText.contains('<think>') ||
-        normalizedText.contains('</think>') ||
-        normalizedText.trimLeft().startsWith('{');
-
-    if (!shouldParseForNormalization) {
-      return (text: normalizedText, thinking: normalizedThinking);
-    }
-
-    final parseFormat = _detectedChatFormat == ChatFormat.contentOnly
-        ? ChatFormat.generic
-        : (_detectedChatFormat ?? ChatFormat.generic);
-
-    try {
-      final parsed = ChatTemplateEngine.parse(
-        parseFormat.index,
-        streamedContent,
-        parseToolCalls: true,
-      );
-
-      final parsedText = _chatService.cleanResponse(parsed.content);
-      if (parsed.hasToolCalls) {
-        normalizedText = '';
-      } else if (parsedText.isNotEmpty) {
-        normalizedText = parsedText;
-      }
-
-      final parsedReasoning = parsed.reasoningContent?.trim();
-      if (normalizedThinking.isEmpty &&
-          parsedReasoning != null &&
-          parsedReasoning.isNotEmpty) {
-        normalizedThinking = parsedReasoning;
-      }
-    } catch (_) {
-      // Keep streamed values when parsing fails.
-    }
-
-    if (normalizedThinking.isEmpty) {
-      final extracted = _extractMinistralReasoningHeuristic(normalizedText);
-      if (extracted != null) {
-        normalizedThinking = extracted.reasoning;
-        normalizedText = extracted.answer;
-      }
-    }
-
-    return (text: normalizedText, thinking: normalizedThinking);
-  }
-
-  ({String reasoning, String answer})? _extractMinistralReasoningHeuristic(
-    String text,
-  ) {
-    final trimmed = text.trim();
-    if (trimmed.length < 64) {
-      return null;
-    }
-
-    final repeatedQuotedAnswer = RegExp(
-      r'^(.*?)(?:\n+\s*(?:Response|Final answer|Answer)\s*:\s*)?"([^"\n]{4,})"\s*(?:\2)?\s*$',
-      dotAll: true,
-    ).firstMatch(trimmed);
-
-    if (repeatedQuotedAnswer != null) {
-      final reasoning = repeatedQuotedAnswer.group(1)?.trim() ?? '';
-      final answer = repeatedQuotedAnswer.group(2)?.trim() ?? '';
-      if (reasoning.length >= 24 && answer.isNotEmpty) {
-        return (reasoning: reasoning, answer: answer);
-      }
-    }
-
-    final plainTailAnswer = RegExp(
-      r'^(.*?)(?:\n+\s*(?:Response|Final answer|Answer)\s*:\s*)([^\n]{4,})\s*$',
-      dotAll: true,
-    ).firstMatch(trimmed);
-
-    if (plainTailAnswer != null) {
-      final reasoning = plainTailAnswer.group(1)?.trim() ?? '';
-      final answer = plainTailAnswer.group(2)?.trim() ?? '';
-      if (reasoning.length >= 24 && answer.isNotEmpty) {
-        return (reasoning: reasoning, answer: answer);
-      }
-    }
-
-    return null;
-  }
-
-  bool _containsReasoningTag(String text) {
-    return text.contains('<think>') ||
-        text.contains('</think>') ||
-        text.contains('[THINK]') ||
-        text.contains('[/THINK]');
-  }
-
-  List<String> _buildAssistantDebugBadges({
-    required bool hadRawThinkingTags,
-    required bool hadThinkingStream,
-    required String finalThinking,
-    required String finalText,
-  }) {
-    final badges = <String>[];
-    final formatName = (_detectedChatFormat ?? ChatFormat.generic).name;
-    badges.add('fmt:$formatName');
-
-    final hasFinalThinking = finalThinking.trim().isNotEmpty;
-    final thinkingSource = hadThinkingStream
-        ? 'stream'
-        : hasFinalThinking && hadRawThinkingTags
-        ? 'tag-parse'
-        : hasFinalThinking
-        ? 'parse'
-        : 'none';
-    badges.add('think:$thinkingSource');
-
-    final trimmed = finalText.trimLeft();
-    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      badges.add('content:json');
-    }
-
-    return badges;
-  }
-
-  bool _looksLikeToolResultDisclaimer(String text) {
-    final lower = text.toLowerCase();
-    return lower.contains("don't have real-time access") ||
-        lower.contains('do not have real-time access') ||
-        lower.contains("can't access real-time") ||
-        lower.contains('cannot access real-time') ||
-        lower.contains('cannot access external data') ||
-        lower.contains('cannot access external data sources') ||
-        lower.contains('cannot retrieve current time') ||
-        lower.contains('no real-time access') ||
-        lower.contains('fictional response') ||
-        lower.contains('as an ai') && lower.contains('real-time');
-  }
-
-  bool _looksLikeToolCallPayload(String text) {
-    final trimmed = text.trimLeft();
-    if (trimmed.isEmpty) {
-      return false;
-    }
-
-    if (trimmed.startsWith('<tool_call') ||
-        trimmed.startsWith('<start_function_call>') ||
-        trimmed.startsWith('[TOOL_CALLS]') ||
-        trimmed.contains('</tool_call>') ||
-        trimmed.contains('<end_function_call>') ||
-        trimmed.contains('[/TOOL_CALLS]')) {
-      return true;
-    }
-
-    if (trimmed.startsWith('call:') && trimmed.contains('{')) {
-      return true;
-    }
-
-    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-      return false;
-    }
-
-    final lower = trimmed.toLowerCase();
-    return lower.contains('"tool_call"') ||
-        lower.contains('"tool_calls"') ||
-        (lower.contains('"function"') && lower.contains('"arguments"'));
-  }
-
-  ({String text, String? debugBadge}) _sanitizeNoToolFollowupText(String text) {
-    var cleaned = text;
-    var badge = null as String?;
-
-    if (_looksLikeToolCallPayload(cleaned)) {
-      cleaned = _stripLeadingToolCallMarkup(cleaned);
-      badge = 'fallback:no-tool-markup';
-    }
-
-    if (cleaned.trim().isEmpty || _looksLikeToolCallPayload(cleaned)) {
-      final fallback = _buildRecentToolResultSummary();
-      if (fallback != null && fallback.isNotEmpty) {
-        return (text: fallback, debugBadge: 'fallback:tool-summary');
-      }
-    }
-
-    return (text: cleaned, debugBadge: badge);
-  }
-
-  String _stripLeadingToolCallMarkup(String text) {
-    var cleaned = text;
-
-    cleaned = cleaned.replaceFirst(
-      RegExp(
-        r'^\s*<start_function_call>.*?<end_function_call>\s*',
-        dotAll: true,
-      ),
-      '',
-    );
-    cleaned = cleaned.replaceFirst(
-      RegExp(r'^\s*<tool_call>.*?</tool_call>\s*', dotAll: true),
-      '',
-    );
-    cleaned = cleaned.replaceFirst(
-      RegExp(r'^\s*\[TOOL_CALLS\].*?\[/TOOL_CALLS\]\s*', dotAll: true),
-      '',
-    );
-    cleaned = cleaned.replaceFirst(
-      RegExp(r'^\s*call:[a-zA-Z0-9_\-]+\s*\{.*?\}\s*', dotAll: true),
-      '',
-    );
-
-    return cleaned.trimLeft();
-  }
-
-  String? _buildRecentToolResultSummary() {
-    final start = _indexAfterLastUserMessage();
-    final seen = <String>{};
-    final summaries = <MapEntry<String, String>>[];
-
-    for (int i = start; i < _messages.length; i++) {
-      final message = _messages[i];
-      final results = message.parts?.whereType<LlamaToolResultContent>();
-      if (results == null) {
-        continue;
-      }
-
-      for (final result in results) {
-        final raw = result.result;
-        final rendered = raw is String ? raw.trim() : jsonEncode(raw).trim();
-        if (rendered.isEmpty) {
-          continue;
-        }
-
-        final key = '${result.id ?? result.name}:$rendered';
-        if (!seen.add(key)) {
-          continue;
-        }
-
-        final normalized = _formatToolResultForDisplay(result.name, rendered);
-        summaries.add(MapEntry(result.name, normalized));
-      }
-    }
-
-    if (summaries.isEmpty) {
-      return null;
-    }
-    if (summaries.length == 1) {
-      return summaries.first.value;
-    }
-    return summaries
-        .map((entry) {
-          final prefix = entry.key.isNotEmpty ? '${entry.key}: ' : '';
-          return '- $prefix${entry.value}';
-        })
-        .join('\n');
-  }
-
-  String _formatToolResultForDisplay(String toolName, String rendered) {
-    if (toolName == 'get_current_time') {
-      final parsed = DateTime.tryParse(rendered);
-      if (parsed != null) {
-        final local = parsed.toLocal();
-        final hh = local.hour.toString().padLeft(2, '0');
-        final mm = local.minute.toString().padLeft(2, '0');
-        final ss = local.second.toString().padLeft(2, '0');
-        return 'Current time: ${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} $hh:$mm:$ss';
-      }
-      return 'Current time: $rendered';
-    }
-
-    return rendered;
-  }
-
-  void _updateRuntimeDiagnostics({
-    required String backendInfo,
-    required Map<String, String> metadata,
-    required bool gpuActive,
-  }) {
-    _runtimeBackendRaw = backendInfo;
-    _runtimeGpuLayers = int.tryParse(
-      metadata['llamadart.webgpu.n_gpu_layers'] ?? '',
-    );
-    _runtimeThreads = int.tryParse(
-      metadata['llamadart.webgpu.n_threads'] ?? '',
-    );
-    _runtimeModelArchitecture = metadata['general.architecture'];
-    final modelSource = metadata['llamadart.webgpu.model_source']?.trim();
-    _runtimeModelSource = modelSource == null || modelSource.isEmpty
-        ? null
-        : modelSource.toUpperCase();
-    final cacheState = metadata['llamadart.webgpu.model_cache_state']?.trim();
-    _runtimeModelCacheState = cacheState == null || cacheState.isEmpty
-        ? null
-        : cacheState;
-    final runtimeNotes = metadata['llamadart.webgpu.runtime_notes']?.trim();
-    _runtimeBridgeNotes = runtimeNotes == null || runtimeNotes.isEmpty
-        ? null
-        : runtimeNotes;
-
-    final lower = backendInfo.toLowerCase();
-    final likelyGpuBackend =
-        lower.contains('webgpu') ||
-        _containsBackendMarker(backendInfo, GpuBackend.metal) ||
-        _containsBackendMarker(backendInfo, GpuBackend.vulkan) ||
-        _containsBackendMarker(backendInfo, GpuBackend.opencl) ||
-        _containsBackendMarker(backendInfo, GpuBackend.hip) ||
-        _containsBackendMarker(backendInfo, GpuBackend.cuda) ||
-        _containsBackendMarker(backendInfo, GpuBackend.blas);
-
-    final forcedCpu =
-        _settings.preferredBackend == GpuBackend.cpu ||
-        _settings.gpuLayers == 0;
-    if (forcedCpu) {
-      _runtimeGpuActive = false;
+    if (_messages.isEmpty || _messages.last.isUser) {
       return;
     }
 
-    if (_runtimeGpuLayers != null) {
-      _runtimeGpuActive =
-          _runtimeGpuLayers! > 0 && (gpuActive || likelyGpuBackend);
-      return;
+    final parts = <LlamaContentPart>[];
+    if (fullThinking.isNotEmpty) {
+      parts.add(LlamaThinkingContent(fullThinking));
+    }
+    if (cleanText.isNotEmpty) {
+      parts.add(LlamaTextContent(cleanText));
     }
 
-    if (_settings.preferredBackend != GpuBackend.auto) {
-      _runtimeGpuActive = _containsBackendMarker(
-        backendInfo,
-        _settings.preferredBackend,
-      );
-      return;
-    }
-
-    _runtimeGpuActive = gpuActive || likelyGpuBackend;
-  }
-
-  /// Execute tool calls and continue the conversation with results.
-  Future<void> _executeToolCalls(
-    List<LlamaToolCallContent> toolCalls,
-    int remainingIterations,
-  ) async {
-    _removeRawToolCallPlaceholderMessages(toolCalls);
-
-    final freshToolCalls = toolCalls
-        .where((call) => !_hasCompletedEquivalentToolCall(call))
-        .toList(growable: false);
-
-    final budgetedToolCalls = freshToolCalls
-        .where((call) {
-          final completedForName = _completedToolCountForName(call.name);
-          return completedForName < _maxToolExecutionsPerToolPerTurn;
-        })
-        .toList(growable: false);
-
-    if (freshToolCalls.isEmpty || budgetedToolCalls.isEmpty) {
-      _addInfoMessage(
-        'Model repeated tool calls. Requesting a direct answer without tools.',
-      );
-      notifyListeners();
-      await _generateResponse(
-        '',
-        parts: [],
-        remainingToolIterations: 0,
-        toolChoiceForTurn: ToolChoice.none,
-        includeTools: false,
-      );
-      return;
-    }
-
-    if (budgetedToolCalls.length < freshToolCalls.length) {
-      _addInfoMessage(
-        'Skipping repeated tool calls for the same function to avoid loops.',
-      );
-      notifyListeners();
-    }
-
-    for (final tc in budgetedToolCalls) {
-      final toolMessageIndex = _ensureToolCallMessage(tc);
-      final handler = _toolHandlers[tc.name];
-      if (handler == null) {
-        final errorResult = 'Unknown tool: ${tc.name}';
-        _appendToolResultToMessage(
-          toolMessageIndex,
-          LlamaToolResultContent(id: tc.id, name: tc.name, result: errorResult),
-        );
-
-        _session!.addMessage(
-          LlamaChatMessage.withContent(
-            role: LlamaChatRole.tool,
-            content: [
-              LlamaToolResultContent(
-                id: tc.id,
-                name: tc.name,
-                result: errorResult,
-              ),
-            ],
-          ),
-        );
-
-        notifyListeners();
-        continue;
-      }
-
-      final args = tc.arguments;
-
-      final result = await handler(args);
-
-      _appendToolResultToMessage(
-        toolMessageIndex,
-        LlamaToolResultContent(id: tc.id, name: tc.name, result: result),
-      );
-      notifyListeners();
-
-      // Add tool result to session
-      _session!.addMessage(
-        LlamaChatMessage.withContent(
-          role: LlamaChatRole.tool,
-          content: [
-            LlamaToolResultContent(id: tc.id, name: tc.name, result: result),
-          ],
-        ),
-      );
-    }
-
-    // Continue generation to get final response with tool results
-    await _generateResponse(
-      _postToolFollowupInstruction,
-      parts: [],
-      remainingToolIterations: remainingIterations,
-      toolChoiceForTurn: null,
-      includeTools: false,
+    _messages[_messages.length - 1] = _messages.last.copyWith(
+      text: cleanText,
+      parts: parts,
     );
-  }
-
-  bool _hasCompletedEquivalentToolCall(LlamaToolCallContent target) {
-    final start = _indexAfterLastUserMessage();
-
-    for (int i = _messages.length - 1; i >= start; i--) {
-      final message = _messages[i];
-      final calls = message.parts?.whereType<LlamaToolCallContent>().toList();
-      final results = message.parts
-          ?.whereType<LlamaToolResultContent>()
-          .toList();
-
-      if (calls == null ||
-          calls.isEmpty ||
-          results == null ||
-          results.isEmpty) {
-        continue;
-      }
-
-      for (final call in calls) {
-        final sameId =
-            call.id != null && target.id != null && call.id == target.id;
-        final sameNameAndArgs =
-            call.name == target.name &&
-            mapEquals(call.arguments, target.arguments);
-        if (!sameId && !sameNameAndArgs) {
-          continue;
-        }
-
-        final hasMatchingResult = results.any((result) {
-          if (result.id != null && call.id != null) {
-            return result.id == call.id;
-          }
-          return result.name == call.name;
-        });
-
-        if (hasMatchingResult) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  int _completedToolCountForName(String name) {
-    if (name.isEmpty) {
-      return 0;
-    }
-
-    final start = _indexAfterLastUserMessage();
-    var count = 0;
-
-    for (int i = start; i < _messages.length; i++) {
-      final message = _messages[i];
-      final results = message.parts?.whereType<LlamaToolResultContent>();
-      if (results == null) {
-        continue;
-      }
-      for (final result in results) {
-        if (result.name == name) {
-          count++;
-        }
-      }
-    }
-
-    return count;
-  }
-
-  int _ensureToolCallMessage(LlamaToolCallContent toolCall) {
-    final existingIndex = _findToolCallMessageIndex(toolCall);
-    if (existingIndex >= 0) {
-      return existingIndex;
-    }
-
-    _messages.add(
-      ChatMessage(
-        text: toolCall.rawJson,
-        isUser: false,
-        role: LlamaChatRole.assistant,
-        parts: [toolCall],
-      ),
-    );
-    return _messages.length - 1;
-  }
-
-  int _findToolCallMessageIndex(LlamaToolCallContent target) {
-    final start = _indexAfterLastUserMessage();
-    for (int i = _messages.length - 1; i >= start; i--) {
-      final message = _messages[i];
-      final calls = message.parts?.whereType<LlamaToolCallContent>();
-      if (calls == null) continue;
-
-      for (final call in calls) {
-        if (_isSameToolCall(call, target)) {
-          return i;
-        }
-      }
-    }
-    return -1;
-  }
-
-  int _indexAfterLastUserMessage() {
-    for (int i = _messages.length - 1; i >= 0; i--) {
-      if (_messages[i].isUser) {
-        return i + 1;
-      }
-    }
-    return 0;
-  }
-
-  bool _isSameToolCall(LlamaToolCallContent a, LlamaToolCallContent b) {
-    if (a.id != null && b.id != null) {
-      return a.id == b.id;
-    }
-    return a.name == b.name && mapEquals(a.arguments, b.arguments);
-  }
-
-  void _removeRawToolCallPlaceholderMessages(List<LlamaToolCallContent> calls) {
-    if (calls.isEmpty || _messages.isEmpty) {
-      return;
-    }
-
-    final callNames = calls.map((c) => c.name).toSet();
-    final start = _indexAfterLastUserMessage();
-
-    for (int i = _messages.length - 1; i >= start; i--) {
-      final msg = _messages[i];
-      if (msg.isUser || msg.isInfo) {
-        continue;
-      }
-
-      final hasToolParts =
-          msg.parts?.any(
-            (p) => p is LlamaToolCallContent || p is LlamaToolResultContent,
-          ) ??
-          false;
-      if (hasToolParts) {
-        continue;
-      }
-
-      if (_looksLikeToolCallPlaceholder(msg.text, callNames)) {
-        _messages.removeAt(i);
-      }
-    }
-  }
-
-  bool _looksLikeToolCallPlaceholder(String text, Set<String> callNames) {
-    final trimmed = text.trim();
-    if (trimmed.isEmpty) {
-      return false;
-    }
-
-    final containsToolName = callNames.any((name) => trimmed.contains(name));
-    if (!containsToolName) {
-      return false;
-    }
-
-    final bracketCall = RegExp(r'^\[[^\]]+\(.*\)\]$').hasMatch(trimmed);
-    if (bracketCall) {
-      return true;
-    }
-
-    return trimmed.startsWith('{') ||
-        trimmed.startsWith('<function') ||
-        trimmed.startsWith('<start_function_call>') ||
-        trimmed.startsWith('<start_function_response>') ||
-        trimmed.startsWith('<tool_call') ||
-        trimmed.contains('<end_function_call>') ||
-        trimmed.contains('<end_function_response>') ||
-        trimmed.contains('"arguments"') ||
-        trimmed.contains('"tool_call"') ||
-        trimmed.contains('tool_calls');
-  }
-
-  void _appendToolResultToMessage(
-    int messageIndex,
-    LlamaToolResultContent result,
-  ) {
-    if (messageIndex < 0 || messageIndex >= _messages.length) {
-      return;
-    }
-
-    final message = _messages[messageIndex];
-    final updatedParts = List<LlamaContentPart>.from(message.parts ?? const []);
-
-    final hasExistingResult = updatedParts
-        .whereType<LlamaToolResultContent>()
-        .any((existing) {
-          if (result.id != null && existing.id != null) {
-            return existing.id == result.id;
-          }
-          return existing.name == result.name;
-        });
-
-    if (hasExistingResult) {
-      return;
-    }
-
-    updatedParts.add(result);
-    _messages[messageIndex] = message.copyWith(parts: updatedParts);
   }
 
   void _addInfoMessage(String text) {
@@ -1609,7 +809,7 @@ class ChatProvider extends ChangeNotifier {
     _syncActiveConversationSnapshot();
   }
 
-  void addStagedPart(LlamaContentPart part) {
+  void _addStagedPart(LlamaContentPart part) {
     _stagedParts.add(part);
     notifyListeners();
   }
@@ -1622,51 +822,40 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> pickImage() async {
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        allowMultiple: false,
-        withData: kIsWeb,
-      );
-      if (result == null || result.files.isEmpty) {
-        return;
-      }
-
-      final file = result.files.single;
-      if (kIsWeb) {
-        if (file.bytes != null && file.bytes!.isNotEmpty) {
-          addStagedPart(LlamaImageContent(bytes: file.bytes!));
-          return;
-        }
-
-        _addInfoMessage(
+    await _pickMediaPart(
+      type: FileType.image,
+      fromPath: (path) => LlamaImageContent(path: path),
+      fromBytes: (bytes) => LlamaImageContent(bytes: bytes),
+      browserReadError:
           'Could not read image bytes in browser. Try a different image file.',
-        );
-        notifyListeners();
-        return;
-      }
-
-      if (file.path != null && file.path!.isNotEmpty) {
-        addStagedPart(LlamaImageContent(path: file.path));
-        return;
-      }
-
-      if (file.bytes != null && file.bytes!.isNotEmpty) {
-        addStagedPart(LlamaImageContent(bytes: file.bytes!));
-        return;
-      }
-
-      _addInfoMessage('Could not read selected image file.');
-      notifyListeners();
-    } catch (e) {
-      debugPrint("Error picking image: $e");
-    }
+      fileReadError: 'Could not read selected image file.',
+      debugLabel: 'image',
+    );
   }
 
   Future<void> pickAudio() async {
+    await _pickMediaPart(
+      type: FileType.audio,
+      fromPath: (path) => LlamaAudioContent(path: path),
+      fromBytes: (bytes) => LlamaAudioContent(bytes: bytes),
+      browserReadError:
+          'Could not read audio bytes in browser. Try a different audio file.',
+      fileReadError: 'Could not read selected audio file.',
+      debugLabel: 'audio',
+    );
+  }
+
+  Future<void> _pickMediaPart({
+    required FileType type,
+    required LlamaContentPart Function(String path) fromPath,
+    required LlamaContentPart Function(Uint8List bytes) fromBytes,
+    required String browserReadError,
+    required String fileReadError,
+    required String debugLabel,
+  }) async {
     try {
       final result = await FilePicker.platform.pickFiles(
-        type: FileType.audio,
+        type: type,
         allowMultiple: false,
         withData: kIsWeb,
       );
@@ -1676,32 +865,33 @@ class ChatProvider extends ChangeNotifier {
 
       final file = result.files.single;
       if (kIsWeb) {
-        if (file.bytes != null && file.bytes!.isNotEmpty) {
-          addStagedPart(LlamaAudioContent(bytes: file.bytes!));
+        final bytes = file.bytes;
+        if (bytes != null && bytes.isNotEmpty) {
+          _addStagedPart(fromBytes(bytes));
           return;
         }
 
-        _addInfoMessage(
-          'Could not read audio bytes in browser. Try a different audio file.',
-        );
+        _addInfoMessage(browserReadError);
         notifyListeners();
         return;
       }
 
-      if (file.path != null && file.path!.isNotEmpty) {
-        addStagedPart(LlamaAudioContent(path: file.path));
+      final path = file.path;
+      if (path != null && path.isNotEmpty) {
+        _addStagedPart(fromPath(path));
         return;
       }
 
-      if (file.bytes != null && file.bytes!.isNotEmpty) {
-        addStagedPart(LlamaAudioContent(bytes: file.bytes!));
+      final bytes = file.bytes;
+      if (bytes != null && bytes.isNotEmpty) {
+        _addStagedPart(fromBytes(bytes));
         return;
       }
 
-      _addInfoMessage('Could not read selected audio file.');
+      _addInfoMessage(fileReadError);
       notifyListeners();
-    } catch (e) {
-      debugPrint("Error picking audio: $e");
+    } catch (error) {
+      debugPrint('Error picking $debugLabel: $error');
     }
   }
 
@@ -1715,6 +905,7 @@ class ChatProvider extends ChangeNotifier {
 
   void _updateSettings(ChatSettings newSettings) {
     _settings = newSettings;
+    _rebuildDeclaredToolsFromSettings();
     _settingsService.saveSettings(_settings);
     _syncActiveConversationSnapshot(touchUpdatedAt: false);
     notifyListeners();
@@ -1737,8 +928,11 @@ class ChatProvider extends ChangeNotifier {
 
   void updateMaxTokens(int value) =>
       _updateSettings(_settings.copyWith(maxTokens: value.clamp(512, 32768)));
-  void updateGpuLayers(int value) =>
-      _updateSettings(_settings.copyWith(gpuLayers: value));
+  void updateGpuLayers(int value) {
+    final normalized = value >= 99 ? 99 : value.clamp(0, 98);
+    _updateSettings(_settings.copyWith(gpuLayers: normalized));
+  }
+
   void updateNumberOfThreads(int value) =>
       _updateSettings(_settings.copyWith(numberOfThreads: value.clamp(0, 64)));
   void updateNumberOfThreadsBatch(int value) => _updateSettings(
@@ -1758,8 +952,31 @@ class ChatProvider extends ChangeNotifier {
     _updateSettings(_settings.copyWith(toolsEnabled: value));
   }
 
-  void updateForceToolCall(bool value) {
-    _updateSettings(_settings.copyWith(forceToolCall: value));
+  bool updateToolDeclarations(String declarationsJson) {
+    final normalized = _toolDeclarationService.normalizeDeclarations(
+      declarationsJson,
+    );
+    try {
+      final parsed = _toolDeclarationService.parseDefinitions(
+        normalized,
+        handler: _declarationOnlyToolHandler,
+      );
+      _declaredTools = parsed;
+      _toolDeclarationsError = null;
+      _updateSettings(_settings.copyWith(toolDeclarations: normalized));
+      return true;
+    } catch (error) {
+      _toolDeclarationsError = _toolDeclarationService.formatError(
+        error,
+        fallback: 'Tool declarations are invalid.',
+      );
+      notifyListeners();
+      return false;
+    }
+  }
+
+  void resetToolDeclarations() {
+    updateToolDeclarations(_defaultToolDeclarationsJson);
   }
 
   void updateThinkingEnabled(bool value) {
@@ -1814,7 +1031,6 @@ class ChatProvider extends ChangeNotifier {
         maxTokens: model.preset.maxTokens,
         gpuLayers: model.preset.gpuLayers,
         toolsEnabled: shouldKeepToolsEnabled,
-        forceToolCall: shouldKeepToolsEnabled ? _settings.forceToolCall : false,
         thinkingEnabled: model.preset.thinkingEnabled,
         thinkingBudgetTokens: model.preset.thinkingBudgetTokens,
         singleTurnMode: false,
@@ -1844,10 +1060,10 @@ class ChatProvider extends ChangeNotifier {
         toolTemplate != null && toolTemplate.trim().isNotEmpty;
 
     _templateSupportsTools =
-        hasDedicatedToolTemplate || _formatCanUseTools(format);
+        hasDedicatedToolTemplate || format != ChatFormat.contentOnly;
 
     if (_settings.toolsEnabled && !_templateSupportsTools) {
-      _settings = _settings.copyWith(toolsEnabled: false, forceToolCall: false);
+      _settings = _settings.copyWith(toolsEnabled: false);
       _settingsService.saveSettings(_settings);
       _messages.add(
         ChatMessage(
@@ -1859,83 +1075,6 @@ class ChatProvider extends ChangeNotifier {
       );
       _syncActiveConversationSnapshot();
     }
-  }
-
-  bool _formatCanUseTools(ChatFormat format) {
-    switch (format) {
-      case ChatFormat.contentOnly:
-        return false;
-      default:
-        return true;
-    }
-  }
-
-  List<String> _parseBackendDevices(String backendInfo) {
-    final normalized = backendInfo.trim();
-    if (normalized.isEmpty) {
-      return const [];
-    }
-
-    final parts = backendInfo
-        .split(',')
-        .map((entry) => entry.trim())
-        .where((entry) => entry.isNotEmpty)
-        .toSet()
-        .toList(growable: false);
-
-    if (parts.isEmpty) {
-      return const [];
-    }
-    return parts;
-  }
-
-  String _deriveActiveBackendLabel(
-    String backendInfo, {
-    required GpuBackend preferredBackend,
-    required int gpuLayers,
-  }) {
-    if (preferredBackend == GpuBackend.cpu || gpuLayers == 0) {
-      return 'CPU';
-    }
-
-    if (preferredBackend != GpuBackend.auto &&
-        _containsBackendMarker(backendInfo, preferredBackend)) {
-      return preferredBackend.name.toUpperCase();
-    }
-
-    if (preferredBackend != GpuBackend.auto) {
-      // Explicit backend requested but not available at runtime; we fallback to CPU.
-      return 'CPU';
-    }
-
-    final lower = backendInfo.toLowerCase();
-    if (lower.contains('webgpu') || lower.contains('wgpu')) {
-      return 'WEBGPU';
-    }
-
-    if (_containsBackendMarker(backendInfo, GpuBackend.metal)) {
-      return 'METAL';
-    }
-    if (_containsBackendMarker(backendInfo, GpuBackend.vulkan)) {
-      return 'VULKAN';
-    }
-    if (_containsBackendMarker(backendInfo, GpuBackend.opencl)) {
-      return 'OPENCL';
-    }
-    if (_containsBackendMarker(backendInfo, GpuBackend.hip)) {
-      return 'HIP';
-    }
-    if (_containsBackendMarker(backendInfo, GpuBackend.cuda)) {
-      return 'CUDA';
-    }
-    if (_containsBackendMarker(backendInfo, GpuBackend.blas)) {
-      return 'BLAS';
-    }
-    if (_containsBackendMarker(backendInfo, GpuBackend.cpu)) {
-      return 'CPU';
-    }
-
-    return backendInfo;
   }
 
   Future<void> _resolveAutoPreferredBackend({String? backendInfo}) async {
@@ -1951,7 +1090,7 @@ class ChatProvider extends ChangeNotifier {
     final info = backendInfo ?? await _getBackendInfoBestEffort();
     final resolved = info == null
         ? GpuBackend.cpu
-        : _selectBestBackendFromInfo(info);
+        : BackendUtils.selectBestBackendFromInfo(info);
 
     _settings = _settings.copyWith(preferredBackend: resolved);
     await _settingsService.saveSettings(_settings);
@@ -1966,103 +1105,23 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  GpuBackend _selectBestBackendFromInfo(String backendInfo) {
-    if (_containsBackendMarker(backendInfo, GpuBackend.metal)) {
-      return GpuBackend.metal;
-    }
-    if (_containsBackendMarker(backendInfo, GpuBackend.cuda)) {
-      return GpuBackend.cuda;
-    }
-    if (_containsBackendMarker(backendInfo, GpuBackend.hip)) {
-      return GpuBackend.hip;
-    }
-    if (_containsBackendMarker(backendInfo, GpuBackend.vulkan)) {
-      return GpuBackend.vulkan;
-    }
-    if (_containsBackendMarker(backendInfo, GpuBackend.opencl)) {
-      return GpuBackend.opencl;
-    }
-    if (_containsBackendMarker(backendInfo, GpuBackend.blas)) {
-      return GpuBackend.blas;
-    }
-    return GpuBackend.cpu;
-  }
-
-  bool _containsBackendMarker(String value, GpuBackend backend) {
-    final lower = value.toLowerCase();
-    switch (backend) {
-      case GpuBackend.metal:
-        return lower.contains('metal') || lower.contains('mtl');
-      case GpuBackend.vulkan:
-        return lower.contains('vulkan');
-      case GpuBackend.opencl:
-        return lower.contains('opencl');
-      case GpuBackend.hip:
-        return lower.contains('hip');
-      case GpuBackend.cuda:
-        return lower.contains('cuda');
-      case GpuBackend.blas:
-        return lower.contains('blas');
-      case GpuBackend.cpu:
-        return lower.contains('cpu') || lower.contains('llvm');
-      case GpuBackend.auto:
-        return false;
-    }
-  }
-
   void updateMmprojPath(String path) {
     _updateSettings(_settings.copyWith(mmprojPath: path));
   }
 
-  Future<void> updatePreferredBackend(GpuBackend backend) async {
+  Future<void> updatePreferredBackend(GpuBackend backend) {
     _updateSettings(_settings.copyWith(preferredBackend: backend));
     _messages.add(
       ChatMessage(
-        text: 'Switching backend to ${backend.name}...',
+        text:
+            'Backend preference set to ${backend.name}. Reload model to apply.',
         isUser: false,
         isInfo: true,
       ),
     );
     _syncActiveConversationSnapshot();
     notifyListeners();
-    await loadModel();
-  }
-
-  Future<void> selectModelFile() async {
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        allowMultiple: false,
-        type: FileType.any,
-      );
-      if (result == null || result.files.isEmpty) return;
-
-      final selectedPath = result.files.single.path;
-      if (selectedPath == null) throw Exception('No file path');
-
-      _error = null;
-      _updateSettings(_settings.copyWith(modelPath: selectedPath));
-      await loadModel();
-    } catch (e) {
-      rethrow;
-    }
-  }
-
-  Future<void> selectMmprojFile() async {
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        allowMultiple: false,
-        type: FileType.any,
-      );
-      if (result == null || result.files.isEmpty) return;
-
-      final selectedPath = result.files.single.path;
-      if (selectedPath == null) throw Exception('No file path');
-
-      _updateSettings(_settings.copyWith(mmprojPath: selectedPath));
-      await loadModel();
-    } catch (e) {
-      rethrow;
-    }
+    return Future<void>.value();
   }
 
   @override
@@ -2096,32 +1155,22 @@ class ChatProvider extends ChangeNotifier {
   Future<void> estimateDynamicSettings() async {
     try {
       final vram = await _chatService.engine.getVramInfo();
-      if (vram.total == 0) return;
-
-      final freeVramGb = vram.free / (1024 * 1024 * 1024);
-
-      // Heuristic: 1GB per 24 layers for a typical 7B model
-      // Modern models have ~32 layers.
-      // Small models (0.5B-1B) have ~24 layers.
-      // Large models (7B-8B) have ~32 layers.
-      // Very large models (70B) have ~80 layers.
-
-      int recommendedLayers = (freeVramGb * 24).round();
-      if (recommendedLayers > 100) recommendedLayers = 100;
-      if (recommendedLayers < 0) recommendedLayers = 0;
-
-      // Also set a conservative context size if VRAM is low
-      int recommendedCtx = 4096;
-      if (freeVramGb < 2.0) {
-        recommendedCtx = 2048;
-      }
-
-      _settings = _settings.copyWith(
-        gpuLayers: recommendedLayers,
-        contextSize: recommendedCtx,
+      final backendInfo = await _getBackendInfoBestEffort();
+      final estimate = _runtimeProfileService.estimateDynamicSettings(
+        totalVramBytes: vram.total,
+        freeVramBytes: vram.free,
+        isWeb: kIsWeb,
+        preferredBackend: _settings.preferredBackend,
+        currentContextSize: _settings.contextSize,
+        backendInfo: backendInfo,
       );
-      _syncActiveConversationSnapshot(touchUpdatedAt: false);
-      notifyListeners();
+
+      _updateSettings(
+        _settings.copyWith(
+          gpuLayers: estimate.gpuLayers,
+          contextSize: estimate.contextSize,
+        ),
+      );
     } catch (e) {
       debugPrint("Error estimating dynamic settings: $e");
     }

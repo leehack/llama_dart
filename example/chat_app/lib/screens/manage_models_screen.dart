@@ -10,8 +10,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/downloadable_model.dart';
 import '../providers/chat_provider.dart';
-import '../services/model_service.dart';
+import '../services/model_service_base.dart';
+import '../utils/backend_utils.dart';
 import '../widgets/model_card.dart';
+import '../widgets/tool_declarations_dialog.dart';
 
 class ManageModelsScreen extends StatefulWidget {
   final VoidCallback? onModelActivated;
@@ -44,6 +46,8 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
   String? _modelsDir;
   String? _activatingModel;
   bool _showModelLibrary = true;
+  bool _modelParametersExpanded = false;
+  bool _inferenceParametersExpanded = false;
 
   @override
   void initState() {
@@ -426,12 +430,34 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
     });
   }
 
-  void _resetParams(ChatProvider provider) {
+  void _resetModelParams(ChatProvider provider) {
     final selectedModel = _findSelectedModel(provider);
     if (selectedModel != null) {
-      provider.applyModelPreset(selectedModel);
+      provider.updateGpuLayers(selectedModel.preset.gpuLayers);
+      provider.updateContextSize(selectedModel.preset.contextSize);
     } else {
+      provider.updateGpuLayers(32);
       provider.updateContextSize(4096);
+    }
+
+    provider.updateNumberOfThreads(0);
+    provider.updateNumberOfThreadsBatch(0);
+  }
+
+  void _resetInferenceParams(ChatProvider provider) {
+    final selectedModel = _findSelectedModel(provider);
+    if (selectedModel != null) {
+      provider.updateMaxTokens(selectedModel.preset.maxTokens);
+      provider.updateTemperature(selectedModel.preset.temperature);
+      provider.updateTopK(selectedModel.preset.topK);
+      provider.updateTopP(selectedModel.preset.topP);
+      provider.updateMinP(selectedModel.preset.minP);
+      provider.updatePenalty(selectedModel.preset.penalty);
+      provider.updateThinkingEnabled(selectedModel.preset.thinkingEnabled);
+      provider.updateThinkingBudgetTokens(
+        selectedModel.preset.thinkingBudgetTokens,
+      );
+    } else {
       provider.updateMaxTokens(4096);
       provider.updateTemperature(0.7);
       provider.updateTopK(40);
@@ -442,8 +468,6 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
       provider.updateThinkingBudgetTokens(0);
     }
 
-    provider.updateNumberOfThreads(0);
-    provider.updateNumberOfThreadsBatch(0);
     provider.updateSingleTurnMode(false);
   }
 
@@ -500,6 +524,13 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
         final threadBatchLabel = provider.numberOfThreadsBatch == 0
             ? '(auto detected)'
             : provider.numberOfThreadsBatch.toString();
+        final isAutoGpuLayers = provider.gpuLayers >= 99;
+        final gpuLayersLabel = isAutoGpuLayers
+            ? 'Auto'
+            : provider.gpuLayers.toString();
+        final gpuLayersSliderValue = isAutoGpuLayers
+            ? 99.0
+            : provider.gpuLayers.clamp(0, 98).toDouble();
         final hasLoadProgress =
             provider.loadingProgress > 0 && provider.loadingProgress < 1;
         final loadProgressLabel = hasLoadProgress
@@ -736,8 +767,361 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
               ),
             ),
             const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.outlineVariant.withValues(alpha: 0.45),
+                ),
+              ),
+              child: Theme(
+                data: Theme.of(
+                  context,
+                ).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  initiallyExpanded: _modelParametersExpanded,
+                  onExpansionChanged: (expanded) {
+                    setState(() {
+                      _modelParametersExpanded = expanded;
+                    });
+                  },
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(top: 8),
+                  shape: const RoundedRectangleBorder(),
+                  collapsedShape: const RoundedRectangleBorder(),
+                  title: Text(
+                    'Model parameters',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'GPU layers, backend, context, and runtime threads',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  children: [
+                    _LabeledSlider(
+                      label: 'GPU layers',
+                      valueLabel: gpuLayersLabel,
+                      min: 0,
+                      max: 99,
+                      divisions: 99,
+                      value: gpuLayersSliderValue,
+                      onChanged: (value) =>
+                          provider.updateGpuLayers(value.round()),
+                    ),
+                    const SizedBox(height: 10),
+                    _LabeledSlider(
+                      label: '# threads',
+                      valueLabel: threadLabel,
+                      min: 0,
+                      max: 32,
+                      divisions: 32,
+                      value: provider.numberOfThreads.toDouble(),
+                      onChanged: (value) =>
+                          provider.updateNumberOfThreads(value.toInt()),
+                    ),
+                    const SizedBox(height: 10),
+                    _LabeledSlider(
+                      label: '# batch threads',
+                      valueLabel: threadBatchLabel,
+                      min: 0,
+                      max: 64,
+                      divisions: 64,
+                      value: provider.numberOfThreadsBatch.toDouble(),
+                      onChanged: (value) =>
+                          provider.updateNumberOfThreadsBatch(value.toInt()),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<int>(
+                      initialValue: provider.contextSize,
+                      decoration: const InputDecoration(
+                        labelText: 'Context size',
+                      ),
+                      items: contextOptions
+                          .map(
+                            (option) => DropdownMenuItem<int>(
+                              value: option,
+                              child: Text(
+                                option == 0 ? 'Auto (Native)' : '$option',
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged: (value) {
+                        if (value != null) {
+                          provider.updateContextSize(value);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<GpuBackend>(
+                      initialValue: selectedBackend,
+                      decoration: const InputDecoration(
+                        labelText: 'Preferred backend',
+                      ),
+                      items: _getAvailableBackends(provider)
+                          .map(
+                            (backend) => DropdownMenuItem<GpuBackend>(
+                              value: backend,
+                              child: Text(_backendLabel(backend)),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged: (value) {
+                        if (value != null) {
+                          unawaited(provider.updatePreferredBackend(value));
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          FilledButton.tonalIcon(
+                            onPressed: provider.isInitializing
+                                ? null
+                                : () async {
+                                    final messenger = ScaffoldMessenger.of(
+                                      context,
+                                    );
+                                    await provider.estimateDynamicSettings();
+                                    if (!mounted) return;
+                                    final gpuLabel = provider.gpuLayers == 99
+                                        ? 'Auto'
+                                        : provider.gpuLayers.toString();
+                                    final ctxLabel = provider.contextSize == 0
+                                        ? 'Auto'
+                                        : provider.contextSize.toString();
+                                    messenger.showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Estimated GPU layers $gpuLabel, context $ctxLabel.',
+                                        ),
+                                      ),
+                                    );
+                                  },
+                            icon: const Icon(Icons.auto_fix_high_rounded),
+                            label: const Text('Estimate GPU + context'),
+                          ),
+                          FilledButton.tonal(
+                            onPressed: () => _resetModelParams(provider),
+                            child: const Text('Reset model params'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Estimate uses current free VRAM to set GPU layers and '
+                        'context size. Set GPU layers to 99 for Auto. '
+                        'Values apply on next model load.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.outlineVariant.withValues(alpha: 0.45),
+                ),
+              ),
+              child: Theme(
+                data: Theme.of(
+                  context,
+                ).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  initiallyExpanded: _inferenceParametersExpanded,
+                  onExpansionChanged: (expanded) {
+                    setState(() {
+                      _inferenceParametersExpanded = expanded;
+                    });
+                  },
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(top: 8),
+                  shape: const RoundedRectangleBorder(),
+                  collapsedShape: const RoundedRectangleBorder(),
+                  title: Text(
+                    'Inference parameters',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'Sampling, tool behavior, and thinking controls',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  children: [
+                    _LabeledSlider(
+                      label: 'Max generated tokens',
+                      valueLabel: provider.maxGenerationTokens.toString(),
+                      min: 512,
+                      max: 32768,
+                      divisions: (32768 - 512) ~/ 512,
+                      value: provider.maxGenerationTokens.toDouble(),
+                      onChanged: (value) =>
+                          provider.updateMaxTokens(value.toInt()),
+                    ),
+                    const SizedBox(height: 10),
+                    _LabeledSlider(
+                      label: 'Temperature',
+                      valueLabel: provider.temperature.toStringAsFixed(2),
+                      min: 0,
+                      max: 2,
+                      divisions: 40,
+                      value: provider.temperature,
+                      onChanged: provider.updateTemperature,
+                    ),
+                    const SizedBox(height: 10),
+                    _LabeledSlider(
+                      label: 'Top-K',
+                      valueLabel: provider.topK.toString(),
+                      min: 1,
+                      max: 100,
+                      divisions: 99,
+                      value: provider.topK.toDouble(),
+                      onChanged: (value) => provider.updateTopK(value.toInt()),
+                    ),
+                    const SizedBox(height: 10),
+                    _LabeledSlider(
+                      label: 'Top-P',
+                      valueLabel: provider.topP.toStringAsFixed(2),
+                      min: 0,
+                      max: 1,
+                      divisions: 50,
+                      value: provider.topP,
+                      onChanged: provider.updateTopP,
+                    ),
+                    const SizedBox(height: 10),
+                    _LabeledSlider(
+                      label: 'Min-P',
+                      valueLabel: provider.minP.toStringAsFixed(2),
+                      min: 0,
+                      max: 1,
+                      divisions: 100,
+                      value: provider.minP,
+                      onChanged: provider.updateMinP,
+                    ),
+                    const SizedBox(height: 10),
+                    _LabeledSlider(
+                      label: 'Repetition penalty',
+                      valueLabel: provider.penalty.toStringAsFixed(2),
+                      min: 0.8,
+                      max: 2.0,
+                      divisions: 60,
+                      value: provider.penalty,
+                      onChanged: provider.updatePenalty,
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile.adaptive(
+                      value: provider.toolsEnabled,
+                      title: const Text('Function calling'),
+                      subtitle: const Text(
+                        'Allow the model to emit tool calls.',
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                      onChanged: provider.updateToolsEnabled,
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () =>
+                            showToolDeclarationsDialog(context, provider),
+                        icon: const Icon(Icons.edit_outlined, size: 16),
+                        label: const Text('Edit declarations'),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '${provider.declaredToolCount} declaration(s) loaded',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    if (provider.toolDeclarationsError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            provider.toolDeclarationsError!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    SwitchListTile.adaptive(
+                      value: provider.thinkingEnabled,
+                      title: const Text('Enable thinking output'),
+                      subtitle: const Text(
+                        'Sends thinking-disable hint to template handlers.',
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                      onChanged: provider.updateThinkingEnabled,
+                    ),
+                    const SizedBox(height: 10),
+                    _LabeledSlider(
+                      label: 'Thinking budget',
+                      valueLabel: provider.thinkingBudgetTokens == 0
+                          ? 'Auto'
+                          : provider.thinkingBudgetTokens.toString(),
+                      min: 0,
+                      max: 4096,
+                      divisions: 64,
+                      value: provider.thinkingBudgetTokens.toDouble(),
+                      onChanged: (value) =>
+                          provider.updateThinkingBudgetTokens(value.toInt()),
+                    ),
+                    SwitchListTile.adaptive(
+                      value: provider.singleTurnMode,
+                      title: const Text('Single-turn mode'),
+                      subtitle: const Text(
+                        'Each prompt runs without previous turn context.',
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                      onChanged: provider.updateSingleTurnMode,
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        FilledButton.tonal(
+                          onPressed: () => _resetInferenceParams(provider),
+                          child: const Text('Reset inference params'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
             Text(
-              'Inference parameters',
+              'Diagnostics',
               style: Theme.of(
                 context,
               ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
@@ -756,131 +1140,6 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
               ),
               child: Column(
                 children: [
-                  _LabeledSlider(
-                    label: '# threads',
-                    valueLabel: threadLabel,
-                    min: 0,
-                    max: 32,
-                    divisions: 32,
-                    value: provider.numberOfThreads.toDouble(),
-                    onChanged: (value) =>
-                        provider.updateNumberOfThreads(value.toInt()),
-                  ),
-                  const SizedBox(height: 10),
-                  _LabeledSlider(
-                    label: '# batch threads',
-                    valueLabel: threadBatchLabel,
-                    min: 0,
-                    max: 64,
-                    divisions: 64,
-                    value: provider.numberOfThreadsBatch.toDouble(),
-                    onChanged: (value) =>
-                        provider.updateNumberOfThreadsBatch(value.toInt()),
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<int>(
-                    initialValue: provider.contextSize,
-                    decoration: const InputDecoration(
-                      labelText: 'Context size',
-                    ),
-                    items: contextOptions
-                        .map(
-                          (option) => DropdownMenuItem<int>(
-                            value: option,
-                            child: Text(
-                              option == 0 ? 'Auto (Native)' : '$option',
-                            ),
-                          ),
-                        )
-                        .toList(growable: false),
-                    onChanged: (value) {
-                      if (value != null) {
-                        provider.updateContextSize(value);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _LabeledSlider(
-                    label: 'Max generated tokens',
-                    valueLabel: provider.maxGenerationTokens.toString(),
-                    min: 512,
-                    max: 32768,
-                    divisions: (32768 - 512) ~/ 512,
-                    value: provider.maxGenerationTokens.toDouble(),
-                    onChanged: (value) =>
-                        provider.updateMaxTokens(value.toInt()),
-                  ),
-                  const SizedBox(height: 10),
-                  _LabeledSlider(
-                    label: 'Temperature',
-                    valueLabel: provider.temperature.toStringAsFixed(2),
-                    min: 0,
-                    max: 2,
-                    divisions: 40,
-                    value: provider.temperature,
-                    onChanged: provider.updateTemperature,
-                  ),
-                  const SizedBox(height: 10),
-                  _LabeledSlider(
-                    label: 'Top-K',
-                    valueLabel: provider.topK.toString(),
-                    min: 1,
-                    max: 100,
-                    divisions: 99,
-                    value: provider.topK.toDouble(),
-                    onChanged: (value) => provider.updateTopK(value.toInt()),
-                  ),
-                  const SizedBox(height: 10),
-                  _LabeledSlider(
-                    label: 'Top-P',
-                    valueLabel: provider.topP.toStringAsFixed(2),
-                    min: 0,
-                    max: 1,
-                    divisions: 50,
-                    value: provider.topP,
-                    onChanged: provider.updateTopP,
-                  ),
-                  const SizedBox(height: 10),
-                  _LabeledSlider(
-                    label: 'Min-P',
-                    valueLabel: provider.minP.toStringAsFixed(2),
-                    min: 0,
-                    max: 1,
-                    divisions: 100,
-                    value: provider.minP,
-                    onChanged: provider.updateMinP,
-                  ),
-                  const SizedBox(height: 10),
-                  _LabeledSlider(
-                    label: 'Repetition penalty',
-                    valueLabel: provider.penalty.toStringAsFixed(2),
-                    min: 0.8,
-                    max: 2.0,
-                    divisions: 60,
-                    value: provider.penalty,
-                    onChanged: provider.updatePenalty,
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<GpuBackend>(
-                    initialValue: selectedBackend,
-                    decoration: const InputDecoration(
-                      labelText: 'Preferred backend',
-                    ),
-                    items: _getAvailableBackends(provider)
-                        .map(
-                          (backend) => DropdownMenuItem<GpuBackend>(
-                            value: backend,
-                            child: Text(_backendLabel(backend)),
-                          ),
-                        )
-                        .toList(growable: false),
-                    onChanged: (value) {
-                      if (value != null) {
-                        unawaited(provider.updatePreferredBackend(value));
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 10),
                   DropdownButtonFormField<LlamaLogLevel>(
                     initialValue: provider.dartLogLevel,
                     decoration: const InputDecoration(
@@ -920,67 +1179,6 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
                       }
                     },
                   ),
-                  const SizedBox(height: 8),
-                  SwitchListTile.adaptive(
-                    value: provider.toolsEnabled,
-                    title: const Text('Enable tools'),
-                    subtitle: const Text(
-                      'Allow the model to call tool functions.',
-                    ),
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: provider.updateToolsEnabled,
-                  ),
-                  SwitchListTile.adaptive(
-                    value: provider.forceToolCall,
-                    title: const Text('Force tool call'),
-                    subtitle: const Text('Require tool output for each turn.'),
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: provider.toolsEnabled
-                        ? provider.updateForceToolCall
-                        : null,
-                  ),
-                  SwitchListTile.adaptive(
-                    value: provider.thinkingEnabled,
-                    title: const Text('Enable thinking output'),
-                    subtitle: const Text(
-                      'Sends thinking-disable hint to template handlers.',
-                    ),
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: provider.updateThinkingEnabled,
-                  ),
-                  const SizedBox(height: 10),
-                  _LabeledSlider(
-                    label: 'Thinking budget',
-                    valueLabel: provider.thinkingBudgetTokens == 0
-                        ? 'Auto'
-                        : provider.thinkingBudgetTokens.toString(),
-                    min: 0,
-                    max: 4096,
-                    divisions: 64,
-                    value: provider.thinkingBudgetTokens.toDouble(),
-                    onChanged: (value) =>
-                        provider.updateThinkingBudgetTokens(value.toInt()),
-                  ),
-                  SwitchListTile.adaptive(
-                    value: provider.singleTurnMode,
-                    title: const Text('Single-turn mode'),
-                    subtitle: const Text(
-                      'Each prompt runs without previous turn context.',
-                    ),
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: provider.updateSingleTurnMode,
-                  ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      FilledButton.tonal(
-                        onPressed: () => _resetParams(provider),
-                        child: const Text('Reset params'),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ),
@@ -997,29 +1195,11 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
   }
 
   List<GpuBackend> _getAvailableBackends(ChatProvider provider) {
-    final backends = <GpuBackend>{GpuBackend.cpu};
-    if (kIsWeb) {
-      backends.add(GpuBackend.auto);
-    }
-
-    for (final device in provider.availableDevices) {
-      final d = device.toLowerCase();
-      if (d.contains('metal') || d.contains('mtl')) {
-        backends.add(GpuBackend.metal);
-      }
-      if (d.contains('vulkan')) backends.add(GpuBackend.vulkan);
-      if (d.contains('opencl')) backends.add(GpuBackend.opencl);
-      if (d.contains('hip')) backends.add(GpuBackend.hip);
-      if (d.contains('cuda')) backends.add(GpuBackend.cuda);
-      if (d.contains('blas')) backends.add(GpuBackend.blas);
-      if (d.contains('cpu') || d.contains('llvm')) {
-        backends.add(GpuBackend.cpu);
-      }
-    }
-
-    final sorted = backends.toList(growable: false)
-      ..sort((a, b) => a.index.compareTo(b.index));
-    return sorted;
+    return BackendUtils.availableBackends(
+      devices: provider.availableDevices,
+      activeBackend: provider.activeBackend,
+      includeAutoOnWeb: kIsWeb,
+    );
   }
 
   GpuBackend _resolveSelectedBackend(ChatProvider provider) {
@@ -1058,7 +1238,7 @@ class _LabeledSlider extends StatelessWidget {
   final double max;
   final int? divisions;
   final double value;
-  final ValueChanged<double> onChanged;
+  final ValueChanged<double>? onChanged;
 
   const _LabeledSlider({
     required this.label,
