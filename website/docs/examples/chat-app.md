@@ -6,6 +6,8 @@ Path: `example/chat_app`
 
 Flutter app showing production-style local chat UX with runtime controls.
 
+Live demo: https://leehack-llamadart.static.hf.space
+
 ## Run
 
 ```bash
