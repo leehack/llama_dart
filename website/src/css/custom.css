@@ -98,14 +98,26 @@ html[data-theme='dark'] {
    Glassmorphic Nav
    ========================================================================== */
 .navbar {
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background-color: var(--ifm-navbar-background-color);
   border-bottom: 1px solid var(--site-border);
+}
+
+@media (min-width: 997px) {
+  .navbar {
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
 }
 
 .navbar__title {
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 /* ==========================================================================
@@ -225,11 +237,13 @@ html[data-theme='dark'] .button--secondary:hover {
    ========================================================================== */
 .landingRoot {
   min-height: calc(100vh - 60px);
+  width: 100%;
   padding: 4rem 1.5rem 5rem;
   display: flex;
   flex-direction: column;
   gap: 3rem;
   align-items: center;
+  overflow-x: hidden;
   background-image: 
     linear-gradient(var(--site-card-border) 1px, transparent 1px),
     linear-gradient(90deg, var(--site-card-border) 1px, transparent 1px);
@@ -253,18 +267,21 @@ html[data-theme='dark'] .button--secondary:hover {
 }
 
 .heroShell {
-  width: min(1200px, 100%);
+  width: 100%;
+  max-width: 1200px;
   display: grid;
   grid-template-columns: 1.2fr 1fr;
   gap: 1.5rem;
 }
 
 .heroLeft {
+  min-width: 0;
   padding: 3rem;
   animation: slide-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .heroRight {
+  min-width: 0;
   padding: 2.5rem;
   animation: slide-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
   display: flex;
@@ -385,7 +402,8 @@ html[data-theme='dark'] .heroLeft h1 {
    Sections & Cards
    ========================================================================== */
 .sectionShell {
-  width: min(1200px, 100%);
+  width: 100%;
+  max-width: 1200px;
   padding: 3rem;
   animation: slide-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
 }
@@ -543,6 +561,13 @@ html[data-theme='dark'] .heroLeft h1 {
   .landingRoot {
     padding: 2rem 1rem 4rem;
     gap: 2rem;
+    background-size: 32px 32px;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+
+  .heroShell {
+    gap: 1rem;
   }
   
   .sectionShell, .heroLeft, .heroRight {
@@ -556,6 +581,18 @@ html[data-theme='dark'] .heroLeft h1 {
 
   .heroLeft h1 {
     font-size: 2.2rem;
+    line-height: 1.12;
+    overflow-wrap: anywhere;
+  }
+
+  .heroKicker {
+    max-width: 100%;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .heroLead {
+    max-width: 100%;
   }
 
   .heroActions {
@@ -565,7 +602,53 @@ html[data-theme='dark'] .heroLeft h1 {
 
   .heroActions .button {
     width: 100%;
+    max-width: 100%;
     text-align: center;
+    white-space: normal;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .heroRight .theme-code-block,
+  .theme-doc-markdown pre {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .theme-doc-markdown table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 996px) {
+  .navbar {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .navbar-sidebar__backdrop {
+    z-index: calc(var(--ifm-z-index-fixed) + 1);
+  }
+
+  .navbar-sidebar {
+    z-index: calc(var(--ifm-z-index-fixed) + 2);
+  }
+}
+
+@media (max-width: 480px) {
+  .landingRoot {
+    padding: 1.5rem 0.75rem 3rem;
+  }
+
+  .heroLeft h1 {
+    font-size: 1.95rem;
+  }
+
+  .heroLead {
+    font-size: 1rem;
   }
 }
 

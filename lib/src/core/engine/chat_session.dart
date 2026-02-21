@@ -110,6 +110,8 @@ class ChatSession {
     List<ToolDefinition>? tools,
     ToolChoice? toolChoice,
     bool parallelToolCalls = false,
+    bool enableThinking = true,
+    Map<String, dynamic>? chatTemplateKwargs,
     void Function(LlamaChatMessage message)? onMessageAdded,
   }) async* {
     // Add user message if parts provided
@@ -144,6 +146,8 @@ class ChatSession {
       tools: tools,
       toolChoice: toolChoice,
       parallelToolCalls: parallelToolCalls,
+      enableThinking: enableThinking,
+      chatTemplateKwargs: chatTemplateKwargs,
     )) {
       final delta = chunk.choices.first.delta;
       if (delta.content != null) fullContent += delta.content!;

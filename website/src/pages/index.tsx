@@ -118,6 +118,14 @@ export default function Home(): JSX.Element {
               <Link className="button button--secondary button--lg" to="/api">
                 API on pub.dev
               </Link>
+              <a
+                className="button button--secondary button--lg"
+                href="https://leehack-llamadart.static.hf.space"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Try Chat App Demo
+              </a>
             </div>
             <ul className="heroChecklist">
               <li>Single Dart API across native and browser targets</li>

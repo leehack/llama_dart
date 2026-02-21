@@ -29,7 +29,7 @@ class ChatAppBarTitle extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Llama Chat',
+              'llamadart chat',
               style: GoogleFonts.outfit(
                 fontWeight: FontWeight.w600,
                 fontSize: 18,

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:llamadart/llamadart.dart';
 import 'package:file_picker/file_picker.dart';
 
+import '../models/chat_conversation.dart';
 import '../models/chat_message.dart';
 import '../models/chat_settings.dart';
 import '../models/downloadable_model.dart';
@@ -13,10 +14,24 @@ import '../services/chat_service.dart';
 import '../services/settings_service.dart';
 
 class ChatProvider extends ChangeNotifier {
+  static const String _toolLoopGuardSystemPrompt =
+      'When tools are available, call a tool only if external data is needed. '
+      'Never repeat the same tool call with identical arguments in one user turn. '
+      'After receiving tool results, provide a final answer directly and do not '
+      'call additional tools unless the previous result is clearly missing data or errored.';
   static const String _postToolFollowupInstruction =
       'Use the tool result messages above as authoritative facts. '
       'Answer the user directly from those results. '
-      'Do not say you lack real-time access when tool results are present.';
+      'Do not say you lack real-time access when tool results are present. '
+      'Do not output tool-call JSON, XML, or tool-call tags.';
+  static const List<String> _noToolModeStopSequences = <String>[
+    '<tool_call',
+    '</tool_call>',
+    '[TOOL_CALLS]',
+    '[/TOOL_CALLS]',
+    '"tool_calls"',
+    '"tool_call"',
+  ];
   static const int _maxToolExecutionsPerToolPerTurn = 2;
 
   final ChatService _chatService;
@@ -24,7 +39,11 @@ class ChatProvider extends ChangeNotifier {
 
   final List<ChatMessage> _messages = [];
   final List<LlamaContentPart> _stagedParts = [];
+  final List<ChatConversation> _conversations = [];
   ChatSettings _settings = const ChatSettings();
+  String _activeConversationId = '';
+  String? _loadedModelPath;
+  String? _loadedMmprojPath;
 
   // Chat session for stateful conversation
   ChatSession? _session;
@@ -61,12 +80,21 @@ class ChatProvider extends ChangeNotifier {
   String? _runtimeBridgeNotes;
   int? _lastFirstTokenLatencyMs;
   int? _lastGenerationLatencyMs;
+  int _lastGeneratedTokens = 0;
+  double? _lastTokensPerSecond;
 
   List<String> _availableDevices = [];
 
   // Getters
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   List<LlamaContentPart> get stagedParts => List.unmodifiable(_stagedParts);
+  List<ChatConversation> get conversations {
+    final sorted = List<ChatConversation>.from(_conversations)
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return List.unmodifiable(sorted);
+  }
+
+  String get activeConversationId => _activeConversationId;
   ChatSettings get settings => _settings;
   String? get modelPath => _settings.modelPath;
   GpuBackend get preferredBackend => _settings.preferredBackend;
@@ -84,8 +112,12 @@ class ChatProvider extends ChangeNotifier {
   double get temperature => _settings.temperature;
   int get topK => _settings.topK;
   double get topP => _settings.topP;
+  double get minP => _settings.minP;
+  double get penalty => _settings.penalty;
   int get contextSize => _settings.contextSize;
   int get gpuLayers => _settings.gpuLayers;
+  int get numberOfThreads => _settings.numberOfThreads;
+  int get numberOfThreadsBatch => _settings.numberOfThreadsBatch;
   LlamaLogLevel get dartLogLevel => _settings.logLevel;
   LlamaLogLevel get nativeLogLevel => _settings.nativeLogLevel;
   int get contextLimit => _contextLimit; // Renamed from maxTokens
@@ -103,11 +135,27 @@ class ChatProvider extends ChangeNotifier {
   String? get runtimeBridgeNotes => _runtimeBridgeNotes;
   int? get lastFirstTokenLatencyMs => _lastFirstTokenLatencyMs;
   int? get lastGenerationLatencyMs => _lastGenerationLatencyMs;
+  int get lastGeneratedTokens => _lastGeneratedTokens;
+  double? get lastTokensPerSecond => _lastTokensPerSecond;
+  String get activeModelName {
+    final modelPath = _settings.modelPath;
+    if (modelPath == null || modelPath.isEmpty) {
+      return 'No model';
+    }
+    final normalized = modelPath.replaceAll('\\', '/');
+    final pieces = normalized.split('/');
+    final file = pieces.isNotEmpty ? pieces.last : modelPath;
+    return file.split('?').first;
+  }
+
   bool get usingWebGpu =>
       _runtimeBackendRaw.toLowerCase().contains('webgpu') ||
       _activeBackend == 'WEBGPU';
   bool get toolsEnabled => _settings.toolsEnabled;
   bool get forceToolCall => _settings.forceToolCall;
+  bool get thinkingEnabled => _settings.thinkingEnabled;
+  int get thinkingBudgetTokens => _settings.thinkingBudgetTokens;
+  bool get singleTurnMode => _settings.singleTurnMode;
 
   bool get isReady => _error == null && !_isInitializing && _isLoaded;
 
@@ -118,10 +166,232 @@ class ChatProvider extends ChangeNotifier {
   }) : _chatService = chatService ?? ChatService(),
        _settingsService = settingsService ?? SettingsService(),
        _settings = initialSettings ?? const ChatSettings() {
+    _createInitialConversation();
     _initTools();
     if (chatService == null && settingsService == null) {
       _init();
     }
+  }
+
+  void _createInitialConversation() {
+    final id = _newConversationId();
+    _activeConversationId = id;
+    _conversations.add(
+      ChatConversation(
+        id: id,
+        title: 'New conversation',
+        updatedAt: DateTime.now(),
+        settings: _settings,
+        messages: const [],
+        currentTokens: 0,
+        isPruning: false,
+      ),
+    );
+  }
+
+  String _newConversationId() {
+    return DateTime.now().microsecondsSinceEpoch.toString();
+  }
+
+  int _activeConversationIndex() {
+    return _conversations.indexWhere((c) => c.id == _activeConversationId);
+  }
+
+  String _deriveConversationTitle({required String fallback}) {
+    for (final message in _messages) {
+      if (!message.isUser) {
+        continue;
+      }
+
+      final trimmed = message.text.trim();
+      if (trimmed.isEmpty) {
+        continue;
+      }
+
+      if (trimmed.length > 52) {
+        return '${trimmed.substring(0, 52)}...';
+      }
+      return trimmed;
+    }
+
+    return fallback;
+  }
+
+  void _syncActiveConversationSnapshot({bool touchUpdatedAt = true}) {
+    final index = _activeConversationIndex();
+    if (index < 0) {
+      return;
+    }
+
+    final existing = _conversations[index];
+    _conversations[index] = existing.copyWith(
+      title: _deriveConversationTitle(fallback: existing.title),
+      updatedAt: touchUpdatedAt ? DateTime.now() : existing.updatedAt,
+      settings: _settings,
+      messages: List<ChatMessage>.from(_messages),
+      currentTokens: _currentTokens,
+      isPruning: _isPruning,
+    );
+  }
+
+  void _restoreSessionFromMessages() {
+    if (!_chatService.engine.isReady || !_isLoaded) {
+      _session = null;
+      return;
+    }
+
+    _session?.reset();
+    _session = ChatSession(
+      _chatService.engine,
+      maxContextTokens: _settings.contextSize > 0
+          ? _settings.contextSize
+          : null,
+      systemPrompt: _sessionSystemPrompt(),
+    );
+
+    for (final message in _messages) {
+      final serialized = _toLlamaChatMessage(message);
+      if (serialized != null) {
+        _session!.addMessage(serialized);
+      }
+    }
+  }
+
+  LlamaChatMessage? _toLlamaChatMessage(ChatMessage message) {
+    if (message.isInfo) {
+      return null;
+    }
+
+    final role =
+        message.role ??
+        (message.isUser ? LlamaChatRole.user : LlamaChatRole.assistant);
+    final parts = message.parts != null && message.parts!.isNotEmpty
+        ? List<LlamaContentPart>.from(message.parts!)
+        : <LlamaContentPart>[
+            if (message.text.trim().isNotEmpty) LlamaTextContent(message.text),
+          ];
+
+    if (parts.isEmpty) {
+      return null;
+    }
+
+    return LlamaChatMessage.withContent(role: role, content: parts);
+  }
+
+  void createConversation() {
+    _syncActiveConversationSnapshot();
+
+    final id = _newConversationId();
+    final copiedSettings = _settings.copyWith();
+
+    _messages.clear();
+    _stagedParts.clear();
+    _currentTokens = 0;
+    _isPruning = false;
+    _error = null;
+    _isGenerating = false;
+    _settings = copiedSettings;
+
+    _conversations.insert(
+      0,
+      ChatConversation(
+        id: id,
+        title: 'New conversation',
+        updatedAt: DateTime.now(),
+        settings: copiedSettings,
+        messages: const [],
+        currentTokens: 0,
+        isPruning: false,
+      ),
+    );
+    _activeConversationId = id;
+
+    if (_chatService.engine.isReady && _isLoaded) {
+      _session?.reset();
+      _session = ChatSession(
+        _chatService.engine,
+        maxContextTokens: _settings.contextSize > 0
+            ? _settings.contextSize
+            : null,
+        systemPrompt: _sessionSystemPrompt(),
+      );
+    } else {
+      _session = null;
+    }
+
+    notifyListeners();
+  }
+
+  Future<void> switchConversation(String conversationId) async {
+    if (conversationId == _activeConversationId) {
+      return;
+    }
+
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index < 0) {
+      return;
+    }
+
+    _syncActiveConversationSnapshot();
+    final target = _conversations[index];
+
+    _activeConversationId = target.id;
+    _settings = target.settings;
+    _messages
+      ..clear()
+      ..addAll(target.messages);
+    _currentTokens = target.currentTokens;
+    _isPruning = target.isPruning;
+    _stagedParts.clear();
+    _error = null;
+    _isGenerating = false;
+
+    final targetModelPath = _settings.modelPath;
+    final targetMmprojPath = _settings.mmprojPath;
+    final requiresLoad =
+        targetModelPath != null &&
+        targetModelPath.isNotEmpty &&
+        (!_isLoaded ||
+            _loadedModelPath != targetModelPath ||
+            (_loadedMmprojPath ?? '') != (targetMmprojPath ?? ''));
+
+    if (requiresLoad) {
+      await loadModel();
+      return;
+    }
+
+    if (targetModelPath == null || targetModelPath.isEmpty) {
+      _session = null;
+      _isLoaded = false;
+      notifyListeners();
+      return;
+    }
+
+    _isLoaded = _chatService.engine.isReady;
+    _restoreSessionFromMessages();
+    notifyListeners();
+  }
+
+  Future<void> deleteConversation(String conversationId) async {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index < 0) {
+      return;
+    }
+
+    final wasActive = _activeConversationId == conversationId;
+    _conversations.removeAt(index);
+
+    if (_conversations.isEmpty) {
+      createConversation();
+      return;
+    }
+
+    if (!wasActive) {
+      notifyListeners();
+      return;
+    }
+
+    await switchConversation(_conversations.first.id);
   }
 
   /// Initialize tool definitions with inline handlers.
@@ -189,6 +459,13 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> _init() async {
     _settings = await _settingsService.loadSettings();
+    final index = _activeConversationIndex();
+    if (index >= 0) {
+      _conversations[index] = _conversations[index].copyWith(
+        settings: _settings,
+      );
+    }
+
     String? backendInfo;
     try {
       backendInfo = await _chatService.engine.getBackendName();
@@ -210,6 +487,7 @@ class ChatProvider extends ChangeNotifier {
           ? 'CPU'
           : _settings.preferredBackend.name.toUpperCase();
     }
+    _syncActiveConversationSnapshot(touchUpdatedAt: false);
     notifyListeners();
   }
 
@@ -217,6 +495,7 @@ class ChatProvider extends ChangeNotifier {
     if (_isInitializing) return;
     if (_settings.modelPath == null || _settings.modelPath!.isEmpty) {
       _error = 'Model path not set. Please configure in settings.';
+      _syncActiveConversationSnapshot(touchUpdatedAt: false);
       notifyListeners();
       return;
     }
@@ -225,8 +504,19 @@ class ChatProvider extends ChangeNotifier {
     _isLoaded = false;
     _error = null;
     _loadingProgress = 0.0;
-    _activeBackend = "Refreshing...";
+    _activeBackend = 'Loading model...';
     notifyListeners();
+
+    void setProgress(double value) {
+      final clamped = value.clamp(0.0, 1.0);
+      if (clamped <= _loadingProgress) {
+        return;
+      }
+      _loadingProgress = clamped;
+      notifyListeners();
+    }
+
+    setProgress(0.04);
 
     // Estimate dynamic settings if we have a model path but no custom settings yet
     // or if we're reloading and want to be safe.
@@ -238,19 +528,25 @@ class ChatProvider extends ChangeNotifier {
       }
     }
 
+    setProgress(0.1);
+
     try {
       await _resolveAutoPreferredBackend();
       await _chatService.engine.setDartLogLevel(_settings.logLevel);
       await _chatService.engine.setNativeLogLevel(_settings.nativeLogLevel);
+      setProgress(0.14);
       await _chatService.init(
         _settings,
         onProgress: (progress) {
-          _loadingProgress = progress;
+          final normalized = progress.clamp(0.0, 1.0);
+          _loadingProgress = 0.14 + (normalized * 0.7);
           _activeBackend =
-              "Loading Model: ${(progress * 100).toStringAsFixed(0)}%";
+              'Loading model ${(normalized * 100).toStringAsFixed(0)}%';
           notifyListeners();
         },
       );
+
+      setProgress(0.72);
 
       if (!_chatService.engine.isReady) {
         throw Exception('Engine initialization did not complete.');
@@ -262,7 +558,9 @@ class ChatProvider extends ChangeNotifier {
         maxContextTokens: _settings.contextSize > 0
             ? _settings.contextSize
             : null,
+        systemPrompt: _sessionSystemPrompt(),
       );
+      setProgress(0.8);
 
       final rawBackend = await _chatService.engine.getBackendName();
       _availableDevices = _parseBackendDevices(rawBackend);
@@ -277,6 +575,7 @@ class ChatProvider extends ChangeNotifier {
       _supportsAudio = await _chatService.engine.supportsAudio;
       final metadata = await _chatService.engine.getMetadata();
       _updateToolTemplateSupport(metadata);
+      setProgress(0.9);
 
       final libSupported = await _chatService.engine.isGpuSupported();
       _updateRuntimeDiagnostics(
@@ -295,10 +594,17 @@ class ChatProvider extends ChangeNotifier {
 
       _addInfoMessage('Model loaded successfully! Ready to chat.');
       _isLoaded = true;
+      _loadedModelPath = _settings.modelPath;
+      _loadedMmprojPath = _settings.mmprojPath;
+      _restoreSessionFromMessages();
+      _syncActiveConversationSnapshot(touchUpdatedAt: false);
+      setProgress(1.0);
     } catch (e, stackTrace) {
       debugPrint('Error loading model: $e');
       debugPrint(stackTrace.toString());
       _error = e.toString();
+      _loadedModelPath = null;
+      _loadedMmprojPath = null;
     } finally {
       _isInitializing = false;
       notifyListeners();
@@ -312,6 +618,8 @@ class ChatProvider extends ChangeNotifier {
     _isPruning = false;
     _isGenerating = false;
     _stagedParts.clear();
+    _lastGeneratedTokens = 0;
+    _lastTokensPerSecond = null;
     _messages.add(
       ChatMessage(
         text: 'Conversation cleared. Ready for a new topic!',
@@ -319,11 +627,16 @@ class ChatProvider extends ChangeNotifier {
         isInfo: true,
       ),
     );
+    _syncActiveConversationSnapshot();
     notifyListeners();
   }
 
   Future<void> sendMessage(String text) async {
     if (_isGenerating || _session == null) return;
+
+    if (_settings.singleTurnMode) {
+      _session!.reset();
+    }
 
     if (!_chatService.engine.isReady) {
       _messages.add(
@@ -351,7 +664,10 @@ class ChatProvider extends ChangeNotifier {
     _messages.add(userMsg);
     _stagedParts.clear();
     _isGenerating = true;
+    _syncActiveConversationSnapshot();
     notifyListeners();
+
+    await _yieldUiFrame();
 
     await _generateResponse(
       text,
@@ -365,31 +681,83 @@ class ChatProvider extends ChangeNotifier {
   /// Maximum number of tool call iterations per user message.
   static const int _maxToolIterations = 5;
 
+  Map<String, dynamic>? _thinkingTemplateKwargs() {
+    if (_settings.thinkingEnabled && _settings.thinkingBudgetTokens <= 0) {
+      return null;
+    }
+
+    final kwargs = <String, dynamic>{
+      'enable_thinking': _settings.thinkingEnabled,
+      'thinking': _settings.thinkingEnabled,
+      'reasoning': _settings.thinkingEnabled,
+    };
+
+    if (_settings.thinkingBudgetTokens > 0) {
+      kwargs['thinking_budget'] = _settings.thinkingBudgetTokens;
+      kwargs['reasoning_budget'] = _settings.thinkingBudgetTokens;
+      kwargs['max_thinking_tokens'] = _settings.thinkingBudgetTokens;
+    }
+
+    return kwargs;
+  }
+
+  String? _sessionSystemPrompt() {
+    if (!_settings.toolsEnabled) {
+      return null;
+    }
+
+    if (_settings.forceToolCall) {
+      return 'You may use tools, but avoid loops. '
+          'Call each needed tool at most once per turn unless arguments change materially. '
+          'After tool results arrive, provide the final answer without additional tool calls. '
+          '$_toolLoopGuardSystemPrompt';
+    }
+
+    return _toolLoopGuardSystemPrompt;
+  }
+
+  Future<void> _yieldUiFrame() async {
+    await Future<void>.delayed(Duration.zero);
+    if (kIsWeb) {
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+  }
+
   Future<void> _generateResponse(
     String text, {
     List<LlamaContentPart>? parts,
     int remainingToolIterations = _maxToolIterations,
     ToolChoice? toolChoiceForTurn,
+    bool includeTools = true,
   }) async {
     final generationStopwatch = Stopwatch()..start();
     var sawFirstToken = false;
     String fullResponse = "";
     String fullThinking = "";
+    var generatedTokensThisTurn = 0;
     _lastFirstTokenLatencyMs = null;
 
     try {
       _messages.add(ChatMessage(text: "...", isUser: false));
       notifyListeners();
 
+      await _yieldUiFrame();
+
       DateTime lastUpdate = DateTime.now();
+      final uiNotifyIntervalMs = kIsWeb ? 120 : 50;
 
       // Use ChatSession for generation
+      final stopSequences = includeTools
+          ? const <String>[]
+          : _noToolModeStopSequences;
       final params = GenerationParams(
         maxTokens: _settings.maxTokens,
         temp: _settings.temperature,
         topK: _settings.topK,
         topP: _settings.topP,
-        penalty: 1.1,
+        minP: _settings.minP,
+        penalty: _settings.penalty,
+        stopSequences: stopSequences,
       );
 
       // Build parts list with text
@@ -399,13 +767,17 @@ class ChatProvider extends ChangeNotifier {
       ];
 
       // Tools passed per-request now (caller-managed pattern)
-      final tools = _settings.toolsEnabled ? _tools : null;
+      final tools = (_settings.toolsEnabled && includeTools) ? _tools : null;
+      final templateKwargs = _thinkingTemplateKwargs();
+      _session!.systemPrompt = _sessionSystemPrompt();
 
       await for (final chunk in _session!.create(
         chatParts,
         params: params,
         tools: tools,
         toolChoice: tools != null ? toolChoiceForTurn : null,
+        enableThinking: _settings.thinkingEnabled,
+        chatTemplateKwargs: templateKwargs,
       )) {
         if (!_isGenerating) {
           break;
@@ -415,7 +787,9 @@ class ChatProvider extends ChangeNotifier {
 
         // Accumulate both content and thinking
         final content = delta.content ?? '';
-        final thinking = delta.thinking ?? '';
+        final thinking = _settings.thinkingEnabled
+            ? (delta.thinking ?? '')
+            : '';
 
         if (!sawFirstToken &&
             (content.isNotEmpty ||
@@ -435,6 +809,7 @@ class ChatProvider extends ChangeNotifier {
         fullThinking += unescapedThinking;
 
         _currentTokens++;
+        generatedTokensThisTurn++;
 
         final cleanText = _chatService.cleanResponse(fullResponse);
 
@@ -453,7 +828,8 @@ class ChatProvider extends ChangeNotifier {
             parts: parts,
           );
 
-          if (DateTime.now().difference(lastUpdate).inMilliseconds > 50) {
+          if (DateTime.now().difference(lastUpdate).inMilliseconds >
+              uiNotifyIntervalMs) {
             notifyListeners();
             lastUpdate = DateTime.now();
           }
@@ -484,7 +860,10 @@ class ChatProvider extends ChangeNotifier {
           streamedThinking: fullThinking,
         );
         var finalText = normalized.text;
-        final finalThinking = normalized.thinking;
+        var finalThinking = normalized.thinking;
+        if (!_settings.thinkingEnabled) {
+          finalThinking = '';
+        }
         final debugBadges = kDebugMode
             ? _buildAssistantDebugBadges(
                 hadRawThinkingTags: hadRawThinkingTags,
@@ -493,6 +872,14 @@ class ChatProvider extends ChangeNotifier {
                 finalText: finalText,
               )
             : <String>[];
+
+        if (!includeTools) {
+          final noToolCleanup = _sanitizeNoToolFollowupText(finalText);
+          finalText = noToolCleanup.text;
+          if (kDebugMode && noToolCleanup.debugBadge != null) {
+            debugBadges.add(noToolCleanup.debugBadge!);
+          }
+        }
 
         if (_settings.toolsEnabled &&
             _looksLikeToolResultDisclaimer(finalText)) {
@@ -560,10 +947,19 @@ class ChatProvider extends ChangeNotifier {
       }
     } finally {
       generationStopwatch.stop();
+      final elapsedMs = generationStopwatch.elapsedMilliseconds;
+      _lastGeneratedTokens = generatedTokensThisTurn;
+      if (generatedTokensThisTurn > 0 && elapsedMs > 0) {
+        _lastTokensPerSecond = generatedTokensThisTurn / (elapsedMs / 1000);
+      } else {
+        _lastTokensPerSecond = null;
+      }
+
       if (sawFirstToken || fullResponse.isNotEmpty || fullThinking.isNotEmpty) {
         _lastGenerationLatencyMs = generationStopwatch.elapsedMilliseconds;
       }
       _isGenerating = false;
+      _syncActiveConversationSnapshot();
       notifyListeners();
     }
   }
@@ -702,9 +1098,86 @@ class ChatProvider extends ChangeNotifier {
         lower.contains('do not have real-time access') ||
         lower.contains("can't access real-time") ||
         lower.contains('cannot access real-time') ||
+        lower.contains('cannot access external data') ||
+        lower.contains('cannot access external data sources') ||
+        lower.contains('cannot retrieve current time') ||
         lower.contains('no real-time access') ||
         lower.contains('fictional response') ||
         lower.contains('as an ai') && lower.contains('real-time');
+  }
+
+  bool _looksLikeToolCallPayload(String text) {
+    final trimmed = text.trimLeft();
+    if (trimmed.isEmpty) {
+      return false;
+    }
+
+    if (trimmed.startsWith('<tool_call') ||
+        trimmed.startsWith('<start_function_call>') ||
+        trimmed.startsWith('[TOOL_CALLS]') ||
+        trimmed.contains('</tool_call>') ||
+        trimmed.contains('<end_function_call>') ||
+        trimmed.contains('[/TOOL_CALLS]')) {
+      return true;
+    }
+
+    if (trimmed.startsWith('call:') && trimmed.contains('{')) {
+      return true;
+    }
+
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+      return false;
+    }
+
+    final lower = trimmed.toLowerCase();
+    return lower.contains('"tool_call"') ||
+        lower.contains('"tool_calls"') ||
+        (lower.contains('"function"') && lower.contains('"arguments"'));
+  }
+
+  ({String text, String? debugBadge}) _sanitizeNoToolFollowupText(String text) {
+    var cleaned = text;
+    var badge = null as String?;
+
+    if (_looksLikeToolCallPayload(cleaned)) {
+      cleaned = _stripLeadingToolCallMarkup(cleaned);
+      badge = 'fallback:no-tool-markup';
+    }
+
+    if (cleaned.trim().isEmpty || _looksLikeToolCallPayload(cleaned)) {
+      final fallback = _buildRecentToolResultSummary();
+      if (fallback != null && fallback.isNotEmpty) {
+        return (text: fallback, debugBadge: 'fallback:tool-summary');
+      }
+    }
+
+    return (text: cleaned, debugBadge: badge);
+  }
+
+  String _stripLeadingToolCallMarkup(String text) {
+    var cleaned = text;
+
+    cleaned = cleaned.replaceFirst(
+      RegExp(
+        r'^\s*<start_function_call>.*?<end_function_call>\s*',
+        dotAll: true,
+      ),
+      '',
+    );
+    cleaned = cleaned.replaceFirst(
+      RegExp(r'^\s*<tool_call>.*?</tool_call>\s*', dotAll: true),
+      '',
+    );
+    cleaned = cleaned.replaceFirst(
+      RegExp(r'^\s*\[TOOL_CALLS\].*?\[/TOOL_CALLS\]\s*', dotAll: true),
+      '',
+    );
+    cleaned = cleaned.replaceFirst(
+      RegExp(r'^\s*call:[a-zA-Z0-9_\-]+\s*\{.*?\}\s*', dotAll: true),
+      '',
+    );
+
+    return cleaned.trimLeft();
   }
 
   String? _buildRecentToolResultSummary() {
@@ -731,7 +1204,8 @@ class ChatProvider extends ChangeNotifier {
           continue;
         }
 
-        summaries.add(MapEntry(result.name, rendered));
+        final normalized = _formatToolResultForDisplay(result.name, rendered);
+        summaries.add(MapEntry(result.name, normalized));
       }
     }
 
@@ -747,6 +1221,22 @@ class ChatProvider extends ChangeNotifier {
           return '- $prefix${entry.value}';
         })
         .join('\n');
+  }
+
+  String _formatToolResultForDisplay(String toolName, String rendered) {
+    if (toolName == 'get_current_time') {
+      final parsed = DateTime.tryParse(rendered);
+      if (parsed != null) {
+        final local = parsed.toLocal();
+        final hh = local.hour.toString().padLeft(2, '0');
+        final mm = local.minute.toString().padLeft(2, '0');
+        final ss = local.second.toString().padLeft(2, '0');
+        return 'Current time: ${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} $hh:$mm:$ss';
+      }
+      return 'Current time: $rendered';
+    }
+
+    return rendered;
   }
 
   void _updateRuntimeDiagnostics({
@@ -838,6 +1328,7 @@ class ChatProvider extends ChangeNotifier {
         parts: [],
         remainingToolIterations: 0,
         toolChoiceForTurn: ToolChoice.none,
+        includeTools: false,
       );
       return;
     }
@@ -903,6 +1394,7 @@ class ChatProvider extends ChangeNotifier {
       parts: [],
       remainingToolIterations: remainingIterations,
       toolChoiceForTurn: null,
+      includeTools: false,
     );
   }
 
@@ -1114,6 +1606,7 @@ class ChatProvider extends ChangeNotifier {
     }
 
     _messages.add(ChatMessage(text: text, isUser: false, isInfo: true));
+    _syncActiveConversationSnapshot();
   }
 
   void addStagedPart(LlamaContentPart part) {
@@ -1223,6 +1716,7 @@ class ChatProvider extends ChangeNotifier {
   void _updateSettings(ChatSettings newSettings) {
     _settings = newSettings;
     _settingsService.saveSettings(_settings);
+    _syncActiveConversationSnapshot(touchUpdatedAt: false);
     notifyListeners();
   }
 
@@ -1232,6 +1726,10 @@ class ChatProvider extends ChangeNotifier {
       _updateSettings(_settings.copyWith(topK: value));
   void updateTopP(double value) =>
       _updateSettings(_settings.copyWith(topP: value));
+  void updateMinP(double value) =>
+      _updateSettings(_settings.copyWith(minP: value.clamp(0.0, 1.0)));
+  void updatePenalty(double value) =>
+      _updateSettings(_settings.copyWith(penalty: value.clamp(0.8, 2.0)));
   void updateContextSize(int value) {
     final effectiveContextSize = value == 0 ? 0 : value.clamp(512, 32768);
     _updateSettings(_settings.copyWith(contextSize: effectiveContextSize));
@@ -1241,6 +1739,11 @@ class ChatProvider extends ChangeNotifier {
       _updateSettings(_settings.copyWith(maxTokens: value.clamp(512, 32768)));
   void updateGpuLayers(int value) =>
       _updateSettings(_settings.copyWith(gpuLayers: value));
+  void updateNumberOfThreads(int value) =>
+      _updateSettings(_settings.copyWith(numberOfThreads: value.clamp(0, 64)));
+  void updateNumberOfThreadsBatch(int value) => _updateSettings(
+    _settings.copyWith(numberOfThreadsBatch: value.clamp(0, 128)),
+  );
   void updateLogLevel(LlamaLogLevel value) {
     _updateSettings(_settings.copyWith(logLevel: value));
     _chatService.engine.setDartLogLevel(value);
@@ -1259,24 +1762,62 @@ class ChatProvider extends ChangeNotifier {
     _updateSettings(_settings.copyWith(forceToolCall: value));
   }
 
-  void updateModelPath(String path) {
-    _settings = _settings.copyWith(modelPath: path);
-    _settingsService.saveSettings(_settings);
+  void updateThinkingEnabled(bool value) {
+    _updateSettings(_settings.copyWith(thinkingEnabled: value));
+  }
+
+  void updateThinkingBudgetTokens(int value) {
+    _updateSettings(
+      _settings.copyWith(thinkingBudgetTokens: value.clamp(0, 8192)),
+    );
+  }
+
+  void updateSingleTurnMode(bool value) {
+    _updateSettings(_settings.copyWith(singleTurnMode: value));
+  }
+
+  Future<void> unloadModel() async {
+    stopGeneration();
+    _session?.reset();
+    _session = null;
+    await _chatService.unloadModel();
+
+    _isInitializing = false;
+    _loadingProgress = 0.0;
+    _isLoaded = false;
+    _error = null;
+    _activeBackend = 'Unloaded';
+    _contextLimit = 0;
+    _loadedModelPath = null;
+    _loadedMmprojPath = null;
+    _syncActiveConversationSnapshot(touchUpdatedAt: false);
     notifyListeners();
+  }
+
+  void updateModelPath(String path) {
+    _updateSettings(_settings.copyWith(modelPath: path));
   }
 
   /// Apply model-specific recommended generation and runtime parameters.
   void applyModelPreset(DownloadableModel model) {
+    final shouldKeepToolsEnabled =
+        model.supportsToolCalling && _settings.toolsEnabled;
+
     _updateSettings(
       _settings.copyWith(
         temperature: model.preset.temperature,
         topK: model.preset.topK,
         topP: model.preset.topP,
+        minP: model.preset.minP,
+        penalty: model.preset.penalty,
         contextSize: model.preset.contextSize,
         maxTokens: model.preset.maxTokens,
         gpuLayers: model.preset.gpuLayers,
-        toolsEnabled: model.supportsToolCalling,
-        forceToolCall: model.preset.forceToolCall && model.supportsToolCalling,
+        toolsEnabled: shouldKeepToolsEnabled,
+        forceToolCall: shouldKeepToolsEnabled ? _settings.forceToolCall : false,
+        thinkingEnabled: model.preset.thinkingEnabled,
+        thinkingBudgetTokens: model.preset.thinkingBudgetTokens,
+        singleTurnMode: false,
       ),
     );
   }
@@ -1316,6 +1857,7 @@ class ChatProvider extends ChangeNotifier {
           isInfo: true,
         ),
       );
+      _syncActiveConversationSnapshot();
     }
   }
 
@@ -1413,6 +1955,7 @@ class ChatProvider extends ChangeNotifier {
 
     _settings = _settings.copyWith(preferredBackend: resolved);
     await _settingsService.saveSettings(_settings);
+    _syncActiveConversationSnapshot(touchUpdatedAt: false);
   }
 
   Future<String?> _getBackendInfoBestEffort() async {
@@ -1468,14 +2011,11 @@ class ChatProvider extends ChangeNotifier {
   }
 
   void updateMmprojPath(String path) {
-    _settings = _settings.copyWith(mmprojPath: path);
-    _settingsService.saveSettings(_settings);
-    notifyListeners();
+    _updateSettings(_settings.copyWith(mmprojPath: path));
   }
 
   Future<void> updatePreferredBackend(GpuBackend backend) async {
-    _settings = _settings.copyWith(preferredBackend: backend);
-    await _settingsService.saveSettings(_settings);
+    _updateSettings(_settings.copyWith(preferredBackend: backend));
     _messages.add(
       ChatMessage(
         text: 'Switching backend to ${backend.name}...',
@@ -1483,6 +2023,7 @@ class ChatProvider extends ChangeNotifier {
         isInfo: true,
       ),
     );
+    _syncActiveConversationSnapshot();
     notifyListeners();
     await loadModel();
   }
@@ -1498,10 +2039,8 @@ class ChatProvider extends ChangeNotifier {
       final selectedPath = result.files.single.path;
       if (selectedPath == null) throw Exception('No file path');
 
-      _settings = _settings.copyWith(modelPath: selectedPath);
       _error = null;
-      await _settingsService.saveSettings(_settings);
-      notifyListeners();
+      _updateSettings(_settings.copyWith(modelPath: selectedPath));
       await loadModel();
     } catch (e) {
       rethrow;
@@ -1519,9 +2058,7 @@ class ChatProvider extends ChangeNotifier {
       final selectedPath = result.files.single.path;
       if (selectedPath == null) throw Exception('No file path');
 
-      _settings = _settings.copyWith(mmprojPath: selectedPath);
-      await _settingsService.saveSettings(_settings);
-      notifyListeners();
+      _updateSettings(_settings.copyWith(mmprojPath: selectedPath));
       await loadModel();
     } catch (e) {
       rethrow;
@@ -1548,6 +2085,8 @@ class ChatProvider extends ChangeNotifier {
       _session?.reset();
       _session = null;
       _isLoaded = false;
+      _loadedModelPath = null;
+      _loadedMmprojPath = null;
       await _chatService.dispose();
     } finally {
       _isShuttingDown = false;
@@ -1581,6 +2120,7 @@ class ChatProvider extends ChangeNotifier {
         gpuLayers: recommendedLayers,
         contextSize: recommendedCtx,
       );
+      _syncActiveConversationSnapshot(touchUpdatedAt: false);
       notifyListeners();
     } catch (e) {
       debugPrint("Error estimating dynamic settings: $e");

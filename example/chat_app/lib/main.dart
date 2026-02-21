@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'screens/chat_screen.dart';
+
 import 'providers/chat_provider.dart';
+import 'screens/app_shell_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -48,33 +50,33 @@ class _MyAppState extends State<MyApp> {
     return ChangeNotifierProvider.value(
       value: _chatProvider,
       child: MaterialApp(
-        title: 'Llama Chat',
+        title: 'llamadart chat',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF0F172A), // Slate 900
+            seedColor: const Color(0xFF1D273A),
             brightness: Brightness.light,
           ),
           useMaterial3: true,
-          textTheme: GoogleFonts.outfitTextTheme(),
+          textTheme: GoogleFonts.manropeTextTheme(),
           appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
         ),
         darkTheme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF38BDF8), // Sky 400
+            seedColor: const Color(0xFF5D89FF),
             brightness: Brightness.dark,
-            surface: const Color(0xFF0F172A), // Slate 900 for background
+            surface: const Color(0xFF0B101A),
           ),
           useMaterial3: true,
-          textTheme: GoogleFonts.outfitTextTheme(ThemeData.dark().textTheme),
+          textTheme: GoogleFonts.manropeTextTheme(ThemeData.dark().textTheme),
           appBarTheme: const AppBarTheme(
             centerTitle: true,
             elevation: 0,
             backgroundColor: Colors.transparent,
           ),
         ),
-        themeMode: ThemeMode.system,
-        home: const ChatScreen(),
+        themeMode: ThemeMode.dark,
+        home: const AppShellScreen(),
       ),
     );
   }

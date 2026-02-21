@@ -35,6 +35,8 @@ class ChatService {
           gpuLayers: settings.gpuLayers,
           preferredBackend: settings.preferredBackend,
           contextSize: settings.contextSize,
+          numberOfThreads: settings.numberOfThreads,
+          numberOfThreadsBatch: settings.numberOfThreadsBatch,
         ),
         onProgress: onProgress,
       );
@@ -45,6 +47,8 @@ class ChatService {
           gpuLayers: settings.gpuLayers,
           preferredBackend: settings.preferredBackend,
           contextSize: settings.contextSize,
+          numberOfThreads: settings.numberOfThreads,
+          numberOfThreadsBatch: settings.numberOfThreadsBatch,
         ),
       );
     }
@@ -66,6 +70,14 @@ class ChatService {
   /// Cleans whitespace from response text.
   String cleanResponse(String response) {
     return response.trim();
+  }
+
+  /// Unloads the currently loaded model but keeps engine alive.
+  Future<void> unloadModel() async {
+    _engine.cancelGeneration();
+    if (_engine.isReady) {
+      await _engine.unloadModel();
+    }
   }
 
   /// Disposes of the engine resources. Safe to call multiple times.
