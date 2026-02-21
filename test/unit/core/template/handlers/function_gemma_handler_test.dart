@@ -33,7 +33,24 @@ void main() {
       );
     });
 
-    test('renders template but keeps strict Gemma/content-only routing', () {
+    test('parses tool calls when call prefix uses whitespace', () {
+      const output =
+          '<start_function_call>call getWeather{city:<escape>London<escape>}<end_function_call>';
+
+      final parsed = ChatTemplateEngine.parse(
+        ChatFormat.functionGemma.index,
+        output,
+      );
+
+      expect(parsed.toolCalls, hasLength(1));
+      expect(parsed.toolCalls.first.function?.name, equals('getWeather'));
+      expect(
+        jsonDecode(parsed.toolCalls.first.function!.arguments!),
+        equals({'city': 'London'}),
+      );
+    });
+
+    test('renders template with FunctionGemma routing', () {
       final source = File(
         'test/fixtures/templates/functiongemma-270m-it.jinja',
       ).readAsStringSync();
@@ -71,7 +88,8 @@ void main() {
         addAssistant: true,
       );
 
-      expect(result.format, equals(ChatFormat.contentOnly.index));
+      expect(result.format, equals(ChatFormat.functionGemma.index));
+      expect(result.grammar, isNull);
       expect(
         result.prompt,
         contains('<start_function_response>response:get_current_time{'),

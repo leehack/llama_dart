@@ -248,7 +248,7 @@ void main() {
       expect(result.prompt, isNot(contains('Respond in JSON format')));
     });
 
-    test('routes FunctionGemma-like templates as Gemma/content-only', () {
+    test('routes FunctionGemma-like templates to the FunctionGemma handler', () {
       const template =
           '<start_of_turn>user\n{{ messages[0]["content"] }}<end_of_turn>\n'
           '<start_of_turn>model\n'
@@ -260,7 +260,8 @@ void main() {
         messages: grammarMessages,
         metadata: const {},
       );
-      expect(result.format, equals(ChatFormat.contentOnly.index));
+      expect(result.format, equals(ChatFormat.functionGemma.index));
+      expect(result.grammar, isNull);
     });
 
     test('routes generic templates to content-only for tool_choice none', () {

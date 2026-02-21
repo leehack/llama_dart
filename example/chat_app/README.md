@@ -43,7 +43,7 @@ Note: this is a Flutter app, so use `flutter test` (not `dart test`).
 1. Tap the settings icon (⚙️) in the app bar.
 2. Adjust **GPU Layers**, **Context Size**, **Preferred Backend**, **Dart Log Level**, and **Native Log Level**.
    - Backend choices are concrete runtime-detected options (for example: CPU/Vulkan/CUDA), not `Auto`.
-3. Optionally toggle **Enable Tools** / **Force Tool Call** depending on model/template support.
+3. Optionally enable **Function Calling** and edit tool declarations depending on model/template support.
 4. Tap **Load Model** to apply changes.
 
 

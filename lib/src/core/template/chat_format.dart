@@ -239,6 +239,13 @@ ChatFormat detectChatFormat(String? templateSource) {
     return ChatFormat.solarOpen;
   }
 
+  // FunctionGemma
+  if (templateSource.contains('<start_function_declaration>') ||
+      templateSource.contains('<start_function_call>') ||
+      templateSource.contains('<start_function_response>')) {
+    return ChatFormat.functionGemma;
+  }
+
   // TranslateGemma
   if (templateSource.contains('[source_lang_code]') &&
       templateSource.contains('[target_lang_code]')) {

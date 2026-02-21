@@ -6,6 +6,7 @@ import 'package:llamadart/llamadart.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/chat_provider.dart';
+import 'tool_declarations_dialog.dart';
 
 class ChatInput extends StatefulWidget {
   final VoidCallback onSend;
@@ -119,6 +120,8 @@ class _ChatInputState extends State<ChatInput> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    _buildFunctionCallingRow(context, provider),
+                    const SizedBox(height: 10),
                     if (provider.stagedParts.isNotEmpty)
                       _buildStagedPartsStrip(context, provider),
                     Row(
@@ -291,6 +294,83 @@ class _ChatInputState extends State<ChatInput> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildFunctionCallingRow(BuildContext context, ChatProvider provider) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final canUseTemplateTools = provider.templateSupportsTools;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.surface.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Function calling',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+              ),
+              TextButton(
+                onPressed: () => showToolDeclarationsDialog(context, provider),
+                child: const Text('Edit'),
+              ),
+              Switch.adaptive(
+                value: provider.toolsEnabled,
+                onChanged: canUseTemplateTools
+                    ? (value) => provider.updateToolsEnabled(value)
+                    : null,
+              ),
+            ],
+          ),
+          Text(
+            provider.toolsEnabled
+                ? '${provider.declaredToolCount} declaration(s) loaded'
+                : 'Disabled',
+            style: TextStyle(
+              fontSize: 11,
+              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.92),
+            ),
+          ),
+          if (!canUseTemplateTools)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                'This model template does not support tools.',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: colorScheme.error,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          if (provider.toolDeclarationsError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                provider.toolDeclarationsError!,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: colorScheme.error,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
       ),
     );
   }
