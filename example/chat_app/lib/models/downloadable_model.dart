@@ -4,9 +4,13 @@ class ModelPreset {
   final double temperature;
   final int topK;
   final double topP;
+  final double minP;
+  final double penalty;
+  final int thinkingBudgetTokens;
   final int contextSize;
   final int maxTokens;
   final bool forceToolCall;
+  final bool thinkingEnabled;
 
   /// A value of 99 keeps auto-estimation behavior in ChatProvider.
   final int gpuLayers;
@@ -15,10 +19,14 @@ class ModelPreset {
     this.temperature = 0.7,
     this.topK = 40,
     this.topP = 0.9,
+    this.minP = 0.0,
+    this.penalty = 1.1,
+    this.thinkingBudgetTokens = 0,
     this.contextSize = 4096,
     this.maxTokens = 4096,
     this.gpuLayers = 99,
     this.forceToolCall = false,
+    this.thinkingEnabled = true,
   });
 }
 

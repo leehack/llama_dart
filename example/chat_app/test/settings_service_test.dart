@@ -21,6 +21,14 @@ void main() {
       expect(settings.contextSize, 0);
     });
 
+    test('defaults tool calling to disabled', () async {
+      final service = SettingsService();
+      final settings = await service.loadSettings();
+
+      expect(settings.toolsEnabled, isFalse);
+      expect(settings.forceToolCall, isFalse);
+    });
+
     test('normalizes invalid legacy context size values', () async {
       SharedPreferences.setMockInitialValues({'context_size': 128});
 

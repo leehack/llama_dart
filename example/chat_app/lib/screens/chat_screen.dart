@@ -1,21 +1,18 @@
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/chat_provider.dart';
-import 'model_selection_screen.dart';
-import '../widgets/message_bubble.dart';
 import '../widgets/chat_input.dart';
-import '../widgets/settings_sheet.dart';
-import '../widgets/welcome_view.dart';
-import '../widgets/chat_app_bar_title.dart';
+import '../widgets/message_bubble.dart';
 import '../widgets/pruning_indicator.dart';
-import '../widgets/clear_chat_button.dart';
-import '../widgets/settings_icon.dart';
 import '../widgets/runtime_status_panel.dart';
+import '../widgets/welcome_view.dart';
+import 'manage_models_screen.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  final VoidCallback? onOpenModelSelection;
+
+  const ChatScreen({super.key, this.onOpenModelSelection});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -25,6 +22,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
+
   bool _wasGenerating = false;
   bool _showScrollToBottom = false;
   ChatProvider? _providerForListener;
@@ -37,9 +35,6 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       final provider = context.read<ChatProvider>();
       _providerForListener = provider;
-      if (provider.modelPath == null) {
-        _openModelSelection();
-      }
       provider.addListener(_onProviderUpdate);
     });
   }
@@ -88,25 +83,25 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _scrollToBottom() {
-    if (_scrollController.hasClients) {
-      final pos = _scrollController.position;
-      final diff = pos.maxScrollExtent - pos.pixels;
+    if (!_scrollController.hasClients) return;
 
-      if (diff < 50) {
-        _scrollController.jumpTo(pos.maxScrollExtent);
-      } else if (diff < 500) {
-        _scrollController.animateTo(
-          pos.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-        );
-      }
+    final pos = _scrollController.position;
+    final diff = pos.maxScrollExtent - pos.pixels;
 
-      if (_showScrollToBottom) {
-        setState(() {
-          _showScrollToBottom = false;
-        });
-      }
+    if (diff < 50) {
+      _scrollController.jumpTo(pos.maxScrollExtent);
+    } else if (diff < 500) {
+      _scrollController.animateTo(
+        pos.maxScrollExtent,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    }
+
+    if (_showScrollToBottom) {
+      setState(() {
+        _showScrollToBottom = false;
+      });
     }
   }
 
@@ -116,18 +111,14 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty && provider.stagedParts.isEmpty) return;
 
     provider.sendMessage(text);
-
-    // Reset the controller completely to clear any composing state from the IME.
-    // Using TextEditingValue.empty is more robust than .clear() for some IMEs.
     _controller.value = TextEditingValue.empty;
-
     _focusNode.requestFocus();
 
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
+          duration: const Duration(milliseconds: 280),
           curve: Curves.easeOutCubic,
         );
       }
@@ -135,168 +126,129 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _openModelSelection() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const ModelSelectionScreen()),
-    );
-  }
+    final callback = widget.onOpenModelSelection;
+    if (callback != null) {
+      callback();
+      return;
+    }
 
-  void _showModelSettings() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (context) =>
-          SettingsSheet(onOpenModelSelection: _openModelSelection),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const ManageModelsScreen()));
   }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: _buildAppBar(context),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              colorScheme.surfaceContainerLowest.withValues(alpha: 0.9),
-              colorScheme.surface,
-            ],
-          ),
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              top: -120,
-              right: -80,
-              child: IgnorePointer(
-                child: Container(
-                  width: 280,
-                  height: 280,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: colorScheme.primary.withValues(alpha: 0.08),
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: -160,
-              left: -100,
-              child: IgnorePointer(
-                child: Container(
-                  width: 320,
-                  height: 320,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: colorScheme.secondary.withValues(alpha: 0.06),
-                  ),
-                ),
-              ),
-            ),
-            Column(
-              children: [
-                const PruningIndicator(),
-                Expanded(
-                  child: Consumer<ChatProvider>(
-                    builder: (context, provider, _) {
-                      if (provider.messages.isEmpty) {
-                        return WelcomeView(
-                          isInitializing: provider.isInitializing,
-                          error: provider.error,
-                          modelPath: provider.modelPath,
-                          isLoaded: provider.isLoaded,
-                          loadingProgress: provider.loadingProgress,
-                          onRetry: () => provider.loadModel(),
-                          onSelectModel: _openModelSelection,
-                        );
-                      }
-
-                      final topPadding =
-                          MediaQuery.paddingOf(context).top +
-                          kToolbarHeight +
-                          (provider.isReady ? 82 : 28);
-
-                      return ListView.builder(
-                        controller: _scrollController,
-                        padding: EdgeInsets.fromLTRB(16, topPadding, 16, 24),
-                        itemCount: provider.messages.length,
-                        itemBuilder: (context, index) {
-                          final message = provider.messages[index];
-                          bool isNextSame = false;
-                          if (index + 1 < provider.messages.length) {
-                            isNextSame =
-                                provider.messages[index + 1].isUser ==
-                                message.isUser;
-                          }
-                          return MessageBubble(
-                            message: message,
-                            isNextSame: isNextSame,
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-                ChatInput(
-                  onSend: _sendMessage,
-                  controller: _controller,
-                  focusNode: _focusNode,
-                ),
-              ],
-            ),
-            Positioned(
-              top: MediaQuery.paddingOf(context).top + kToolbarHeight + 4,
-              left: 0,
-              right: 0,
-              child: const RuntimeStatusPanel(),
-            ),
-            if (_showScrollToBottom)
-              Positioned(
-                right: 20,
-                bottom: 96,
-                child: FloatingActionButton.small(
-                  heroTag: 'scroll-to-bottom',
-                  onPressed: _scrollToBottom,
-                  tooltip: 'Jump to latest',
-                  child: const Icon(Icons.keyboard_arrow_down_rounded),
-                ),
-              ),
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            colorScheme.surfaceContainerLowest.withValues(alpha: 0.94),
+            colorScheme.surface,
           ],
         ),
       ),
-    );
-  }
+      child: Stack(
+        children: [
+          Positioned(
+            top: -100,
+            right: -64,
+            child: IgnorePointer(
+              child: Container(
+                width: 250,
+                height: 250,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: colorScheme.primary.withValues(alpha: 0.07),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: -130,
+            left: -90,
+            child: IgnorePointer(
+              child: Container(
+                width: 300,
+                height: 300,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: colorScheme.tertiary.withValues(alpha: 0.06),
+                ),
+              ),
+            ),
+          ),
+          Column(
+            children: [
+              const PruningIndicator(),
+              Expanded(
+                child: Consumer<ChatProvider>(
+                  builder: (context, provider, _) {
+                    if (provider.messages.isEmpty) {
+                      return WelcomeView(
+                        isInitializing: provider.isInitializing,
+                        error: provider.error,
+                        modelPath: provider.modelPath,
+                        isLoaded: provider.isLoaded,
+                        loadingProgress: provider.loadingProgress,
+                        onRetry: () => provider.loadModel(),
+                        onSelectModel: _openModelSelection,
+                      );
+                    }
 
-  PreferredSizeWidget _buildAppBar(BuildContext context) {
-    return AppBar(
-      backgroundColor: Theme.of(
-        context,
-      ).colorScheme.surface.withValues(alpha: 0.8),
-      flexibleSpace: ClipRect(
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(color: Colors.transparent),
-        ),
+                    final topPadding = provider.isReady ? 88.0 : 28.0;
+
+                    return ListView.builder(
+                      controller: _scrollController,
+                      padding: EdgeInsets.fromLTRB(16, topPadding, 16, 24),
+                      itemCount: provider.messages.length,
+                      itemBuilder: (context, index) {
+                        final message = provider.messages[index];
+                        var isNextSame = false;
+                        if (index + 1 < provider.messages.length) {
+                          isNextSame =
+                              provider.messages[index + 1].isUser ==
+                              message.isUser;
+                        }
+                        return MessageBubble(
+                          message: message,
+                          isNextSame: isNextSame,
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+              ChatInput(
+                onSend: _sendMessage,
+                controller: _controller,
+                focusNode: _focusNode,
+              ),
+            ],
+          ),
+          const Positioned(
+            top: 8,
+            left: 0,
+            right: 0,
+            child: RuntimeStatusPanel(),
+          ),
+          if (_showScrollToBottom)
+            Positioned(
+              right: 20,
+              bottom: 100,
+              child: FloatingActionButton.small(
+                heroTag: 'scroll-to-bottom',
+                onPressed: _scrollToBottom,
+                tooltip: 'Jump to latest',
+                child: const Icon(Icons.keyboard_arrow_down_rounded),
+              ),
+            ),
+        ],
       ),
-      title: const ChatAppBarTitle(),
-      actions: [
-        const ClearChatButton(),
-        IconButton(
-          onPressed: _showModelSettings,
-          icon: const SettingsIcon(),
-          tooltip: 'Settings',
-        ),
-        const SizedBox(width: 8),
-      ],
     );
   }
 }

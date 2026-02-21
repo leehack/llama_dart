@@ -717,13 +717,14 @@ class WebGpuLlamaBackend implements LlamaBackend {
       signal: _abortController?.signal,
     );
 
-    final completion = bridge.createCompletion(prompt, options);
-    _toFuture(completion).then(
-      (_) => controller.close(),
-      onError: (Object e, StackTrace st) {
-        controller.addError(e, st);
-      },
-    );
+    Future<void>(() async {
+      await Future<void>.delayed(Duration.zero);
+      final completion = bridge.createCompletion(prompt, options);
+      await _toFuture(completion);
+      await controller.close();
+    }).catchError((Object e, StackTrace st) {
+      controller.addError(e, st);
+    });
 
     return controller.stream;
   }

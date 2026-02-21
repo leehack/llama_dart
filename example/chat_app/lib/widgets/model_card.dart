@@ -96,42 +96,47 @@ class ModelCard extends StatelessWidget {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        _buildCapabilityChip(
-                          context,
-                          icon: Icons.build_circle_outlined,
-                          label: 'Tools',
-                          supported: model.supportsToolCalling,
-                        ),
-                        _buildCapabilityChip(
-                          context,
-                          icon: Icons.psychology_alt_outlined,
-                          label: 'Thinking',
-                          supported: model.supportsThinking,
-                        ),
-                        _buildCapabilityChip(
-                          context,
-                          icon: Icons.visibility_outlined,
-                          label: 'Vision',
-                          supported: model.supportsVision,
-                        ),
-                        _buildCapabilityChip(
-                          context,
-                          icon: Icons.mic_none_rounded,
-                          label: 'Audio',
-                          supported: model.supportsAudio,
-                        ),
-                        _buildCapabilityChip(
-                          context,
-                          icon: Icons.videocam_outlined,
-                          label: 'Video',
-                          supported: model.supportsVideo,
-                        ),
+                        if (model.supportsToolCalling)
+                          _buildCapabilityChip(
+                            context,
+                            icon: Icons.build_circle_outlined,
+                            label: 'Tools',
+                            supported: true,
+                          ),
+                        if (model.supportsThinking)
+                          _buildCapabilityChip(
+                            context,
+                            icon: Icons.psychology_alt_outlined,
+                            label: 'Thinking',
+                            supported: true,
+                          ),
+                        if (model.supportsVision)
+                          _buildCapabilityChip(
+                            context,
+                            icon: Icons.visibility_outlined,
+                            label: 'Vision',
+                            supported: true,
+                          ),
+                        if (model.supportsAudio)
+                          _buildCapabilityChip(
+                            context,
+                            icon: Icons.mic_none_rounded,
+                            label: 'Audio',
+                            supported: true,
+                          ),
+                        if (model.supportsVideo)
+                          _buildCapabilityChip(
+                            context,
+                            icon: Icons.videocam_outlined,
+                            label: 'Video',
+                            supported: true,
+                          ),
                       ],
                     ),
                   ],
                 ),
               ),
-              if (!isWeb && (isDownloaded || (progress > 0 && !isDownloaded)))
+              if (isDownloaded || (progress > 0 && !isDownloaded))
                 IconButton(
                   icon: Icon(
                     Icons.delete_outline_rounded,
@@ -326,7 +331,7 @@ class ModelCard extends StatelessWidget {
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
-              child: isDownloaded || isWeb
+              child: isDownloaded
                   ? FilledButton.icon(
                       onPressed: onSelect,
                       icon: Icon(
@@ -337,7 +342,9 @@ class ModelCard extends StatelessWidget {
                       ),
                       label: Text(
                         isWeb
-                            ? 'Load Web Model'
+                            ? (isSelected
+                                  ? 'Reload Cached Model'
+                                  : 'Use Cached Model')
                             : (isSelected
                                   ? 'Reload Selected Model'
                                   : 'Use this model'),
@@ -358,7 +365,11 @@ class ModelCard extends StatelessWidget {
                         size: 18,
                       ),
                       label: Text(
-                        progress > 0 ? 'Resume Download' : 'Download to Device',
+                        progress > 0
+                            ? 'Resume Download'
+                            : (isWeb
+                                  ? 'Download to Browser Cache'
+                                  : 'Download to Device'),
                       ),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),

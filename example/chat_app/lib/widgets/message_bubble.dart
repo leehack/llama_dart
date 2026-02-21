@@ -38,104 +38,91 @@ class MessageBubble extends StatelessWidget {
         message.text.trim() == '...' &&
         (message.parts == null || message.parts!.isEmpty);
     final align = isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
-    final color = isUser
-        ? Theme.of(context).colorScheme.primary
-        : Theme.of(context).colorScheme.secondaryContainer;
-    final textColor = isUser
-        ? Theme.of(context).colorScheme.onPrimary
-        : Theme.of(context).colorScheme.onSecondaryContainer;
+    final colorScheme = Theme.of(context).colorScheme;
 
-    const borderRadius = 20.0;
+    final bubbleColor = isUser
+        ? Color.alphaBlend(
+            colorScheme.primary.withValues(alpha: 0.22),
+            colorScheme.surfaceContainerHighest,
+          )
+        : colorScheme.surfaceContainerHigh.withValues(alpha: 0.72);
+    final textColor = colorScheme.onSurface;
+
+    const borderRadius = 24.0;
     final border = BorderRadius.only(
       topLeft: const Radius.circular(borderRadius),
       topRight: const Radius.circular(borderRadius),
-      bottomLeft: Radius.circular(isUser ? borderRadius : 4),
-      bottomRight: Radius.circular(isUser ? 4 : borderRadius),
+      bottomLeft: Radius.circular(isUser ? borderRadius : 8),
+      bottomRight: Radius.circular(isUser ? 8 : borderRadius),
     );
 
     final thinkingText = message.thinkingText;
 
     return Padding(
-      padding: EdgeInsets.only(bottom: isNextSame ? 4 : 12),
-      child: Column(
-        crossAxisAlignment: align,
-        children: [
-          Row(
-            mainAxisAlignment: isUser
-                ? MainAxisAlignment.end
-                : MainAxisAlignment.start,
-            crossAxisAlignment: CrossAxisAlignment.end,
+      padding: EdgeInsets.only(bottom: isNextSame ? 8 : 18),
+      child: Align(
+        alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: _maxBubbleWidth(context)),
+          child: Column(
+            crossAxisAlignment: align,
             children: [
-              if (!isUser) ...[
-                _buildAvatar(context, isUser),
-                const SizedBox(width: 8),
-              ],
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: align,
-                  children: [
-                    if (message.parts != null)
-                      ...message.parts!
-                          .where(
-                            (p) =>
-                                p is! LlamaTextContent &&
-                                p is! LlamaToolCallContent &&
-                                p is! LlamaToolResultContent &&
-                                p is! LlamaThinkingContent,
-                          )
-                          .map((p) => _buildMediaPart(context, p)),
-
-                    if (thinkingText != null && thinkingText.trim().isNotEmpty)
-                      _buildThinkingView(context, thinkingText),
-
-                    if (message.isToolCall)
-                      _buildToolCallView(context)
-                    else if (isTypingPlaceholder)
-                      _buildTypingBubble(context)
-                    else if (message.text.isNotEmpty)
-                      _buildMarkdownBubble(
-                        context,
-                        message.text,
-                        bubbleColor: color,
-                        textColor: textColor,
-                        border: border,
-                        isUser: isUser,
-                      ),
-
-                    if (!isUser && message.debugBadges.isNotEmpty)
-                      _buildDebugBadges(context),
-                  ],
+              if (!isTypingPlaceholder)
+                _buildRoleAndTimeLabel(context, isUser: isUser),
+              if (message.parts != null)
+                ...message.parts!
+                    .where(
+                      (p) =>
+                          p is! LlamaTextContent &&
+                          p is! LlamaToolCallContent &&
+                          p is! LlamaToolResultContent &&
+                          p is! LlamaThinkingContent,
+                    )
+                    .map((p) => _buildMediaPart(context, p)),
+              if (thinkingText != null && thinkingText.trim().isNotEmpty)
+                _buildThinkingView(context, thinkingText),
+              if (message.isToolCall)
+                _buildToolCallView(context)
+              else if (isTypingPlaceholder)
+                _buildTypingBubble(context)
+              else if (message.text.isNotEmpty)
+                _buildMarkdownBubble(
+                  context,
+                  message.text,
+                  bubbleColor: bubbleColor,
+                  textColor: textColor,
+                  border: border,
+                  isUser: isUser,
                 ),
-              ),
-              if (isUser) ...[
-                const SizedBox(width: 8),
-                _buildAvatar(context, isUser),
-              ],
             ],
           ),
-          if (!isUser)
-            Padding(
-              padding: const EdgeInsets.only(top: 4, left: 40),
-              child: Text(
-                _formatTimestamp(context),
-                style: TextStyle(
-                  fontSize: 10,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.only(top: 4, right: 40),
-              child: Text(
-                _formatTimestamp(context),
-                style: TextStyle(
-                  fontSize: 10,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  double _maxBubbleWidth(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    if (width >= 1400) return 860;
+    if (width >= 1000) return width * 0.64;
+    if (width >= 720) return width * 0.72;
+    return width * 0.86;
+  }
+
+  Widget _buildRoleAndTimeLabel(BuildContext context, {required bool isUser}) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final roleLabel = isUser ? 'User' : 'Model';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(
+        '$roleLabel  •  ${_formatTimestamp(context)}',
+        style: TextStyle(
+          fontSize: 12,
+          color: colorScheme.onSurfaceVariant.withValues(alpha: 0.9),
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.15,
+        ),
       ),
     );
   }
@@ -147,11 +134,13 @@ class MessageBubble extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Center(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHigh,
+            color: colorScheme.surfaceContainerHigh.withValues(alpha: 0.65),
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: colorScheme.outlineVariant),
+            border: Border.all(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.7),
+            ),
           ),
           child: Text(
             message.text,
@@ -177,15 +166,20 @@ class MessageBubble extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       decoration: BoxDecoration(
         color: bubbleColor,
         borderRadius: border,
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(
+            alpha: isUser ? 0.2 : 0.35,
+          ),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -193,7 +187,23 @@ class MessageBubble extends StatelessWidget {
         data: text,
         selectable: true,
         styleSheet: MarkdownStyleSheet(
-          p: TextStyle(color: textColor, fontSize: 15, height: 1.4),
+          p: TextStyle(
+            color: textColor.withValues(alpha: isUser ? 0.98 : 0.95),
+            fontSize: 16,
+            height: 1.45,
+          ),
+          h1: TextStyle(
+            color: textColor,
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            height: 1.25,
+          ),
+          h2: TextStyle(
+            color: textColor,
+            fontSize: 19,
+            fontWeight: FontWeight.w700,
+            height: 1.3,
+          ),
           code: TextStyle(
             color: isUser
                 ? textColor.withValues(alpha: 0.9)
@@ -202,6 +212,21 @@ class MessageBubble extends StatelessWidget {
                 ? Colors.black.withValues(alpha: 0.1)
                 : colorScheme.surfaceContainerHighest,
             fontFamily: 'monospace',
+          ),
+          blockquote: TextStyle(
+            color: textColor.withValues(alpha: 0.85),
+            fontSize: 14,
+            height: 1.45,
+          ),
+          blockquoteDecoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.34),
+            borderRadius: BorderRadius.circular(8),
+            border: Border(
+              left: BorderSide(
+                color: colorScheme.primary.withValues(alpha: 0.65),
+                width: 3,
+              ),
+            ),
           ),
           codeblockDecoration: BoxDecoration(
             color: isUser
@@ -215,11 +240,16 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildTypingBubble(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.secondaryContainer,
+        color: colorScheme.surfaceContainerHigh.withValues(alpha: 0.78),
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
       ),
       child: const _TypingDots(),
     );
@@ -238,11 +268,15 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildMediaPart(BuildContext context, LlamaContentPart part) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 4),
-      constraints: const BoxConstraints(maxWidth: 240, maxHeight: 240),
+      margin: const EdgeInsets.only(bottom: 8),
+      constraints: const BoxConstraints(maxWidth: 320, maxHeight: 320),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Theme.of(
+            context,
+          ).colorScheme.outlineVariant.withValues(alpha: 0.7),
+        ),
       ),
       clipBehavior: Clip.antiAlias,
       child: _buildPartContent(part),
@@ -271,28 +305,6 @@ class MessageBubble extends StatelessWidget {
       );
     }
     return const Icon(Icons.description);
-  }
-
-  Widget _buildAvatar(BuildContext context, bool isUser) {
-    return Container(
-      width: 32,
-      height: 32,
-      decoration: BoxDecoration(
-        color: isUser
-            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2)
-            : Theme.of(context).colorScheme.secondary.withValues(alpha: 0.1),
-        shape: BoxShape.circle,
-      ),
-      child: Center(
-        child: Icon(
-          isUser ? Icons.person_rounded : Icons.auto_awesome,
-          size: 16,
-          color: isUser
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.secondary,
-        ),
-      ),
-    );
   }
 
   Widget _buildToolCallView(BuildContext context) {
@@ -324,15 +336,23 @@ class MessageBubble extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       width: double.infinity,
       child: ExpansionTile(
-        tilePadding: EdgeInsets.zero,
-        childrenPadding: const EdgeInsets.all(8),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 10),
+        childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+          side: BorderSide(
+            color: Theme.of(
+              context,
+            ).colorScheme.outlineVariant.withValues(alpha: 0.55),
+          ),
         ),
         collapsedShape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide.none,
+          side: BorderSide(
+            color: Theme.of(
+              context,
+            ).colorScheme.outlineVariant.withValues(alpha: 0.35),
+          ),
         ),
         title: Row(
           children: [
@@ -343,7 +363,7 @@ class MessageBubble extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Text(
-              "Thought Process",
+              'Thought process',
               style: TextStyle(
                 fontSize: 12,
                 color: Theme.of(context).colorScheme.secondary,
@@ -360,49 +380,22 @@ class MessageBubble extends StatelessWidget {
                 context,
               ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: Theme.of(
+                  context,
+                ).colorScheme.outlineVariant.withValues(alpha: 0.35),
+              ),
             ),
             child: Text(
               thinkingText,
               style: TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 12,
-                color: Theme.of(context).colorScheme.secondary,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildDebugBadges(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 6),
-      child: Wrap(
-        spacing: 6,
-        runSpacing: 6,
-        children: message.debugBadges
-            .map(
-              (badge) => Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: colorScheme.outlineVariant),
-                ),
-                child: Text(
-                  badge,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            )
-            .toList(growable: false),
       ),
     );
   }

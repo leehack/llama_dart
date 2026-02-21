@@ -1,14 +1,19 @@
 {
-    "name": "llamadart_chat_example",
-    "short_name": "llamadart_chat_example",
+    "name": "llamadart chat",
+    "short_name": "llamadart",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#0b1220",
+    "theme_color": "#0b1220",
+    "description": "Local-first, on-device LLM chat powered by llamadart.",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
+        {
+            "src": "icons/logo.svg",
+            "sizes": "any",
+            "type": "image/svg+xml"
+        },
         {
             "src": "icons/Icon-192.png",
             "sizes": "192x192",
