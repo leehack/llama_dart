@@ -26,7 +26,6 @@ void main() {
       final settings = await service.loadSettings();
 
       expect(settings.toolsEnabled, isFalse);
-      expect(settings.forceToolCall, isFalse);
     });
 
     test('normalizes invalid legacy context size values', () async {

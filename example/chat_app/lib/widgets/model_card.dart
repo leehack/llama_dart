@@ -266,7 +266,7 @@ class ModelCard extends StatelessWidget {
                               style: GoogleFonts.outfit(fontSize: 13),
                             ),
                             Text(
-                              gpuLayers.toString(),
+                              gpuLayers >= 99 ? 'Auto' : gpuLayers.toString(),
                               style: GoogleFonts.outfit(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
@@ -276,12 +276,25 @@ class ModelCard extends StatelessWidget {
                           ],
                         ),
                         Slider(
-                          value: gpuLayers.toDouble(),
+                          value: gpuLayers >= 99
+                              ? 99.0
+                              : gpuLayers.clamp(0, 98).toDouble(),
                           min: 0,
-                          max: 100,
-                          divisions: 100,
-                          label: gpuLayers.toString(),
+                          max: 99,
+                          divisions: 99,
+                          label: gpuLayers >= 99
+                              ? 'Auto'
+                              : gpuLayers.toString(),
                           onChanged: (v) => onGpuLayersChanged(v.round()),
+                        ),
+                        Text(
+                          'Set to 99 for Auto',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: colorScheme.onSurfaceVariant.withValues(
+                              alpha: 0.75,
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Row(
@@ -365,11 +378,7 @@ class ModelCard extends StatelessWidget {
                         size: 18,
                       ),
                       label: Text(
-                        progress > 0
-                            ? 'Resume Download'
-                            : (isWeb
-                                  ? 'Download to Browser Cache'
-                                  : 'Download to Device'),
+                        progress > 0 ? 'Resume Download' : 'Download',
                       ),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),

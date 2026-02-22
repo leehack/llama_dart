@@ -1859,7 +1859,10 @@ class LlamaCppService {
 
       final bos = llama_vocab_bos(vocab);
       final eos = llama_vocab_eos(vocab);
-      inputText.ref.add_special = (bos != eos && bos != -1);
+      final shouldAddSpecial =
+          (bos != eos && bos != -1) &&
+          !_promptStartsWithBosToken(vocab, normalizedPrompt);
+      inputText.ref.add_special = shouldAddSpecial;
       inputText.ref.parse_special = true;
 
       final res = _mtmdTokenize(
@@ -1963,6 +1966,25 @@ class LlamaCppService {
     return count;
   }
 
+  bool _promptStartsWithBosToken(Pointer<llama_vocab> vocab, String prompt) {
+    final bos = llama_vocab_bos(vocab);
+    if (bos < 0) {
+      return false;
+    }
+
+    final bosPtr = llama_token_get_text(vocab, bos);
+    if (bosPtr == nullptr) {
+      return false;
+    }
+
+    final bosToken = bosPtr.cast<Utf8>().toDartString();
+    if (bosToken.isEmpty) {
+      return false;
+    }
+
+    return prompt.trimLeft().startsWith(bosToken);
+  }
+
   int _ingestTextPrompt(
     llama_batch batch,
     Pointer<llama_vocab> vocab,
@@ -1972,13 +1994,14 @@ class LlamaCppService {
     _LlamaContextWrapper ctx,
   ) {
     final promptPtr = prompt.toNativeUtf8();
+    final shouldAddSpecial = !_promptStartsWithBosToken(vocab, prompt);
     final nTokens = llama_tokenize(
       vocab,
       promptPtr.cast(),
       promptPtr.length,
       tokensPtr,
       nCtx,
-      true,
+      shouldAddSpecial,
       true,
     );
     malloc.free(promptPtr);
@@ -2287,13 +2310,15 @@ class LlamaCppService {
     if (model == null) return [];
     final vocab = llama_model_get_vocab(model.pointer);
     final textPtr = text.toNativeUtf8();
+    final shouldAddSpecial =
+        addSpecial && !_promptStartsWithBosToken(vocab, text);
     final n = -llama_tokenize(
       vocab,
       textPtr.cast(),
       textPtr.length,
       nullptr,
       0,
-      addSpecial,
+      shouldAddSpecial,
       true,
     );
     final tokensPtr = malloc<Int32>(n);
@@ -2303,7 +2328,7 @@ class LlamaCppService {
       textPtr.length,
       tokensPtr,
       n,
-      addSpecial,
+      shouldAddSpecial,
       true,
     );
     final result = List.generate(actual, (i) => tokensPtr[i]);

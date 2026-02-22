@@ -21,7 +21,7 @@ class ChatSettings {
   /// Native llama.cpp backend logger verbosity.
   final LlamaLogLevel nativeLogLevel;
   final bool toolsEnabled;
-  final bool forceToolCall;
+  final String toolDeclarations;
   final bool thinkingEnabled;
   final int thinkingBudgetTokens;
   final bool singleTurnMode;
@@ -43,7 +43,7 @@ class ChatSettings {
     this.logLevel = LlamaLogLevel.none,
     this.nativeLogLevel = LlamaLogLevel.warn,
     this.toolsEnabled = false,
-    this.forceToolCall = false,
+    this.toolDeclarations = '[]',
     this.thinkingEnabled = true,
     this.thinkingBudgetTokens = 0,
     this.singleTurnMode = false,
@@ -66,7 +66,7 @@ class ChatSettings {
     LlamaLogLevel? logLevel,
     LlamaLogLevel? nativeLogLevel,
     bool? toolsEnabled,
-    bool? forceToolCall,
+    String? toolDeclarations,
     bool? thinkingEnabled,
     int? thinkingBudgetTokens,
     bool? singleTurnMode,
@@ -88,7 +88,7 @@ class ChatSettings {
       logLevel: logLevel ?? this.logLevel,
       nativeLogLevel: nativeLogLevel ?? this.nativeLogLevel,
       toolsEnabled: toolsEnabled ?? this.toolsEnabled,
-      forceToolCall: forceToolCall ?? this.forceToolCall,
+      toolDeclarations: toolDeclarations ?? this.toolDeclarations,
       thinkingEnabled: thinkingEnabled ?? this.thinkingEnabled,
       thinkingBudgetTokens: thinkingBudgetTokens ?? this.thinkingBudgetTokens,
       singleTurnMode: singleTurnMode ?? this.singleTurnMode,

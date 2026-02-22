@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:llamadart/llamadart.dart';
 
 class ChatMessage {
@@ -61,40 +60,6 @@ class ChatMessage {
       role: role ?? this.role,
       timestamp: timestamp ?? this.timestamp,
       tokenCount: tokenCount ?? this.tokenCount,
-    );
-  }
-
-  factory ChatMessage.fromLlama(LlamaChatMessage msg) {
-    final textParts = msg.parts.whereType<LlamaTextContent>().toList();
-
-    // If there's no text but there's a tool call, use the raw JSON as text for now
-    // (though the UI will show the "Executing Tool" view instead)
-    String text = textParts.map((p) => p.text).join('\n');
-    if (text.isEmpty) {
-      final toolCall = msg.parts.whereType<LlamaToolCallContent>().firstOrNull;
-      if (toolCall != null) {
-        text = toolCall.rawJson;
-      } else {
-        final toolResult = msg.parts
-            .whereType<LlamaToolResultContent>()
-            .firstOrNull;
-        if (toolResult != null) {
-          final res = toolResult.result;
-          if (res is String) {
-            text = res;
-          } else {
-            text = jsonEncode(res);
-          }
-        }
-      }
-    }
-
-    return ChatMessage(
-      text: text,
-      isUser: msg.role == LlamaChatRole.user,
-      role: msg.role,
-      parts: msg.parts,
-      debugBadges: const [],
     );
   }
 }

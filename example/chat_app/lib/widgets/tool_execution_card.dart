@@ -16,10 +16,9 @@ class ToolExecutionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final pendingCount = toolCalls
-        .where((call) => _matchToolResultForCall(toolResults, call) == null)
-        .length;
-    final allCompleted = pendingCount == 0;
+    final heading = toolCalls.length == 1
+        ? 'Tool call'
+        : 'Tool calls (${toolCalls.length})';
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 640),
@@ -60,17 +59,12 @@ class ToolExecutionCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Tool execution',
+                  heading,
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: colorScheme.onSurface,
                   ),
-                ),
-                const Spacer(),
-                _ToolStatusChip(
-                  allCompleted: allCompleted,
-                  pendingCount: pendingCount,
                 ),
               ],
             ),
@@ -109,54 +103,6 @@ class ToolExecutionCard extends StatelessWidget {
     }
 
     return null;
-  }
-}
-
-class _ToolStatusChip extends StatelessWidget {
-  final bool allCompleted;
-  final int pendingCount;
-
-  const _ToolStatusChip({
-    required this.allCompleted,
-    required this.pendingCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final bg = allCompleted
-        ? colorScheme.primary.withValues(alpha: 0.14)
-        : colorScheme.surfaceContainerHighest;
-    final fg = allCompleted
-        ? colorScheme.primary
-        : colorScheme.onSurfaceVariant;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            allCompleted ? Icons.check_rounded : Icons.more_horiz_rounded,
-            size: 12,
-            color: fg,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            allCompleted ? 'Completed' : '$pendingCount pending',
-            style: TextStyle(
-              fontSize: 10,
-              color: fg,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -214,23 +160,8 @@ class _ToolCallItem extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(
-                toolResult == null ? 'Running' : 'Completed',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: toolResult == null
-                      ? colorScheme.onSurfaceVariant
-                      : colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
             ],
           ),
-          if (toolResult == null)
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: LinearProgressIndicator(minHeight: 3),
-            ),
           const SizedBox(height: 6),
           _ToolBlock(
             label: 'Arguments',

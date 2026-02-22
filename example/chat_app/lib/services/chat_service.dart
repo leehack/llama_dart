@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:llamadart/llamadart.dart';
 import '../models/chat_settings.dart';
@@ -28,29 +30,69 @@ class ChatService {
       await _engine.unloadModel();
     }
 
-    if (settings.modelPath!.startsWith('http')) {
-      await _engine.loadModelFromUrl(
-        settings.modelPath!,
-        modelParams: ModelParams(
-          gpuLayers: settings.gpuLayers,
-          preferredBackend: settings.preferredBackend,
-          contextSize: settings.contextSize,
-          numberOfThreads: settings.numberOfThreads,
-          numberOfThreadsBatch: settings.numberOfThreadsBatch,
-        ),
-        onProgress: onProgress,
+    Timer? syntheticProgressTimer;
+    var syntheticProgress = 0.0;
+    var emittedProgress = 0.0;
+
+    void emitProgress(double value) {
+      if (onProgress == null) {
+        return;
+      }
+      final clamped = value.clamp(0.0, 1.0);
+      if (clamped <= emittedProgress) {
+        return;
+      }
+      emittedProgress = clamped;
+      onProgress(clamped);
+    }
+
+    if (onProgress != null) {
+      syntheticProgressTimer = Timer.periodic(
+        const Duration(milliseconds: 160),
+        (_) {
+          syntheticProgress =
+              (syntheticProgress + (1 - syntheticProgress) * 0.1).clamp(
+                0.0,
+                0.9,
+              );
+          emitProgress(syntheticProgress);
+        },
       );
-    } else {
-      await _engine.loadModel(
-        settings.modelPath!,
-        modelParams: ModelParams(
-          gpuLayers: settings.gpuLayers,
-          preferredBackend: settings.preferredBackend,
-          contextSize: settings.contextSize,
-          numberOfThreads: settings.numberOfThreads,
-          numberOfThreadsBatch: settings.numberOfThreadsBatch,
-        ),
-      );
+    }
+
+    try {
+      if (settings.modelPath!.startsWith('http')) {
+        await _engine.loadModelFromUrl(
+          settings.modelPath!,
+          modelParams: ModelParams(
+            gpuLayers: settings.gpuLayers,
+            preferredBackend: settings.preferredBackend,
+            contextSize: settings.contextSize,
+            numberOfThreads: settings.numberOfThreads,
+            numberOfThreadsBatch: settings.numberOfThreadsBatch,
+          ),
+          onProgress: onProgress == null
+              ? null
+              : (progress) {
+                  emitProgress(progress);
+                },
+        );
+      } else {
+        await _engine.loadModel(
+          settings.modelPath!,
+          modelParams: ModelParams(
+            gpuLayers: settings.gpuLayers,
+            preferredBackend: settings.preferredBackend,
+            contextSize: settings.contextSize,
+            numberOfThreads: settings.numberOfThreads,
+            numberOfThreadsBatch: settings.numberOfThreadsBatch,
+          ),
+        );
+      }
+
+      emitProgress(1.0);
+    } finally {
+      syntheticProgressTimer?.cancel();
     }
 
     if (settings.mmprojPath != null && settings.mmprojPath!.isNotEmpty) {

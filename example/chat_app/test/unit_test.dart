@@ -140,144 +140,144 @@ void main() {
       expect(assistant.debugBadges, contains('think:parse'));
     });
 
-    test('uses forced tool choice only on first turn', () async {
-      final loopEngine = _FirstTurnToolChoiceEngine();
-      final loopProvider = ChatProvider(
-        chatService: MockChatService(engine: loopEngine),
+    test('passes user-declared tools into generation when enabled', () async {
+      final captureEngine = _ToolCaptureEngine();
+      final customProvider = ChatProvider(
+        chatService: MockChatService(engine: captureEngine),
         settingsService: mockSettingsService,
         initialSettings: const ChatSettings(modelPath: 'test_model.gguf'),
       );
 
-      await loopProvider.loadModel();
-      loopProvider.updateToolsEnabled(true);
-      loopProvider.updateForceToolCall(true);
+      await customProvider.loadModel();
+      final saved = customProvider.updateToolDeclarations('''
+[
+  {
+    "name": "lookup_city",
+    "description": "Lookup city info",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {"type": "string"}
+      },
+      "required": ["city"]
+    }
+  }
+]
+''');
+      expect(saved, isTrue);
+      customProvider.updateToolsEnabled(true);
 
-      await loopProvider.sendMessage('what time is it?');
+      await customProvider.sendMessage('find seoul');
 
-      expect(loopEngine.receivedToolChoices.length, equals(2));
-      expect(loopEngine.receivedToolCounts.length, equals(2));
-      expect(loopEngine.receivedToolCounts.first, greaterThan(0));
-      expect(loopEngine.receivedToolCounts.last, equals(0));
-      expect(loopEngine.receivedToolChoices.first, equals(ToolChoice.required));
-      expect(loopEngine.receivedToolChoices.last, isNull);
-      expect(
-        loopProvider.messages
-            .where(
-              (m) =>
-                  !m.isUser &&
-                  !m.isInfo &&
-                  m.text.trim().isEmpty &&
-                  (m.parts == null || m.parts!.isEmpty),
-            )
-            .isEmpty,
-        isTrue,
-      );
+      expect(captureEngine.createCallCount, 1);
+      expect(captureEngine.lastToolChoice, ToolChoice.auto);
+      expect(captureEngine.lastTools, isNotNull);
+      expect(captureEngine.lastTools, hasLength(1));
+      expect(captureEngine.lastTools!.first.name, 'lookup_city');
     });
 
-    test('stops repeated tool loops after max rounds', () async {
-      final loopEngine = _InfiniteToolLoopEngine();
-      final loopProvider = ChatProvider(
-        chatService: MockChatService(engine: loopEngine),
-        settingsService: mockSettingsService,
-        initialSettings: const ChatSettings(modelPath: 'test_model.gguf'),
-      );
-
-      await loopProvider.loadModel();
-      loopProvider.updateToolsEnabled(true);
-      loopProvider.updateForceToolCall(true);
-
-      await loopProvider.sendMessage('loop forever');
-
-      expect(
-        loopProvider.messages.any(
-          (m) =>
-              m.isInfo &&
-              (m.text.contains('Model repeated tool calls') ||
-                  m.text.contains('Skipping repeated tool calls') ||
-                  m.text.contains('Stopped after 5 tool-call rounds')),
-        ),
-        isTrue,
-      );
-      expect(loopEngine.createCallCount, lessThanOrEqualTo(6));
-    });
-
-    test('limits repeated calls for same tool name', () async {
-      final engine = _VaryingArgsLoopEngine();
-      final guardedProvider = ChatProvider(
+    test('handles tool-call responses in a single pass', () async {
+      final engine = _SinglePassToolCallEngine();
+      final singlePassProvider = ChatProvider(
         chatService: MockChatService(engine: engine),
         settingsService: mockSettingsService,
         initialSettings: const ChatSettings(modelPath: 'test_model.gguf'),
       );
 
-      await guardedProvider.loadModel();
-      guardedProvider.updateToolsEnabled(true);
-      guardedProvider.updateForceToolCall(true);
+      await singlePassProvider.loadModel();
+      singlePassProvider.updateToolsEnabled(true);
+      singlePassProvider.resetToolDeclarations();
 
-      await guardedProvider.sendMessage('weather please');
+      await singlePassProvider.sendMessage('what time is it?');
 
-      expect(
-        guardedProvider.messages.any(
-          (m) =>
-              m.isInfo &&
-              (m.text.contains('Model repeated tool calls') ||
-                  m.text.contains('Skipping repeated tool calls') ||
-                  m.text.contains('Stopped after 5 tool-call rounds')),
-        ),
-        isTrue,
-      );
-      expect(engine.createCallCount, lessThanOrEqualTo(6));
-    });
-
-    test('falls back to tool result when model ignores it', () async {
-      final engine = _ToolResultIgnoringEngine();
-      final providerWithFallback = ChatProvider(
-        chatService: MockChatService(engine: engine),
-        settingsService: mockSettingsService,
-        initialSettings: const ChatSettings(modelPath: 'test_model.gguf'),
-      );
-
-      await providerWithFallback.loadModel();
-      providerWithFallback.updateToolsEnabled(true);
-      providerWithFallback.updateForceToolCall(true);
-
-      await providerWithFallback.sendMessage('how is weather in london?');
-
-      final assistant = providerWithFallback.messages
+      expect(engine.createCallCount, 1);
+      final assistant = singlePassProvider.messages
           .where((m) => !m.isUser && !m.isInfo)
           .last;
-      expect(assistant.text, contains('The weather in London, UK is'));
+      expect(assistant.isToolCall, isTrue);
       expect(
-        assistant.text.toLowerCase(),
-        isNot(contains('fictional response')),
+        assistant.parts?.whereType<LlamaToolCallContent>().length,
+        equals(1),
       );
-      expect(assistant.debugBadges, contains('fallback:tool-result'));
     });
 
     test(
-      'strips tool-call markup and falls back on no-tools follow-up',
+      'parses FunctionGemma tool-call text into structured tool parts',
       () async {
-        final engine = _ToolCallMarkupThenDisclaimerEngine();
-        final providerWithFallback = ChatProvider(
+        final engine = _FunctionGemmaRawCallTextEngine();
+        final customProvider = ChatProvider(
           chatService: MockChatService(engine: engine),
           settingsService: mockSettingsService,
           initialSettings: const ChatSettings(modelPath: 'test_model.gguf'),
         );
 
-        await providerWithFallback.loadModel();
-        providerWithFallback.updateToolsEnabled(true);
-        providerWithFallback.updateForceToolCall(true);
+        await customProvider.loadModel();
+        customProvider.updateToolsEnabled(true);
+        customProvider.resetToolDeclarations();
 
-        await providerWithFallback.sendMessage('time');
+        await customProvider.sendMessage('weather in london');
 
-        final assistant = providerWithFallback.messages
+        final assistant = customProvider.messages
             .where((m) => !m.isUser && !m.isInfo)
             .last;
-        final lower = assistant.text.toLowerCase();
-        expect(lower, contains('current time:'));
-        expect(lower, isNot(contains('start_function_call')));
-        expect(lower, isNot(contains('cannot retrieve current time')));
+        final toolCalls =
+            assistant.parts?.whereType<LlamaToolCallContent>().toList(
+              growable: false,
+            ) ??
+            const <LlamaToolCallContent>[];
+        expect(assistant.isToolCall, isTrue);
+        expect(toolCalls, hasLength(1));
+        expect(toolCalls.first.name, equals('getWeather'));
+        expect(toolCalls.first.arguments, equals({'city': 'London'}));
       },
     );
+
+    test('rejects invalid tool declaration payload', () async {
+      final result = provider.updateToolDeclarations('{"name":"bad"}');
+
+      expect(result, isFalse);
+      expect(provider.toolDeclarationsError, isNotNull);
+      expect(provider.declaredToolCount, 0);
+    });
+
+    test('rejects non-string nested parameter description', () async {
+      final result = provider.updateToolDeclarations('''
+[
+  {
+    "name": "bad_nested_description",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string",
+          "description": 1
+        }
+      }
+    }
+  }
+]
+''');
+
+      expect(result, isFalse);
+      expect(provider.toolDeclarationsError, isNotNull);
+      expect(provider.toolDeclarationsError, contains('description'));
+      expect(provider.declaredToolCount, 0);
+    });
+
+    test('invalid declarations in initial settings do not crash provider', () {
+      final invalidSettingsProvider = ChatProvider(
+        chatService: mockChatService,
+        settingsService: mockSettingsService,
+        initialSettings: const ChatSettings(
+          modelPath: 'test_model.gguf',
+          toolDeclarations:
+              '[{"name":"x","parameters":{"type":"object","properties":{"a":{"type":"string","description":1}}}}]',
+        ),
+      );
+
+      expect(invalidSettingsProvider.toolDeclarationsError, isNotNull);
+      expect(invalidSettingsProvider.declaredToolCount, 0);
+    });
 
     test('clearConversation resets tokens', () async {
       await provider.loadModel();
@@ -341,22 +341,22 @@ void main() {
       expect(provider.settings.contextSize, 512);
     });
 
-    test('switching backend preserves configured gpu layers', () async {
+    test('switching backend updates preference without model reload', () async {
       provider.updateGpuLayers(48);
       expect(provider.settings.gpuLayers, 48);
+      final backendBeforeChange = provider.activeBackend;
 
       await provider.updatePreferredBackend(GpuBackend.cpu);
 
       expect(provider.settings.preferredBackend, GpuBackend.cpu);
       expect(provider.settings.gpuLayers, 48);
-      expect(provider.activeBackend, 'CPU');
-      expect(provider.runtimeGpuActive, isFalse);
+      expect(provider.activeBackend, backendBeforeChange);
 
       await provider.updatePreferredBackend(GpuBackend.auto);
 
-      expect(provider.settings.preferredBackend, GpuBackend.cpu);
+      expect(provider.settings.preferredBackend, GpuBackend.auto);
       expect(provider.settings.gpuLayers, 48);
-      expect(provider.activeBackend, 'CPU');
+      expect(provider.activeBackend, backendBeforeChange);
     });
 
     test('applyModelPreset updates generation and tool settings', () {
@@ -386,7 +386,6 @@ void main() {
       expect(provider.settings.maxTokens, 512);
       expect(provider.settings.gpuLayers, 99);
       expect(provider.settings.toolsEnabled, isFalse);
-      expect(provider.settings.forceToolCall, isFalse);
     });
 
     test('applyModelPreset disables tools when unsupported', () {
@@ -400,12 +399,31 @@ void main() {
       );
 
       provider.updateToolsEnabled(true);
-      provider.updateForceToolCall(true);
       provider.applyModelPreset(model);
 
       expect(provider.settings.toolsEnabled, isFalse);
-      expect(provider.settings.forceToolCall, isFalse);
     });
+
+    test(
+      'fallback estimation does not force cpu layers when metal backend exists',
+      () async {
+        final engine = _MacFallbackEstimateEngine();
+        final customProvider = ChatProvider(
+          chatService: MockChatService(engine: engine),
+          settingsService: mockSettingsService,
+          initialSettings: const ChatSettings(
+            modelPath: 'test_model.gguf',
+            gpuLayers: 32,
+            preferredBackend: GpuBackend.auto,
+          ),
+        );
+
+        await customProvider.loadModel();
+
+        expect(customProvider.settings.gpuLayers, 32);
+        expect(customProvider.settings.preferredBackend, GpuBackend.metal);
+      },
+    );
 
     test(
       'applyModelPreset preserves manual tool preference when supported',
@@ -417,15 +435,12 @@ void main() {
           filename: 'forced-tools.gguf',
           sizeBytes: 1,
           supportsToolCalling: true,
-          preset: ModelPreset(forceToolCall: true),
         );
 
         provider.updateToolsEnabled(true);
-        provider.updateForceToolCall(true);
         provider.applyModelPreset(model);
 
         expect(provider.settings.toolsEnabled, isTrue);
-        expect(provider.settings.forceToolCall, isTrue);
       },
     );
   });
@@ -532,10 +547,10 @@ class _MinistralPlainReasoningEngine extends MockLlamaEngine {
   }
 }
 
-class _FirstTurnToolChoiceEngine extends MockLlamaEngine {
-  final List<ToolChoice?> receivedToolChoices = [];
-  final List<int> receivedToolCounts = [];
-  int _callIndex = 0;
+class _ToolCaptureEngine extends MockLlamaEngine {
+  int createCallCount = 0;
+  List<ToolDefinition>? lastTools;
+  ToolChoice? lastToolChoice;
 
   @override
   Stream<LlamaCompletionChunk> create(
@@ -550,54 +565,26 @@ class _FirstTurnToolChoiceEngine extends MockLlamaEngine {
     Map<String, dynamic>? chatTemplateKwargs,
     DateTime? templateNow,
   }) async* {
-    receivedToolChoices.add(toolChoice);
-    receivedToolCounts.add(tools?.length ?? 0);
-
-    if (_callIndex == 0) {
-      _callIndex++;
-      yield LlamaCompletionChunk(
-        id: 'tool-turn-1',
-        object: 'chat.completion.chunk',
-        created: 1,
-        model: 'mock-model',
-        choices: [
-          LlamaCompletionChunkChoice(
-            index: 0,
-            delta: LlamaCompletionChunkDelta(
-              toolCalls: [
-                LlamaCompletionChunkToolCall(
-                  index: 0,
-                  id: 'call_0',
-                  type: 'function',
-                  function: LlamaCompletionChunkFunction(
-                    name: 'get_current_time',
-                    arguments: '{}',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      );
-      return;
-    }
+    createCallCount++;
+    lastTools = tools;
+    lastToolChoice = toolChoice;
 
     yield LlamaCompletionChunk(
-      id: 'tool-turn-2',
+      id: 'capture-id',
       object: 'chat.completion.chunk',
-      created: 2,
+      created: 1,
       model: 'mock-model',
       choices: [
         LlamaCompletionChunkChoice(
           index: 0,
-          delta: LlamaCompletionChunkDelta(content: 'Tool complete.'),
+          delta: LlamaCompletionChunkDelta(content: 'ok'),
         ),
       ],
     );
   }
 }
 
-class _InfiniteToolLoopEngine extends MockLlamaEngine {
+class _SinglePassToolCallEngine extends MockLlamaEngine {
   int createCallCount = 0;
 
   @override
@@ -614,11 +601,10 @@ class _InfiniteToolLoopEngine extends MockLlamaEngine {
     DateTime? templateNow,
   }) async* {
     createCallCount++;
-
     yield LlamaCompletionChunk(
-      id: 'loop-$createCallCount',
+      id: 'single-pass-tool-call',
       object: 'chat.completion.chunk',
-      created: createCallCount,
+      created: 1,
       model: 'mock-model',
       choices: [
         LlamaCompletionChunkChoice(
@@ -627,195 +613,14 @@ class _InfiniteToolLoopEngine extends MockLlamaEngine {
             toolCalls: [
               LlamaCompletionChunkToolCall(
                 index: 0,
-                id: 'call_$createCallCount',
+                id: 'call_1',
                 type: 'function',
                 function: LlamaCompletionChunkFunction(
-                  name: 'get_current_time',
-                  arguments: '{}',
+                  name: 'getWeather',
+                  arguments: '{"city":"Seoul"}',
                 ),
               ),
             ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ToolResultIgnoringEngine extends MockLlamaEngine {
-  int _callIndex = 0;
-
-  @override
-  Stream<LlamaCompletionChunk> create(
-    List<LlamaChatMessage> messages, {
-    GenerationParams? params,
-    List<ToolDefinition>? tools,
-    ToolChoice? toolChoice,
-    bool parallelToolCalls = false,
-    bool enableThinking = true,
-    String? sourceLangCode,
-    String? targetLangCode,
-    Map<String, dynamic>? chatTemplateKwargs,
-    DateTime? templateNow,
-  }) async* {
-    if (_callIndex == 0) {
-      _callIndex++;
-      yield LlamaCompletionChunk(
-        id: 'ignore-tool-1',
-        object: 'chat.completion.chunk',
-        created: 1,
-        model: 'mock-model',
-        choices: [
-          LlamaCompletionChunkChoice(
-            index: 0,
-            delta: LlamaCompletionChunkDelta(
-              toolCalls: [
-                LlamaCompletionChunkToolCall(
-                  index: 0,
-                  id: 'call_1',
-                  type: 'function',
-                  function: LlamaCompletionChunkFunction(
-                    name: 'get_current_weather',
-                    arguments: '{"city":"London, UK","unit":"celsius"}',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      );
-      return;
-    }
-
-    yield LlamaCompletionChunk(
-      id: 'ignore-tool-2',
-      object: 'chat.completion.chunk',
-      created: 2,
-      model: 'mock-model',
-      choices: [
-        LlamaCompletionChunkChoice(
-          index: 0,
-          delta: LlamaCompletionChunkDelta(
-            content:
-                "This is a fictional response, as I don't have real-time access to current weather conditions.",
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _VaryingArgsLoopEngine extends MockLlamaEngine {
-  int createCallCount = 0;
-
-  @override
-  Stream<LlamaCompletionChunk> create(
-    List<LlamaChatMessage> messages, {
-    GenerationParams? params,
-    List<ToolDefinition>? tools,
-    ToolChoice? toolChoice,
-    bool parallelToolCalls = false,
-    bool enableThinking = true,
-    String? sourceLangCode,
-    String? targetLangCode,
-    Map<String, dynamic>? chatTemplateKwargs,
-    DateTime? templateNow,
-  }) async* {
-    createCallCount++;
-
-    final city = switch (createCallCount) {
-      1 => 'London, UK',
-      2 => 'London UK',
-      _ => 'London',
-    };
-
-    yield LlamaCompletionChunk(
-      id: 'vary-$createCallCount',
-      object: 'chat.completion.chunk',
-      created: createCallCount,
-      model: 'mock-model',
-      choices: [
-        LlamaCompletionChunkChoice(
-          index: 0,
-          delta: LlamaCompletionChunkDelta(
-            toolCalls: [
-              LlamaCompletionChunkToolCall(
-                index: 0,
-                id: 'call_$createCallCount',
-                type: 'function',
-                function: LlamaCompletionChunkFunction(
-                  name: 'get_current_weather',
-                  arguments: '{"city":"$city","unit":"celsius"}',
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ToolCallMarkupThenDisclaimerEngine extends MockLlamaEngine {
-  int _callIndex = 0;
-
-  @override
-  Stream<LlamaCompletionChunk> create(
-    List<LlamaChatMessage> messages, {
-    GenerationParams? params,
-    List<ToolDefinition>? tools,
-    ToolChoice? toolChoice,
-    bool parallelToolCalls = false,
-    bool enableThinking = true,
-    String? sourceLangCode,
-    String? targetLangCode,
-    Map<String, dynamic>? chatTemplateKwargs,
-    DateTime? templateNow,
-  }) async* {
-    if (_callIndex == 0) {
-      _callIndex++;
-      yield LlamaCompletionChunk(
-        id: 'tool-markup-1',
-        object: 'chat.completion.chunk',
-        created: 1,
-        model: 'mock-model',
-        choices: [
-          LlamaCompletionChunkChoice(
-            index: 0,
-            delta: LlamaCompletionChunkDelta(
-              toolCalls: [
-                LlamaCompletionChunkToolCall(
-                  index: 0,
-                  id: 'call_1',
-                  type: 'function',
-                  function: LlamaCompletionChunkFunction(
-                    name: 'get_current_time',
-                    arguments: '{}',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      );
-      return;
-    }
-
-    yield LlamaCompletionChunk(
-      id: 'tool-markup-2',
-      object: 'chat.completion.chunk',
-      created: 2,
-      model: 'mock-model',
-      choices: [
-        LlamaCompletionChunkChoice(
-          index: 0,
-          delta: LlamaCompletionChunkDelta(
-            content:
-                '<start_function_call>call:get_current_time{}<end_function_call>'
-                'I apologize, but I cannot retrieve current time information due '
-                'to a previous request. The available tools provide authoritative '
-                'facts about time, and I cannot access external data sources for '
-                'this purpose.',
           ),
         ),
       ],
@@ -852,6 +657,51 @@ class _ThinkingControlCaptureEngine extends MockLlamaEngine {
         LlamaCompletionChunkChoice(
           index: 0,
           delta: LlamaCompletionChunkDelta(content: 'ok'),
+        ),
+      ],
+    );
+  }
+}
+
+class _MacFallbackEstimateEngine extends MockLlamaEngine {
+  @override
+  Future<({int total, int free})> getVramInfo() async => (total: 0, free: 0);
+
+  @override
+  Future<String> getBackendName() async => 'CPU, METAL';
+}
+
+class _FunctionGemmaRawCallTextEngine extends MockLlamaEngine {
+  @override
+  Future<Map<String, String>> getMetadata() async => {
+    'tokenizer.chat_template': '<start_function_declaration>',
+  };
+
+  @override
+  Stream<LlamaCompletionChunk> create(
+    List<LlamaChatMessage> messages, {
+    GenerationParams? params,
+    List<ToolDefinition>? tools,
+    ToolChoice? toolChoice,
+    bool parallelToolCalls = false,
+    bool enableThinking = true,
+    String? sourceLangCode,
+    String? targetLangCode,
+    Map<String, dynamic>? chatTemplateKwargs,
+    DateTime? templateNow,
+  }) async* {
+    yield LlamaCompletionChunk(
+      id: 'function-gemma-tool',
+      object: 'chat.completion.chunk',
+      created: 1,
+      model: 'mock-model',
+      choices: [
+        LlamaCompletionChunkChoice(
+          index: 0,
+          delta: LlamaCompletionChunkDelta(
+            content:
+                '<start_function_call>call getWeather{city:<escape>London<escape>}<end_function_call>',
+          ),
         ),
       ],
     );

@@ -207,7 +207,7 @@ class FunctionGemmaHandler extends ChatTemplateHandler {
 
     // Parse <start_function_call>call:name{args}<end_function_call>
     final regex = RegExp(
-      r'<start_function_call>(?:call:)?([a-zA-Z0-9_\.]+)\{(.*?)\}(?:<end_function_call>)?',
+      r'<start_function_call>\s*(?:call(?:\s*:\s*|\s+))?([a-zA-Z0-9_\.]+)\s*\{(.*?)\}(?:\s*<end_function_call>)?',
       dotAll: true,
     );
 
