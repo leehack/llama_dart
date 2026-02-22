@@ -74,40 +74,40 @@ jobs:
         run: |
           (cd example/chat_app && flutter build web --release)
 
+      - name: Install Hugging Face CLI
+        run: |
+          if ! command -v hf >/dev/null 2>&1; then
+            curl -LsSf https://hf.co/cli/install.sh | bash
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+
       - name: Deploy to Hugging Face Space
         env:
           SPACE_REPO: ${{ steps.target.outputs.space_repo }}
         run: |
-          rm -rf hf-space
-          git clone "https://oauth2:${HF_TOKEN}@huggingface.co/spaces/${SPACE_REPO}" hf-space
+          export PATH="$HOME/.local/bin:$PATH"
+          hf version
+
+          rm -rf hf-space-sync
+          mkdir -p hf-space-sync
 
           rsync -a --delete \
-            --exclude ".git/" \
-            --exclude "README.md" \
-            "example/chat_app/build/web/" "hf-space/"
+            "example/chat_app/build/web/" "hf-space-sync/"
 
-          if [ ! -f "hf-space/README.md" ]; then
-            {
-              printf '%s\n' '---'
-              printf '%s\n' 'title: llamadart chat app'
-              printf '%s\n' 'sdk: static'
-              printf '%s\n' 'app_file: index.html'
-              printf '%s\n' '---'
-              printf '%s\n' ''
-              printf '%s\n' 'llamadart chat app static deployment.'
-            } > "hf-space/README.md"
-          fi
-
-          cd hf-space
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No deployment changes detected."
-            exit 0
-          fi
+          {
+            printf '%s\n' '---'
+            printf '%s\n' 'title: llamadart chat app'
+            printf '%s\n' 'sdk: static'
+            printf '%s\n' 'app_file: index.html'
+            printf '%s\n' '---'
+            printf '%s\n' ''
+            printf '%s\n' 'llamadart chat app static deployment.'
+          } > "hf-space-sync/README.md"
 
           SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
-          git commit -m "chore: deploy chat app ${SHORT_SHA}"
-          git push origin HEAD
+          hf upload "$SPACE_REPO" "hf-space-sync/" "." \
+            --repo-type space \
+            --revision main \
+            --token "$HF_TOKEN" \
+            --delete "*" \
+            --commit-message "chore: deploy chat app ${SHORT_SHA}"
