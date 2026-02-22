@@ -1,0 +1,113 @@
+name: Chat App HF Static Deploy
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "example/chat_app/**"
+      - "scripts/fetch_webgpu_bridge_assets.sh"
+      - ".github/workflows/chat_app_hf_static_deploy.yml"
+  workflow_dispatch:
+    inputs:
+      space_repo:
+        description: "Hugging Face Space repo (owner/space), optional override"
+        required: false
+      deploy_ref:
+        description: "Git ref to deploy (optional)"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chat-app-hf-static-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy chat app
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_CHAT_APP_SPACE_REPO: ${{ vars.HF_CHAT_APP_SPACE_REPO }}
+      INPUT_SPACE_REPO: ${{ github.event.inputs.space_repo }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.deploy_ref || github.ref }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve Hugging Face target
+        id: target
+        run: |
+          SPACE_REPO="$INPUT_SPACE_REPO"
+          if [ -z "$SPACE_REPO" ]; then
+            SPACE_REPO="$HF_CHAT_APP_SPACE_REPO"
+          fi
+
+          if [ -z "$SPACE_REPO" ]; then
+            echo "error: set HF_CHAT_APP_SPACE_REPO repo variable or provide workflow input 'space_repo'"
+            exit 1
+          fi
+
+          if [ -z "$HF_TOKEN" ]; then
+            echo "error: set HF_TOKEN repository secret with write access to the Space"
+            exit 1
+          fi
+
+          echo "space_repo=$SPACE_REPO" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: |
+          (cd example/chat_app && flutter pub get)
+
+      - name: Fetch pinned web bridge assets
+        run: ./scripts/fetch_webgpu_bridge_assets.sh
+
+      - name: Build chat app web
+        run: |
+          (cd example/chat_app && flutter build web --release)
+
+      - name: Deploy to Hugging Face Space
+        env:
+          SPACE_REPO: ${{ steps.target.outputs.space_repo }}
+        run: |
+          rm -rf hf-space
+          git clone "https://oauth2:${HF_TOKEN}@huggingface.co/spaces/${SPACE_REPO}" hf-space
+
+          rsync -a --delete \
+            --exclude ".git/" \
+            --exclude "README.md" \
+            "example/chat_app/build/web/" "hf-space/"
+
+          if [ ! -f "hf-space/README.md" ]; then
+            {
+              printf '%s\n' '---'
+              printf '%s\n' 'title: llamadart chat app'
+              printf '%s\n' 'sdk: static'
+              printf '%s\n' 'app_file: index.html'
+              printf '%s\n' '---'
+              printf '%s\n' ''
+              printf '%s\n' 'llamadart chat app static deployment.'
+            } > "hf-space/README.md"
+          fi
+
+          cd hf-space
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No deployment changes detected."
+            exit 0
+          fi
+
+          SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          git commit -m "chore: deploy chat app ${SHORT_SHA}"
+          git push origin HEAD

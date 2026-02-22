@@ -257,6 +257,14 @@ _(Add screenshots here when complete)_
 - Image/audio attachments on web use browser file bytes (local path-based loading remains native-only).
 - On web, model files are loaded by URL (local file download/cache flow differs from native).
 
+### Hugging Face static deployment (CI)
+
+- Workflow: `.github/workflows/chat_app_hf_static_deploy.yml`
+- Triggered on pushes to `main/master` when chat app files change, and by manual dispatch.
+- Required repository secret: `HF_TOKEN` (write access to your Space repo).
+- Required repository variable: `HF_CHAT_APP_SPACE_REPO` in `owner/space` format.
+- Manual dispatch can override target Space via `space_repo` input and deploy a specific ref via `deploy_ref`.
+
 
 ## Implemented Highlights ✅
 
