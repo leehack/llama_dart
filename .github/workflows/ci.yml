@@ -140,3 +140,44 @@ jobs:
         env:
           GGML_METAL_DEVICES: "0"
         run: dart test -p vm -j 1 --exclude-tags local-only
+
+  native-prompt-reuse-parity:
+    name: Native Prompt Reuse Parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Download parity model
+        run: |
+          mkdir -p "$RUNNER_TEMP/models"
+          curl --retry 5 --retry-all-errors --retry-delay 3 --location \
+            "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true" \
+            --output "$RUNNER_TEMP/models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+
+      - name: Run native prompt reuse parity
+        run: |
+          dart run tool/testing/native_prompt_reuse_parity.dart \
+            --model "$RUNNER_TEMP/models/qwen2.5-0.5b-instruct-q4_k_m.gguf" \
+            --prompt-file "tool/testing/prompts/native_prompt_reuse_ci_prompts.txt" \
+            --max-prompts 4 \
+            --runs 1 \
+            --max-tokens 64 \
+            --gpu-layers 0 \
+            --threads 1 \
+            --threads-batch 1 \
+            --temp 0 \
+            --top-k 1 \
+            --top-p 1.0 \
+            --min-p 0.0 \
+            --repeat-penalty 1.0 \
+            --fail-on-mismatch
