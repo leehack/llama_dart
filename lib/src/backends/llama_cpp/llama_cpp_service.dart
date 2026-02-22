@@ -1655,9 +1655,16 @@ class LlamaCppService {
     final model = _models[modelHandle]!;
     final modelParams = _contextParams[contextHandle]!;
     final vocab = llama_model_get_vocab(model.pointer);
+    final hasMediaParts =
+        parts?.any((p) => p is LlamaImageContent || p is LlamaAudioContent) ??
+        false;
 
     // 1. Reset Context
-    ctx = _resetContext(contextHandle, ctx);
+    ctx = _resetContext(
+      contextHandle,
+      ctx,
+      clearMemory: hasMediaParts || !params.reusePromptPrefix,
+    );
 
     // 2. Prepare Resources
     final nCtx = llama_n_ctx(ctx.pointer);
@@ -1689,6 +1696,7 @@ class LlamaCppService {
         tokensPtr,
         nCtx,
         modelParams,
+        allowTextPromptReuse: !hasMediaParts && params.reusePromptPrefix,
       );
 
       // 4. Initialize and Run Sampler Loop
@@ -1739,18 +1747,27 @@ class LlamaCppService {
   /// Helper: Resets the context state to be ready for new generation.
   _LlamaContextWrapper _resetContext(
     int contextHandle,
-    _LlamaContextWrapper ctx,
-  ) {
+    _LlamaContextWrapper ctx, {
+    required bool clearMemory,
+  }) {
     llama_synchronize(ctx.pointer);
 
-    final memory = llama_get_memory(ctx.pointer);
+    if (clearMemory) {
+      _clearContextMemory(ctx.pointer);
+      ctx.cachedPromptTokens = null;
+    }
+
+    _contexts[contextHandle] = ctx;
+    return ctx;
+  }
+
+  void _clearContextMemory(Pointer<llama_context> contextPointer) {
+    final memory = llama_get_memory(contextPointer);
     if (memory == nullptr) {
       throw Exception("Failed to reset context memory");
     }
 
     llama_memory_clear(memory, true);
-    _contexts[contextHandle] = ctx;
-    return ctx;
   }
 
   /// Helper: Ingests the prompt (text or multimodal) and returns initial token count.
@@ -1764,8 +1781,9 @@ class LlamaCppService {
     List<LlamaContentPart>? parts,
     Pointer<Int32> tokensPtr,
     int nCtx,
-    llama_context_params modelParams,
-  ) {
+    llama_context_params modelParams, {
+    required bool allowTextPromptReuse,
+  }) {
     final mediaParts =
         parts
             ?.where((p) => p is LlamaImageContent || p is LlamaAudioContent)
@@ -1784,7 +1802,15 @@ class LlamaCppService {
         modelParams,
       );
     } else {
-      return _ingestTextPrompt(batch, vocab, prompt, tokensPtr, nCtx, ctx);
+      return _ingestTextPrompt(
+        batch,
+        vocab,
+        prompt,
+        tokensPtr,
+        nCtx,
+        ctx,
+        allowPromptReuse: allowTextPromptReuse,
+      );
     }
   }
 
@@ -1902,6 +1928,7 @@ class LlamaCppService {
       malloc.free(bitmaps);
       _mtmdInputChunksFree(chunks);
     }
+    ctx.cachedPromptTokens = null;
     return initialTokens;
   }
 
@@ -1991,8 +2018,9 @@ class LlamaCppService {
     String prompt,
     Pointer<Int32> tokensPtr,
     int nCtx,
-    _LlamaContextWrapper ctx,
-  ) {
+    _LlamaContextWrapper ctx, {
+    required bool allowPromptReuse,
+  }) {
     final promptPtr = prompt.toNativeUtf8();
     final shouldAddSpecial = !_promptStartsWithBosToken(vocab, prompt);
     final nTokens = llama_tokenize(
@@ -2010,20 +2038,123 @@ class LlamaCppService {
       throw Exception("Tokenization failed or prompt too long");
     }
 
-    batch.n_tokens = nTokens;
-    for (int i = 0; i < nTokens; i++) {
-      batch.token[i] = tokensPtr[i];
-      batch.pos[i] = i;
+    if (!allowPromptReuse || nTokens == 0) {
+      return _decodeAndCacheFullPrompt(batch, tokensPtr, ctx, nTokens);
+    }
+
+    final cachedTokens = ctx.cachedPromptTokens;
+    if (cachedTokens == null || cachedTokens.isEmpty) {
+      return _decodeAndCacheFullPrompt(batch, tokensPtr, ctx, nTokens);
+    }
+
+    final reusedPrefix = _sharedPrefixLength(cachedTokens, tokensPtr, nTokens);
+
+    if (reusedPrefix <= 0 || reusedPrefix >= nTokens) {
+      final canReuseCachedCopy =
+          reusedPrefix == nTokens && cachedTokens.length == nTokens;
+      return _decodeAndCacheFullPrompt(
+        batch,
+        tokensPtr,
+        ctx,
+        nTokens,
+        existingCachedTokens: canReuseCachedCopy ? cachedTokens : null,
+      );
+    }
+
+    final memory = llama_get_memory(ctx.pointer);
+    if (memory == nullptr) {
+      return _decodeAndCacheFullPrompt(batch, tokensPtr, ctx, nTokens);
+    }
+
+    final decodeStart = reusedPrefix;
+
+    final maxSeqPos = llama_memory_seq_pos_max(memory, 0);
+    final removeTo = maxSeqPos >= decodeStart ? maxSeqPos + 1 : decodeStart;
+    final removedTail = llama_memory_seq_rm(memory, 0, decodeStart, removeTo);
+    if (!removedTail) {
+      return _decodeAndCacheFullPrompt(batch, tokensPtr, ctx, nTokens);
+    }
+
+    final suffixTokenCount = nTokens - decodeStart;
+    _decodePromptSegment(
+      batch,
+      tokensPtr,
+      ctx,
+      startTokenIndex: decodeStart,
+      tokenCount: suffixTokenCount,
+    );
+
+    ctx.cachedPromptTokens = _copyPromptTokens(tokensPtr, nTokens);
+
+    return nTokens;
+  }
+
+  int _decodeAndCacheFullPrompt(
+    llama_batch batch,
+    Pointer<Int32> tokensPtr,
+    _LlamaContextWrapper ctx,
+    int nTokens, {
+    List<int>? existingCachedTokens,
+  }) {
+    _clearContextMemory(ctx.pointer);
+    _decodePromptSegment(
+      batch,
+      tokensPtr,
+      ctx,
+      startTokenIndex: 0,
+      tokenCount: nTokens,
+    );
+    ctx.cachedPromptTokens =
+        existingCachedTokens ?? _copyPromptTokens(tokensPtr, nTokens);
+    return nTokens;
+  }
+
+  List<int> _copyPromptTokens(Pointer<Int32> tokensPtr, int tokenCount) {
+    if (tokenCount <= 0) {
+      return const <int>[];
+    }
+    return List<int>.from(tokensPtr.asTypedList(tokenCount), growable: false);
+  }
+
+  void _decodePromptSegment(
+    llama_batch batch,
+    Pointer<Int32> tokensPtr,
+    _LlamaContextWrapper ctx, {
+    required int startTokenIndex,
+    required int tokenCount,
+  }) {
+    if (tokenCount <= 0) {
+      return;
+    }
+
+    batch.n_tokens = tokenCount;
+    for (int i = 0; i < tokenCount; i++) {
+      final tokenIndex = startTokenIndex + i;
+      batch.token[i] = tokensPtr[tokenIndex];
+      batch.pos[i] = tokenIndex;
       batch.n_seq_id[i] = 1;
       batch.seq_id[i][0] = 0;
-      batch.logits[i] = (i == nTokens - 1) ? 1 : 0;
+      batch.logits[i] = (i == tokenCount - 1) ? 1 : 0;
     }
 
     if (llama_decode(ctx.pointer, batch) != 0) {
       throw Exception("Initial decode failed");
     }
+  }
 
-    return nTokens;
+  int _sharedPrefixLength(
+    List<int> cachedTokens,
+    Pointer<Int32> newTokens,
+    int newTokenCount,
+  ) {
+    final maxLength = cachedTokens.length < newTokenCount
+        ? cachedTokens.length
+        : newTokenCount;
+    int i = 0;
+    while (i < maxLength && cachedTokens[i] == newTokens[i]) {
+      i++;
+    }
+    return i;
   }
 
   /// Helper: Initializes the sampler chain.
@@ -2113,7 +2244,6 @@ class LlamaCppService {
     final accumulatedBytes = <int>[];
 
     for (int i = 0; i < params.maxTokens; i++) {
-      await Future.delayed(Duration.zero);
       if (cancelToken.value == 1) break;
       if (currentPos >= nCtx) break;
 
@@ -2412,15 +2542,18 @@ class LlamaCppService {
         }
         activeLoras[path] = scale;
         _applyActiveLoras(ctx.pointer, modelAdapters, activeLoras);
+        ctx.cachedPromptTokens = null;
       } else if (op == 'remove') {
         if (path == null) {
           throw Exception('LoRA path is required for remove operation');
         }
         activeLoras.remove(path);
         _applyActiveLoras(ctx.pointer, modelAdapters, activeLoras);
+        ctx.cachedPromptTokens = null;
       } else if (op == 'clear') {
         activeLoras.clear();
         _applyActiveLoras(ctx.pointer, modelAdapters, activeLoras);
+        ctx.cachedPromptTokens = null;
       } else {
         throw Exception('Unknown LoRA operation: $op');
       }
@@ -3090,10 +3223,12 @@ class _LlamaModelWrapper {
 class _LlamaContextWrapper {
   final Pointer<llama_context> pointer;
   final _LlamaModelWrapper? _modelKeepAlive;
+  List<int>? cachedPromptTokens;
   _LlamaContextWrapper(this.pointer, this._modelKeepAlive);
   void dispose() {
     // ignore: unused_local_variable
     final _ = _modelKeepAlive;
+    cachedPromptTokens = null;
     llama_free(pointer);
   }
 }

@@ -141,6 +141,7 @@ class MockLlamaEngine extends LlamaEngine {
     String? customTemplate,
     String? sourceLangCode,
     String? targetLangCode,
+    bool includeTokenCount = true,
     Map<String, dynamic>? chatTemplateKwargs,
     DateTime? templateNow,
   }) async {

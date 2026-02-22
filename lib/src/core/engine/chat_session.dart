@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 import 'engine.dart';
 import '../models/chat/chat_message.dart';
 import '../models/chat/completion_chunk.dart';
@@ -238,32 +237,85 @@ class ChatSession {
     // Reserve 10% for response
     final reserve = (limit * 0.1).clamp(128, 512).toInt();
     final targetLimit = limit - reserve;
+    if (_history.isEmpty) return;
 
-    while (_history.isNotEmpty) {
-      final messages = _buildMessages();
-      final template = await _engine.chatTemplate(messages);
+    final turnOffsets = _buildTurnOffsets();
+    if (turnOffsets.length <= 1) return;
 
-      final tokenCount =
-          template.tokenCount ?? await _engine.getTokenCount(template.prompt);
+    final fullTokenCount = await _getTemplateTokenCount(
+      _buildMessagesFromOffset(0),
+    );
+    if (fullTokenCount < targetLimit) return;
+
+    int low = 1;
+    int high = turnOffsets.length - 1;
+    int bestDropCount = high;
+
+    while (low <= high) {
+      final mid = (low + high) >> 1;
+      final tokenCount = await _getTemplateTokenCount(
+        _buildMessagesFromOffset(turnOffsets[mid]),
+      );
 
       if (tokenCount < targetLimit) {
-        break;
-      }
-
-      // Remove oldest messages
-      final overBy = tokenCount - targetLimit;
-      if (overBy > 500 && _history.length > 4) {
-        // Remove 2 turns at once if way over
-        _history.removeRange(0, min(4, _history.length - 1));
+        bestDropCount = mid;
+        high = mid - 1;
       } else {
-        _history.removeAt(0);
-        // Remove corresponding assistant message if we removed a user message
-        if (_history.isNotEmpty &&
-            _history[0].role == LlamaChatRole.assistant) {
-          _history.removeAt(0);
-        }
+        low = mid + 1;
       }
     }
+
+    final removeUntil = turnOffsets[bestDropCount];
+    if (removeUntil > 0) {
+      _history.removeRange(0, removeUntil);
+    }
+  }
+
+  Future<int> _getTemplateTokenCount(List<LlamaChatMessage> messages) async {
+    final template = await _engine.chatTemplate(messages);
+    return template.tokenCount ?? await _engine.getTokenCount(template.prompt);
+  }
+
+  List<LlamaChatMessage> _buildMessagesFromOffset(int startOffset) {
+    final messages = <LlamaChatMessage>[];
+
+    if (systemPrompt != null && systemPrompt!.isNotEmpty) {
+      messages.add(
+        LlamaChatMessage.fromText(
+          role: LlamaChatRole.system,
+          text: systemPrompt!,
+        ),
+      );
+    }
+
+    if (startOffset >= _history.length) {
+      return messages;
+    }
+
+    for (int i = startOffset; i < _history.length; i++) {
+      final message = _history[i];
+      if (message.role != LlamaChatRole.system) {
+        messages.add(message);
+      }
+    }
+
+    return messages;
+  }
+
+  List<int> _buildTurnOffsets() {
+    final offsets = <int>[0];
+    int index = 0;
+
+    while (index < _history.length) {
+      index += 1;
+      while (index < _history.length &&
+          _history[index].role == LlamaChatRole.assistant) {
+        index += 1;
+      }
+      offsets.add(index);
+    }
+
+    return offsets;
   }
 }
 

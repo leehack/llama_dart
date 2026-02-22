@@ -34,6 +34,15 @@ class GenerationGrammarTrigger {
 
 /// Parameters controlling the token sampling and generation process.
 class GenerationParams {
+  /// Default prompt prefix reuse behavior for native generation.
+  static const bool defaultReusePromptPrefix = true;
+
+  /// Default native stream batching threshold by token pieces.
+  static const int defaultStreamBatchTokenThreshold = 8;
+
+  /// Default native stream batching threshold by byte size.
+  static const int defaultStreamBatchByteThreshold = 512;
+
   /// Maximum number of new tokens to generate.
   final int maxTokens;
 
@@ -81,6 +90,26 @@ class GenerationParams {
   /// Grammar start symbol. Defaults to "root".
   final String grammarRoot;
 
+  /// Reuses matching prompt prefixes from previous requests in the same native
+  /// context to reduce prompt ingestion latency.
+  ///
+  /// This optimization applies to native text-only generation.
+  /// Exact full-prompt replays are conservatively re-ingested to preserve
+  /// deterministic parity.
+  final bool reusePromptPrefix;
+
+  /// Native worker chunk flush threshold by token pieces.
+  ///
+  /// Lower values improve stream granularity but increase isolate message
+  /// overhead. Higher values reduce overhead but emit larger chunks.
+  final int streamBatchTokenThreshold;
+
+  /// Native worker chunk flush threshold by byte size.
+  ///
+  /// Lower values improve stream granularity but increase isolate message
+  /// overhead. Higher values reduce overhead but emit larger chunks.
+  final int streamBatchByteThreshold;
+
   /// Creates generation parameters with default values.
   const GenerationParams({
     this.maxTokens = 4096,
@@ -96,6 +125,9 @@ class GenerationParams {
     this.grammarTriggers = const [],
     this.preservedTokens = const [],
     this.grammarRoot = 'root',
+    this.reusePromptPrefix = defaultReusePromptPrefix,
+    this.streamBatchTokenThreshold = defaultStreamBatchTokenThreshold,
+    this.streamBatchByteThreshold = defaultStreamBatchByteThreshold,
   });
 
   /// Creates a copy of this [GenerationParams] with updated fields.
@@ -113,6 +145,9 @@ class GenerationParams {
     List<GenerationGrammarTrigger>? grammarTriggers,
     List<String>? preservedTokens,
     String? grammarRoot,
+    bool? reusePromptPrefix,
+    int? streamBatchTokenThreshold,
+    int? streamBatchByteThreshold,
   }) {
     return GenerationParams(
       maxTokens: maxTokens ?? this.maxTokens,
@@ -128,6 +163,11 @@ class GenerationParams {
       grammarTriggers: grammarTriggers ?? this.grammarTriggers,
       preservedTokens: preservedTokens ?? this.preservedTokens,
       grammarRoot: grammarRoot ?? this.grammarRoot,
+      reusePromptPrefix: reusePromptPrefix ?? this.reusePromptPrefix,
+      streamBatchTokenThreshold:
+          streamBatchTokenThreshold ?? this.streamBatchTokenThreshold,
+      streamBatchByteThreshold:
+          streamBatchByteThreshold ?? this.streamBatchByteThreshold,
     );
   }
 }

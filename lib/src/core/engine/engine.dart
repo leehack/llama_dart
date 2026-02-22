@@ -69,6 +69,7 @@ class LlamaEngine {
   int? _mmContextHandle;
   bool _isReady = false;
   String? _modelPath;
+  Map<String, String>? _cachedModelMetadata;
   LlamaLogLevel _dartLogLevel = LlamaLogLevel.none;
   LlamaLogLevel _nativeLogLevel = LlamaLogLevel.none;
 
@@ -143,6 +144,7 @@ class LlamaEngine {
       await backend.setLogLevel(_nativeLogLevel);
       _ensureNotReady();
       _modelPath = path;
+      _cachedModelMetadata = null;
       _modelHandle = await backend.modelLoad(path, modelParams);
       _contextHandle = await backend.contextCreate(_modelHandle!, modelParams);
       _isReady = true;
@@ -181,6 +183,7 @@ class LlamaEngine {
       await backend.setLogLevel(_nativeLogLevel);
       _ensureNotReady();
       _modelPath = url;
+      _cachedModelMetadata = null;
 
       _modelHandle = await backend.modelLoadFromUrl(
         url,
@@ -207,6 +210,7 @@ class LlamaEngine {
         _modelHandle = null;
       }
       _modelPath = null;
+      _cachedModelMetadata = null;
       _isReady = false;
 
       LlamaLogger.instance.error(
@@ -264,6 +268,7 @@ class LlamaEngine {
       _modelHandle = null;
     }
     _modelPath = null;
+    _cachedModelMetadata = null;
     _isReady = false;
     LlamaLogger.instance.info('Model unloaded.');
   }
@@ -332,6 +337,7 @@ class LlamaEngine {
       targetLangCode: targetLangCode,
       chatTemplateKwargs: chatTemplateKwargs,
       templateNow: templateNow,
+      includeTokenCount: false,
     );
     final stops = {...result.stopSequences, ...?params?.stopSequences}.toList();
 
@@ -398,9 +404,13 @@ class LlamaEngine {
     var streamedReasoning = '';
     const structuredPartialParseInterval = 8;
     const plainPartialParseProbeInterval = 4;
+    const signalDrivenPartialParseMinTokens = 2;
+    const partialParseMinIntervalMs = 24;
     var tokensSincePartialParse = 0;
     var sawStructuredOutputSignal = false;
     var didInitialPartialParse = false;
+    var lastPartialParseAtMs = 0;
+    final partialParseStopwatch = Stopwatch()..start();
     var streamingMode = _ToolStreamingMode.undecided;
     var undecidedPrefix = '';
     final thinkingTags = ChatTemplateEngine.thinkingTagsFor(result.format);
@@ -473,18 +483,26 @@ class LlamaEngine {
         if (tokenHasSignal) {
           sawStructuredOutputSignal = true;
         }
-        final shouldRunPartialParse =
-            tokenHasSignal ||
-            !didInitialPartialParse ||
+        final elapsedMs = partialParseStopwatch.elapsedMilliseconds;
+        final intervalElapsed =
+            elapsedMs - lastPartialParseAtMs >= partialParseMinIntervalMs;
+        final signalParseReady =
+            tokenHasSignal &&
+            intervalElapsed &&
+            tokensSincePartialParse >= signalDrivenPartialParseMinTokens;
+        final periodicParseReady =
             (sawStructuredOutputSignal &&
                 tokensSincePartialParse >= structuredPartialParseInterval) ||
             (!sawStructuredOutputSignal &&
                 tokensSincePartialParse >= plainPartialParseProbeInterval);
+        final shouldRunPartialParse =
+            !didInitialPartialParse || signalParseReady || periodicParseReady;
         if (!shouldRunPartialParse) {
           continue;
         }
         didInitialPartialParse = true;
         tokensSincePartialParse = 0;
+        lastPartialParseAtMs = elapsedMs;
 
         try {
           final partialParsed = ChatTemplateEngine.parse(
@@ -762,6 +780,9 @@ class LlamaEngine {
   /// For TranslateGemma-style templates, [sourceLangCode] and
   /// [targetLangCode] are forwarded to the template renderer.
   ///
+  /// Set [includeTokenCount] to false to skip the prompt tokenization pass
+  /// and reduce per-request overhead when token count is not needed.
+  ///
   /// Use [chatTemplateKwargs] to inject additional template globals (equivalent
   /// to llama.cpp `chat_template_kwargs`).
   /// Use [templateNow] to set deterministic template time context.
@@ -778,6 +799,7 @@ class LlamaEngine {
     String? customTemplate,
     String? sourceLangCode,
     String? targetLangCode,
+    bool includeTokenCount = true,
     Map<String, dynamic>? chatTemplateKwargs,
     DateTime? templateNow,
   }) async {
@@ -788,9 +810,7 @@ class LlamaEngine {
     // Get metadata for template source and token info
     Map<String, String> metadata = {};
     try {
-      metadata = (await getMetadata()).map(
-        (key, value) => MapEntry(key, value.toString()),
-      );
+      metadata = await _getCachedMetadata();
       templateSource = metadata['tokenizer.chat_template'];
     } catch (e) {
       LlamaLogger.instance.warning('Failed to read metadata: $e');
@@ -829,7 +849,12 @@ class LlamaEngine {
         now: templateNow,
       );
 
-      final tokens = await tokenize(result.prompt, addSpecial: false);
+      int? tokenCount;
+      if (includeTokenCount) {
+        final tokens = await tokenize(result.prompt, addSpecial: false);
+        tokenCount = tokens.length;
+      }
+
       return LlamaChatTemplateResult(
         prompt: result.prompt,
         format: result.format,
@@ -840,7 +865,7 @@ class LlamaEngine {
         thinkingForcedOpen: result.thinkingForcedOpen,
         preservedTokens: result.preservedTokens,
         parser: result.parser,
-        tokenCount: tokens.length,
+        tokenCount: tokenCount,
       );
     } catch (_) {
       rethrow;
@@ -909,11 +934,13 @@ class LlamaEngine {
   // ============================================================
 
   /// Retrieves all available metadata from the loaded model.
-  Future<Map<String, String>> getMetadata() {
+  Future<Map<String, String>> getMetadata() async {
     if (!_isReady || _modelHandle == null) {
-      return Future.value({});
+      return <String, String>{};
     }
-    return backend.modelMetadata(_modelHandle!);
+    final metadata = await backend.modelMetadata(_modelHandle!);
+    _cachedModelMetadata = Map<String, String>.from(metadata);
+    return metadata;
   }
 
   /// Returns the actual context size being used by the current session.
@@ -987,6 +1014,16 @@ class LlamaEngine {
   // ============================================================
   // INTERNAL HELPERS
   // ============================================================
+
+  Future<Map<String, String>> _getCachedMetadata() async {
+    if (_cachedModelMetadata != null) {
+      return Map<String, String>.from(_cachedModelMetadata!);
+    }
+
+    final metadata = await getMetadata();
+    _cachedModelMetadata = Map<String, String>.from(metadata);
+    return Map<String, String>.from(_cachedModelMetadata!);
+  }
 
   bool _mayNeedStructuredPartialParse(String token) {
     for (var i = 0; i < token.length; i++) {

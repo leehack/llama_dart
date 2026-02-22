@@ -1,3 +1,23 @@
+## 0.6.2
+
+*   **Native inference performance improvements**:
+    *   Reduced request overhead by caching model metadata and skipping
+        unnecessary prompt token counting in `create(...)`.
+    *   Improved native stream throughput with worker-side token chunk batching
+        and configurable thresholds (`streamBatchTokenThreshold`,
+        `streamBatchByteThreshold`).
+    *   Added prompt-prefix reuse for native text generation
+        (`reusePromptPrefix`, enabled by default) with conservative full-replay
+        fallback to preserve deterministic parity.
+    *   Optimized `ChatSession` context trimming using bounded turn-offset
+        search to avoid repeated linear recount loops on long histories.
+*   **Benchmarking and parity tooling**:
+    *   Added `tool/testing/native_inference_benchmark.dart` for TTFT,
+        throughput, and latency measurement with tunable generation settings.
+    *   Added `tool/testing/native_prompt_reuse_parity.dart` and curated prompt
+        sets for deterministic prompt-reuse parity validation.
+    *   Added CI prompt-reuse parity checks to catch native reuse regressions.
+
 ## 0.6.1
 
 *   **Publishing compatibility fix**:
