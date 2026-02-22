@@ -14,6 +14,8 @@ class MockLlamaBackend implements LlamaBackend {
   double? lastLoraScale;
   int modelLoadCalls = 0;
   int modelLoadFromUrlCalls = 0;
+  int tokenizeCalls = 0;
+  int modelMetadataCalls = 0;
   String generationText = 'response';
   List<String>? generationChunks;
   final String backendName;
@@ -76,7 +78,10 @@ class MockLlamaBackend implements LlamaBackend {
     int modelHandle,
     String text, {
     bool addSpecial = true,
-  }) async => [1, 2, 3];
+  }) async {
+    tokenizeCalls += 1;
+    return [1, 2, 3];
+  }
 
   @override
   Future<String> detokenize(
@@ -86,11 +91,14 @@ class MockLlamaBackend implements LlamaBackend {
   }) async => 'decoded';
 
   @override
-  Future<Map<String, String>> modelMetadata(int modelHandle) async => {
-    'llm.context_length': '4096',
-    'tokenizer.chat_template':
-        '{{ bos_token }}{% for message in messages %}{% if message["role"] == "user" %}{{ "user: " + message["content"] }}{% elif message["role"] == "assistant" %}{{ "assistant: " + message["content"] }}{% endif %}{% endfor %}{% if add_generation_prompt %}{{ "assistant: " }}{% endif %}',
-  };
+  Future<Map<String, String>> modelMetadata(int modelHandle) async {
+    modelMetadataCalls += 1;
+    return {
+      'llm.context_length': '4096',
+      'tokenizer.chat_template':
+          '{{ bos_token }}{% for message in messages %}{% if message["role"] == "user" %}{{ "user: " + message["content"] }}{% elif message["role"] == "assistant" %}{{ "assistant: " + message["content"] }}{% endif %}{% endfor %}{% if add_generation_prompt %}{{ "assistant: " }}{% endif %}',
+    };
+  }
 
   @override
   Future<void> setLoraAdapter(
@@ -240,6 +248,32 @@ void main() {
       ]);
       expect(result.prompt, '<s>user: hiassistant: ');
       expect(result.tokenCount, 3);
+    });
+
+    test('chatTemplate can skip token counting', () async {
+      await engine.loadModel('qwen-test.gguf');
+
+      final result = await engine.chatTemplate(const [
+        LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+      ], includeTokenCount: false);
+
+      expect(result.prompt, '<s>user: hiassistant: ');
+      expect(result.tokenCount, isNull);
+      expect(backend.tokenizeCalls, 0);
+    });
+
+    test('create reuses cached metadata across requests', () async {
+      await engine.loadModel('qwen-test.gguf');
+
+      await engine.create(const [
+        LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'first'),
+      ]).drain();
+      expect(backend.modelMetadataCalls, 1);
+
+      await engine.create(const [
+        LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'second'),
+      ]).drain();
+      expect(backend.modelMetadataCalls, 1);
     });
 
     test('create disables tool-call parsing when toolChoice is none', () async {

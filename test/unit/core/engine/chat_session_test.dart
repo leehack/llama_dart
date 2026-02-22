@@ -9,6 +9,7 @@ class MockLlamaBackend implements LlamaBackend {
   final List<String> _responses = [];
   int contextSize = 2048;
   String? lastPrompt;
+  int tokenizeCalls = 0;
 
   void queueResponse(String response) => _responses.add(response);
 
@@ -61,6 +62,7 @@ class MockLlamaBackend implements LlamaBackend {
     String text, {
     bool addSpecial = true,
   }) async {
+    tokenizeCalls += 1;
     return List.generate(text.length, (i) => i);
   }
 
@@ -155,6 +157,33 @@ void main() {
       }
       expect(session.history, isNotEmpty);
       expect(session.history.length, lessThan(40));
+    });
+
+    test('enforceContextLimit trims with bounded template passes', () async {
+      backend.contextSize = 420;
+      session.maxContextTokens = 420;
+
+      for (int i = 0; i < 16; i++) {
+        final userText = 'U$i ${List.filled(40, 'x').join()}';
+        final assistantText = 'A$i ${List.filled(40, 'y').join()}';
+        session.addMessage(
+          LlamaChatMessage.fromText(role: LlamaChatRole.user, text: userText),
+        );
+        session.addMessage(
+          LlamaChatMessage.fromText(
+            role: LlamaChatRole.assistant,
+            text: assistantText,
+          ),
+        );
+      }
+
+      final beforeCount = backend.tokenizeCalls;
+      backend.queueResponse('ok');
+      await session.create(const []).drain();
+      final trimTemplateCalls = backend.tokenizeCalls - beforeCount;
+
+      expect(trimTemplateCalls, lessThan(10));
+      expect(session.history.length, lessThan(33));
     });
 
     test('multimodal marker injection', () async {

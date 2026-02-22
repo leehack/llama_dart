@@ -1,6 +1,7 @@
 import 'dart:isolate';
 
 import 'llama_cpp_service.dart';
+import 'stream_batcher.dart';
 import 'worker_messages.dart';
 
 // Re-export messages so native_backend.dart can see them via worker.dart if needed
@@ -77,8 +78,21 @@ void llamaWorkerEntry(SendPort initialSendPort) {
                 parts: message.parts,
               );
 
+              final batcher = NativeTokenStreamBatcher(
+                tokenThreshold: message.params.streamBatchTokenThreshold,
+                byteThreshold: message.params.streamBatchByteThreshold,
+              );
+
               await for (final tokens in stream) {
-                message.sendPort.send(TokenResponse(tokens));
+                final readyChunks = batcher.add(tokens);
+                for (final chunk in readyChunks) {
+                  message.sendPort.send(TokenResponse(chunk));
+                }
+              }
+
+              final finalChunk = batcher.flush();
+              if (finalChunk != null) {
+                message.sendPort.send(TokenResponse(finalChunk));
               }
 
               message.sendPort.send(DoneResponse());
