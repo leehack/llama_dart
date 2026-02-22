@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/downloadable_model.dart';
 import '../providers/chat_provider.dart';
+import '../services/hugging_face_model_discovery_service.dart';
 import '../services/model_service_base.dart';
 import '../utils/backend_utils.dart';
 import '../widgets/model_card.dart';
@@ -33,6 +35,8 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
   static const String _customModelsPrefsKey = 'custom_hf_models_v1';
 
   final ModelService _modelService = ModelService();
+  final HuggingFaceModelDiscoveryService _hfDiscoveryService =
+      HuggingFaceModelDiscoveryService();
   final List<DownloadableModel> _models = List<DownloadableModel>.from(
     DownloadableModel.defaultModels,
   );
@@ -89,11 +93,12 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
           sizeBytes: (decoded['sizeBytes'] as int?) ?? 0,
           supportsVision: (decoded['supportsVision'] as bool?) ?? false,
           supportsAudio: (decoded['supportsAudio'] as bool?) ?? false,
-          supportsVideo: false,
-          supportsToolCalling: false,
-          supportsThinking: false,
-          preset: const ModelPreset(),
-          minRamGb: 2,
+          supportsVideo: (decoded['supportsVideo'] as bool?) ?? false,
+          supportsToolCalling:
+              (decoded['supportsToolCalling'] as bool?) ?? false,
+          supportsThinking: (decoded['supportsThinking'] as bool?) ?? false,
+          preset: _decodePreset(decoded['preset']),
+          minRamGb: (decoded['minRamGb'] as int?) ?? 2,
         );
 
         if (model.url.isEmpty || model.filename.isEmpty) {
@@ -128,10 +133,78 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
             'sizeBytes': model.sizeBytes,
             'supportsVision': model.supportsVision,
             'supportsAudio': model.supportsAudio,
+            'supportsVideo': model.supportsVideo,
+            'supportsToolCalling': model.supportsToolCalling,
+            'supportsThinking': model.supportsThinking,
+            'minRamGb': model.minRamGb,
+            'preset': _encodePreset(model.preset),
           }),
         )
         .toList(growable: false);
     await prefs.setStringList(_customModelsPrefsKey, payload);
+  }
+
+  Map<String, dynamic> _encodePreset(ModelPreset preset) {
+    return <String, dynamic>{
+      'temperature': preset.temperature,
+      'topK': preset.topK,
+      'topP': preset.topP,
+      'minP': preset.minP,
+      'penalty': preset.penalty,
+      'thinkingBudgetTokens': preset.thinkingBudgetTokens,
+      'contextSize': preset.contextSize,
+      'maxTokens': preset.maxTokens,
+      'thinkingEnabled': preset.thinkingEnabled,
+      'gpuLayers': preset.gpuLayers,
+    };
+  }
+
+  ModelPreset _decodePreset(Object? raw) {
+    if (raw is! Map<String, dynamic>) {
+      return const ModelPreset();
+    }
+
+    return ModelPreset(
+      temperature: (raw['temperature'] as num?)?.toDouble() ?? 0.7,
+      topK: (raw['topK'] as num?)?.toInt() ?? 40,
+      topP: (raw['topP'] as num?)?.toDouble() ?? 0.9,
+      minP: (raw['minP'] as num?)?.toDouble() ?? 0.0,
+      penalty: (raw['penalty'] as num?)?.toDouble() ?? 1.1,
+      thinkingBudgetTokens: (raw['thinkingBudgetTokens'] as num?)?.toInt() ?? 0,
+      contextSize: (raw['contextSize'] as num?)?.toInt() ?? 4096,
+      maxTokens: (raw['maxTokens'] as num?)?.toInt() ?? 4096,
+      thinkingEnabled: (raw['thinkingEnabled'] as bool?) ?? true,
+      gpuLayers: (raw['gpuLayers'] as num?)?.toInt() ?? 99,
+    );
+  }
+
+  bool _isDuplicateModel(DownloadableModel candidate) {
+    return _models.any(
+      (model) =>
+          model.filename == candidate.filename ||
+          model.url == candidate.url ||
+          (model.name == candidate.name &&
+              model.sizeBytes == candidate.sizeBytes),
+    );
+  }
+
+  Future<void> _addCustomModelEntry(DownloadableModel model) async {
+    setState(() {
+      _models.insert(0, model);
+      _customModels.removeWhere(
+        (existing) =>
+            existing.filename == model.filename || existing.url == model.url,
+      );
+      _customModels.insert(0, model);
+      _showModelLibrary = true;
+    });
+
+    _downloadedFiles = await _modelService.getDownloadedModels(_models);
+    if (mounted) {
+      setState(() {});
+    }
+
+    await _saveCustomModels();
   }
 
   String? _extractFilenameFromUrl(String rawUrl) {
@@ -242,17 +315,6 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
                       }
                     }
 
-                    final exists = _models.any(
-                      (model) =>
-                          model.url == url || model.filename == modelFilename,
-                    );
-                    if (exists) {
-                      setDialogState(() {
-                        errorText = 'This model is already in your list.';
-                      });
-                      return;
-                    }
-
                     final displayName = nameController.text.trim().isEmpty
                         ? modelFilename
                         : nameController.text.trim();
@@ -274,13 +336,16 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
                       preset: const ModelPreset(),
                     );
 
-                    setState(() {
-                      _models.insert(0, customModel);
-                      _customModels.insert(0, customModel);
-                      _showModelLibrary = true;
-                    });
+                    if (_isDuplicateModel(customModel)) {
+                      setDialogState(() {
+                        errorText = 'This model is already in your list.';
+                      });
+                      return;
+                    }
+
+                    await _addCustomModelEntry(customModel);
+                    if (!dialogContext.mounted) return;
                     Navigator.of(dialogContext).pop();
-                    await _saveCustomModels();
 
                     if (!mounted) return;
                     ScaffoldMessenger.of(this.context).showSnackBar(
@@ -295,6 +360,73 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
         );
       },
     );
+  }
+
+  Future<void> _showDiscoverPopularModelsDialog() async {
+    final discovered = await showModalBottomSheet<HfDiscoveredModel>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) {
+        return _PopularModelsDiscoverySheet(
+          discoveryService: _hfDiscoveryService,
+          existingModels: _models,
+        );
+      },
+    );
+
+    if (!mounted || discovered == null) {
+      return;
+    }
+
+    final source = discovered.model;
+    final enrichedDescription = discovered.hasLiveStats
+        ? '⭐ ${_formatCompactCount(discovered.downloads)} downloads • '
+              '${source.description}'
+        : source.description;
+
+    final customModel = DownloadableModel(
+      name: source.name,
+      description: enrichedDescription,
+      url: source.url,
+      filename: source.filename,
+      mmprojUrl: source.mmprojUrl,
+      mmprojFilename: source.mmprojFilename,
+      sizeBytes: source.sizeBytes,
+      supportsVision: source.supportsVision,
+      supportsAudio: source.supportsAudio,
+      supportsVideo: source.supportsVideo,
+      supportsToolCalling: source.supportsToolCalling,
+      supportsThinking: source.supportsThinking,
+      minRamGb: source.minRamGb,
+      preset: source.preset,
+    );
+
+    if (_isDuplicateModel(customModel)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${customModel.name} is already in your list.')),
+      );
+      return;
+    }
+
+    await _addCustomModelEntry(customModel);
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Added ${customModel.name}')));
+  }
+
+  String _formatCompactCount(int value) {
+    if (value >= 1000000) {
+      return '${(value / 1000000).toStringAsFixed(1)}M';
+    }
+    if (value >= 1000) {
+      return '${(value / 1000).toStringAsFixed(1)}k';
+    }
+    return value.toString();
   }
 
   Future<void> _downloadModel(DownloadableModel model) async {
@@ -428,6 +560,85 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
       _downloadProgress.remove(model.filename);
       _isDownloading[model.filename] = false;
     });
+  }
+
+  Future<void> _removeAllModels() async {
+    if (!kIsWeb && _modelsDir == null) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Remove all models?'),
+          content: const Text(
+            'This removes all downloaded model files and clears all custom model entries.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Remove all'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    final provider = context.read<ChatProvider>();
+
+    for (final token in _cancelTokens.values) {
+      if (!token.isCancelled) {
+        token.cancel('Bulk remove models');
+      }
+    }
+
+    final snapshot = List<DownloadableModel>.from(_models);
+    for (final model in snapshot) {
+      await _modelService.deleteModel(_modelsDir ?? '', model);
+    }
+
+    _models
+      ..clear()
+      ..addAll(DownloadableModel.defaultModels);
+    _customModels.clear();
+    _downloadProgress.clear();
+    _isDownloading.clear();
+    _cancelTokens.clear();
+    _downloadedFiles = await _modelService.getDownloadedModels(_models);
+
+    await _saveCustomModels();
+
+    if (provider.isLoaded) {
+      await provider.unloadModel();
+    }
+    provider.updateModelPath('');
+    provider.updateMmprojPath('');
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _showModelLibrary = true;
+      _activatingModel = null;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Removed all models and custom entries.')),
+    );
   }
 
   void _resetModelParams(ChatProvider provider) {
@@ -655,13 +866,39 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
                   ),
                   if (_showModelLibrary) ...[
                     const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: OutlinedButton.icon(
-                        onPressed: _showAddHuggingFaceDialog,
-                        icon: const Icon(Icons.add_link_rounded),
-                        label: const Text('Add GGUF (HF)'),
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(44),
+                            alignment: Alignment.centerLeft,
+                          ),
+                          onPressed: _showDiscoverPopularModelsDialog,
+                          icon: const Icon(Icons.auto_awesome_rounded),
+                          label: const Text('Discover popular'),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(44),
+                            alignment: Alignment.centerLeft,
+                          ),
+                          onPressed: _showAddHuggingFaceDialog,
+                          icon: const Icon(Icons.add_link_rounded),
+                          label: const Text('Add GGUF (HF)'),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(44),
+                            alignment: Alignment.centerLeft,
+                          ),
+                          onPressed: _removeAllModels,
+                          icon: const Icon(Icons.delete_sweep_outlined),
+                          label: const Text('Remove all'),
+                        ),
+                      ],
                     ),
                     if (!kIsWeb && _modelsDir == null)
                       const Padding(
@@ -885,32 +1122,18 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
                         spacing: 10,
                         runSpacing: 10,
                         children: [
-                          FilledButton.tonalIcon(
-                            onPressed: provider.isInitializing
-                                ? null
-                                : () async {
-                                    final messenger = ScaffoldMessenger.of(
-                                      context,
-                                    );
-                                    await provider.estimateDynamicSettings();
-                                    if (!mounted) return;
-                                    final gpuLabel = provider.gpuLayers == 99
-                                        ? 'Auto'
-                                        : provider.gpuLayers.toString();
-                                    final ctxLabel = provider.contextSize == 0
-                                        ? 'Auto'
-                                        : provider.contextSize.toString();
-                                    messenger.showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          'Estimated GPU layers $gpuLabel, context $ctxLabel.',
-                                        ),
-                                      ),
-                                    );
-                                  },
-                            icon: const Icon(Icons.auto_fix_high_rounded),
-                            label: const Text('Estimate GPU + context'),
-                          ),
+                          if (provider.isLoaded)
+                            FilledButton.tonalIcon(
+                              onPressed: provider.isInitializing
+                                  ? null
+                                  : () async {
+                                      await provider.unloadModel();
+                                      if (!mounted) return;
+                                      await _loadConfiguredModel(provider);
+                                    },
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Reload model'),
+                            ),
                           FilledButton.tonal(
                             onPressed: () => _resetModelParams(provider),
                             child: const Text('Reset model params'),
@@ -922,9 +1145,8 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        'Estimate uses current free VRAM to set GPU layers and '
-                        'context size. Set GPU layers to 99 for Auto. '
-                        'Values apply on next model load.',
+                        'Set GPU layers to 99 for Auto. '
+                        'Runtime values apply on next model load.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
@@ -1228,6 +1450,693 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
       LlamaLogLevel.info => 'Info',
       LlamaLogLevel.debug => 'Debug',
     };
+  }
+}
+
+class _PopularModelsDiscoverySheet extends StatefulWidget {
+  final HuggingFaceModelDiscoveryService discoveryService;
+  final List<DownloadableModel> existingModels;
+
+  const _PopularModelsDiscoverySheet({
+    required this.discoveryService,
+    required this.existingModels,
+  });
+
+  @override
+  State<_PopularModelsDiscoverySheet> createState() =>
+      _PopularModelsDiscoverySheetState();
+}
+
+class _PopularModelsDiscoverySheetState
+    extends State<_PopularModelsDiscoverySheet> {
+  static const String _prefsDiscoveryCacheKey = 'hf_discovery_cache_v1';
+  static const int _pageSize = 20;
+
+  bool _isLoading = true;
+  String? _error;
+  List<HfDiscoveredModel> _allModels = const <HfDiscoveredModel>[];
+  int _loadRequestSerial = 0;
+  Timer? _refreshDebounce;
+  final TextEditingController _searchController = TextEditingController();
+  int _visibleCount = _pageSize;
+
+  String _searchQuery = '';
+  HfDiscoverySort _sortBy = HfDiscoverySort.trending;
+  HfPipelineTagFilter _pipelineTag = HfPipelineTagFilter.any;
+
+  HfDiscoveryFilters get _activeFilters => HfDiscoveryFilters(
+    searchQuery: _searchQuery,
+    sort: _sortBy,
+    pipelineTag: _pipelineTag,
+  );
+
+  Set<String> get _existingKeys {
+    final keys = <String>{};
+    for (final model in widget.existingModels) {
+      keys.add(model.filename);
+      keys.add(model.url);
+    }
+    return keys;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_bootstrap());
+  }
+
+  @override
+  void dispose() {
+    _refreshDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _bootstrap() async {
+    await _restorePersistedCache();
+    if (!mounted) {
+      return;
+    }
+    await _load(showLoading: _allModels.isEmpty);
+  }
+
+  String _filtersCacheKey(HfDiscoveryFilters filters) {
+    return [
+      filters.sort.name,
+      filters.pipelineTag.name,
+      filters.searchQuery.trim().toLowerCase(),
+    ].join('|');
+  }
+
+  Future<void> _restorePersistedCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsDiscoveryCacheKey);
+    if (raw == null || raw.isEmpty) {
+      return;
+    }
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        return;
+      }
+
+      final key = decoded['filtersKey'] as String?;
+      if (key != _filtersCacheKey(_activeFilters)) {
+        return;
+      }
+
+      final timestampRaw = decoded['timestamp'] as String?;
+      final timestamp = timestampRaw == null
+          ? null
+          : DateTime.tryParse(timestampRaw);
+      if (timestamp == null ||
+          DateTime.now().difference(timestamp) > const Duration(hours: 12)) {
+        return;
+      }
+
+      final modelsRaw = decoded['models'];
+      if (modelsRaw is! List) {
+        return;
+      }
+
+      final restored = modelsRaw
+          .whereType<Map>()
+          .map((row) => _decodeDiscoveredModel(row))
+          .whereType<HfDiscoveredModel>()
+          .toList(growable: false);
+
+      if (restored.isEmpty || !mounted) {
+        return;
+      }
+
+      setState(() {
+        _allModels = restored;
+        _visibleCount = math.min(_pageSize, restored.length);
+        _isLoading = false;
+      });
+    } catch (_) {
+      return;
+    }
+  }
+
+  Future<void> _persistCache(List<HfDiscoveredModel> models) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = <String, dynamic>{
+        'filtersKey': _filtersCacheKey(_activeFilters),
+        'timestamp': DateTime.now().toIso8601String(),
+        'models': models.map(_encodeDiscoveredModel).toList(growable: false),
+      };
+      await prefs.setString(_prefsDiscoveryCacheKey, jsonEncode(payload));
+    } catch (_) {
+      return;
+    }
+  }
+
+  Map<String, dynamic> _encodeDiscoveredModel(HfDiscoveredModel entry) {
+    final m = entry.model;
+    return <String, dynamic>{
+      'repositoryId': entry.repositoryId,
+      'downloads': entry.downloads,
+      'likes': entry.likes,
+      'hasLiveStats': entry.hasLiveStats,
+      'modelScaleB': entry.modelScaleB,
+      'model': <String, dynamic>{
+        'name': m.name,
+        'description': m.description,
+        'url': m.url,
+        'filename': m.filename,
+        'mmprojUrl': m.mmprojUrl,
+        'mmprojFilename': m.mmprojFilename,
+        'sizeBytes': m.sizeBytes,
+        'supportsVision': m.supportsVision,
+        'supportsAudio': m.supportsAudio,
+        'supportsVideo': m.supportsVideo,
+        'supportsToolCalling': m.supportsToolCalling,
+        'supportsThinking': m.supportsThinking,
+        'minRamGb': m.minRamGb,
+        'preset': <String, dynamic>{
+          'temperature': m.preset.temperature,
+          'topK': m.preset.topK,
+          'topP': m.preset.topP,
+          'minP': m.preset.minP,
+          'penalty': m.preset.penalty,
+          'thinkingBudgetTokens': m.preset.thinkingBudgetTokens,
+          'contextSize': m.preset.contextSize,
+          'maxTokens': m.preset.maxTokens,
+          'thinkingEnabled': m.preset.thinkingEnabled,
+          'gpuLayers': m.preset.gpuLayers,
+        },
+      },
+    };
+  }
+
+  HfDiscoveredModel? _decodeDiscoveredModel(Map raw) {
+    final modelRaw = raw['model'];
+    if (modelRaw is! Map) {
+      return null;
+    }
+
+    final presetRaw = modelRaw['preset'] is Map
+        ? modelRaw['preset'] as Map
+        : null;
+
+    double asDouble(Object? value, double fallback) {
+      if (value is num) {
+        return value.toDouble();
+      }
+      return fallback;
+    }
+
+    int asInt(Object? value, int fallback) {
+      if (value is num) {
+        return value.toInt();
+      }
+      return fallback;
+    }
+
+    bool asBool(Object? value, bool fallback) {
+      if (value is bool) {
+        return value;
+      }
+      return fallback;
+    }
+
+    final model = DownloadableModel(
+      name: (modelRaw['name'] as String?) ?? 'Unknown model',
+      description: (modelRaw['description'] as String?) ?? '',
+      url: (modelRaw['url'] as String?) ?? '',
+      filename: (modelRaw['filename'] as String?) ?? '',
+      mmprojUrl: modelRaw['mmprojUrl'] as String?,
+      mmprojFilename: modelRaw['mmprojFilename'] as String?,
+      sizeBytes: (modelRaw['sizeBytes'] as num?)?.toInt() ?? 0,
+      supportsVision: (modelRaw['supportsVision'] as bool?) ?? false,
+      supportsAudio: (modelRaw['supportsAudio'] as bool?) ?? false,
+      supportsVideo: (modelRaw['supportsVideo'] as bool?) ?? false,
+      supportsToolCalling: (modelRaw['supportsToolCalling'] as bool?) ?? false,
+      supportsThinking: (modelRaw['supportsThinking'] as bool?) ?? false,
+      minRamGb: (modelRaw['minRamGb'] as num?)?.toInt() ?? 2,
+      preset: ModelPreset(
+        temperature: asDouble(presetRaw?['temperature'], 0.7),
+        topK: asInt(presetRaw?['topK'], 40),
+        topP: asDouble(presetRaw?['topP'], 0.9),
+        minP: asDouble(presetRaw?['minP'], 0.0),
+        penalty: asDouble(presetRaw?['penalty'], 1.1),
+        thinkingBudgetTokens: asInt(presetRaw?['thinkingBudgetTokens'], 0),
+        contextSize: asInt(presetRaw?['contextSize'], 4096),
+        maxTokens: asInt(presetRaw?['maxTokens'], 4096),
+        thinkingEnabled: asBool(presetRaw?['thinkingEnabled'], true),
+        gpuLayers: asInt(presetRaw?['gpuLayers'], 99),
+      ),
+    );
+
+    if (model.url.isEmpty || model.filename.isEmpty) {
+      return null;
+    }
+
+    return HfDiscoveredModel(
+      model: model,
+      repositoryId: (raw['repositoryId'] as String?) ?? model.name,
+      downloads: (raw['downloads'] as num?)?.toInt() ?? 0,
+      likes: (raw['likes'] as num?)?.toInt() ?? 0,
+      hasLiveStats: (raw['hasLiveStats'] as bool?) ?? false,
+      modelScaleB: (raw['modelScaleB'] as num?)?.toDouble(),
+    );
+  }
+
+  void _scheduleRefresh() {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) {
+        return;
+      }
+      unawaited(_load());
+    });
+  }
+
+  Future<void> _load({
+    bool forceRefresh = false,
+    bool showLoading = true,
+  }) async {
+    final requestSerial = ++_loadRequestSerial;
+
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    } else {
+      _error = null;
+    }
+
+    try {
+      final models = await widget.discoveryService.discoverPopularModels(
+        filters: _activeFilters,
+        forceRefresh: forceRefresh,
+      );
+
+      if (!mounted || requestSerial != _loadRequestSerial) {
+        return;
+      }
+
+      setState(() {
+        _allModels = models;
+        _visibleCount = math.min(_pageSize, models.length);
+        _isLoading = false;
+      });
+      unawaited(_persistCache(models));
+    } catch (e) {
+      if (!mounted || requestSerial != _loadRequestSerial) {
+        return;
+      }
+
+      setState(() {
+        _isLoading = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  String _formatCompact(int value) {
+    if (value >= 1000000) {
+      return '${(value / 1000000).toStringAsFixed(1)}M';
+    }
+    if (value >= 1000) {
+      return '${(value / 1000).toStringAsFixed(1)}k';
+    }
+    return value.toString();
+  }
+
+  String _formatModelMetadata(HfDiscoveredModel entry) {
+    final details = <String>[];
+
+    if (entry.modelScaleB != null) {
+      details.add(entry.modelScaleLabel);
+    }
+
+    if (entry.model.sizeBytes > 0) {
+      details.add('${entry.model.sizeMb} MB');
+    }
+
+    if (entry.model.minRamGb > 0) {
+      details.add('${entry.model.minRamGb} GB RAM');
+    }
+
+    if (details.isEmpty) {
+      return 'Size/RAM metadata unavailable from API';
+    }
+
+    return details.join(' • ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _allModels;
+    final visibleCount = math.min(_visibleCount, filtered.length);
+    final visibleModels = filtered.take(visibleCount).toList(growable: false);
+    final hasMore = visibleCount < filtered.length;
+    final existing = _existingKeys;
+
+    return FractionallySizedBox(
+      heightFactor: 0.9,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Discover popular Hugging Face GGUF models',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          _refreshDebounce?.cancel();
+                          unawaited(_load(forceRefresh: true));
+                        },
+                  tooltip: 'Refresh popularity',
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Live results from Hugging Face official API only (`/api/models` with `filter=gguf`, optional `pipeline_tag`, search, and sort). File size and RAM are shown only when API metadata is available.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.outlineVariant.withValues(alpha: 0.45),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: _searchController,
+                    textInputAction: TextInputAction.search,
+                    onChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
+                      });
+                      _scheduleRefresh();
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'Search Hugging Face models',
+                      hintText: 'e.g. qwen, llama, gemma, audio',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: _searchQuery.trim().isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Clear search',
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() {
+                                  _searchQuery = '';
+                                });
+                                _scheduleRefresh();
+                              },
+                              icon: const Icon(Icons.clear_rounded),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<HfDiscoverySort>(
+                          initialValue: _sortBy,
+                          decoration: const InputDecoration(labelText: 'Sort'),
+                          items: const [
+                            DropdownMenuItem<HfDiscoverySort>(
+                              value: HfDiscoverySort.trending,
+                              child: Text('Trending'),
+                            ),
+                            DropdownMenuItem<HfDiscoverySort>(
+                              value: HfDiscoverySort.downloads,
+                              child: Text('Downloads'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) {
+                              return;
+                            }
+                            setState(() {
+                              _sortBy = value;
+                            });
+                            _scheduleRefresh();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DropdownButtonFormField<HfPipelineTagFilter>(
+                          initialValue: _pipelineTag,
+                          decoration: const InputDecoration(
+                            labelText: 'Pipeline',
+                          ),
+                          items: const [
+                            DropdownMenuItem<HfPipelineTagFilter>(
+                              value: HfPipelineTagFilter.any,
+                              child: Text('Any'),
+                            ),
+                            DropdownMenuItem<HfPipelineTagFilter>(
+                              value: HfPipelineTagFilter.textGeneration,
+                              child: Text('Text generation'),
+                            ),
+                            DropdownMenuItem<HfPipelineTagFilter>(
+                              value: HfPipelineTagFilter.imageTextToText,
+                              child: Text('Vision'),
+                            ),
+                            DropdownMenuItem<HfPipelineTagFilter>(
+                              value: HfPipelineTagFilter.audioTextToText,
+                              child: Text('Audio'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) {
+                              return;
+                            }
+                            setState(() {
+                              _pipelineTag = value;
+                            });
+                            _scheduleRefresh();
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const SizedBox(height: 2),
+                  Text(
+                    hasMore
+                        ? 'Showing $visibleCount of ${filtered.length} model(s)'
+                        : 'Showing ${filtered.length} model(s)',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Failed to load model popularity.',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    )
+                  : filtered.isEmpty
+                  ? const Center(
+                      child: Text('No models match the current filters.'),
+                    )
+                  : Column(
+                      children: [
+                        Expanded(
+                          child: ListView.separated(
+                            itemCount: visibleModels.length,
+                            separatorBuilder: (_, int index) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final entry = visibleModels[index];
+                              final model = entry.model;
+                              final alreadyAdded =
+                                  existing.contains(model.filename) ||
+                                  existing.contains(model.url);
+
+                              return Container(
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.surface,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outlineVariant
+                                        .withValues(alpha: 0.45),
+                                  ),
+                                ),
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
+                                  title: Text(
+                                    model.name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(_formatModelMetadata(entry)),
+                                        Text(
+                                          entry.hasLiveStats
+                                              ? '${_formatCompact(entry.downloads)} downloads • ${entry.likes} likes • ${entry.repositoryId}'
+                                              : 'Popularity unavailable • ${entry.repositoryId}',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.onSurfaceVariant,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Wrap(
+                                          spacing: 6,
+                                          runSpacing: 6,
+                                          children: [
+                                            if (model.supportsVision)
+                                              const _CapabilityPill(
+                                                label: 'Vision',
+                                              ),
+                                            if (model.supportsAudio)
+                                              const _CapabilityPill(
+                                                label: 'Audio',
+                                              ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  trailing: alreadyAdded
+                                      ? const Icon(
+                                          Icons.check_circle_outline_rounded,
+                                          color: Colors.green,
+                                        )
+                                      : FilledButton.tonal(
+                                          onPressed: () {
+                                            Navigator.of(context).pop(entry);
+                                          },
+                                          child: const Text('Add'),
+                                        ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        if (hasMore) ...[
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.center,
+                            child: FilledButton.tonalIcon(
+                              onPressed: () {
+                                setState(() {
+                                  _visibleCount = math.min(
+                                    _visibleCount + _pageSize,
+                                    filtered.length,
+                                  );
+                                });
+                              },
+                              icon: const Icon(Icons.expand_more_rounded),
+                              label: Text(
+                                'Load more (${filtered.length - visibleCount} left)',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CapabilityPill extends StatelessWidget {
+  final String label;
+
+  const _CapabilityPill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: Theme.of(context).colorScheme.onPrimaryContainer,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
   }
 }
 

@@ -415,16 +415,49 @@ class ChatProvider extends ChangeNotifier {
     _activeBackend = 'Loading model...';
     notifyListeners();
 
-    void setProgress(double value) {
-      final clamped = value.clamp(0.0, 1.0);
-      if (clamped <= _loadingProgress) {
+    DateTime lastProgressNotifyAt = DateTime.now();
+    double lastProgressNotified = 0.0;
+
+    void updateLoadingUi(
+      double value, {
+      String? backendLabel,
+      bool forceNotify = false,
+    }) {
+      final double clamped = value.clamp(0.0, 1.0);
+      var changed = false;
+
+      if (clamped > _loadingProgress) {
+        _loadingProgress = clamped;
+        changed = true;
+      }
+
+      if (backendLabel != null) {
+        _activeBackend = backendLabel;
+        changed = true;
+      }
+
+      if (!changed) {
         return;
       }
-      _loadingProgress = clamped;
+
+      final now = DateTime.now();
+      final shouldNotify =
+          forceNotify ||
+          _loadingProgress >= 1.0 ||
+          (_loadingProgress - lastProgressNotified) >= 0.01 ||
+          now.difference(lastProgressNotifyAt) >=
+              const Duration(milliseconds: 80);
+
+      if (!shouldNotify) {
+        return;
+      }
+
+      lastProgressNotifyAt = now;
+      lastProgressNotified = _loadingProgress;
       notifyListeners();
     }
 
-    setProgress(0.04);
+    updateLoadingUi(0.04, forceNotify: true);
 
     // Estimate dynamic settings if we have a model path but no custom settings yet
     // or if we're reloading and want to be safe.
@@ -436,28 +469,27 @@ class ChatProvider extends ChangeNotifier {
       }
     }
 
-    setProgress(0.1);
+    updateLoadingUi(0.1);
 
     try {
       await _resolveAutoPreferredBackend();
       await _chatService.engine.setDartLogLevel(_settings.logLevel);
       await _chatService.engine.setNativeLogLevel(_settings.nativeLogLevel);
-      setProgress(0.14);
+      updateLoadingUi(0.14);
       await _chatService.init(
         _settings,
         onProgress: (progress) {
           final normalized = progress.clamp(0.0, 1.0);
           final staged = 0.14 + (normalized * 0.7);
-          if (staged > _loadingProgress) {
-            _loadingProgress = staged;
-          }
-          _activeBackend =
-              'Loading model ${(normalized * 100).toStringAsFixed(0)}%';
-          notifyListeners();
+          updateLoadingUi(
+            staged,
+            backendLabel:
+                'Loading model ${(normalized * 100).toStringAsFixed(0)}%',
+          );
         },
       );
 
-      setProgress(0.72);
+      updateLoadingUi(0.72);
 
       if (!_chatService.engine.isReady) {
         throw Exception('Engine initialization did not complete.');
@@ -468,7 +500,7 @@ class ChatProvider extends ChangeNotifier {
         contextSize: _settings.contextSize,
         systemPrompt: _sessionSystemPrompt(),
       );
-      setProgress(0.8);
+      updateLoadingUi(0.8);
 
       final rawBackend = await _chatService.engine.getBackendName();
       _availableDevices = BackendUtils.parseBackendDevices(rawBackend);
@@ -483,7 +515,7 @@ class ChatProvider extends ChangeNotifier {
       _supportsAudio = await _chatService.engine.supportsAudio;
       final metadata = await _chatService.engine.getMetadata();
       _updateToolTemplateSupport(metadata);
-      setProgress(0.9);
+      updateLoadingUi(0.9);
 
       final runtimeDiagnostics = _runtimeProfileService.buildDiagnostics(
         metadata: metadata,
@@ -497,7 +529,7 @@ class ChatProvider extends ChangeNotifier {
       _loadedMmprojPath = _settings.mmprojPath;
       _restoreSessionFromMessages();
       _syncActiveConversationSnapshot(touchUpdatedAt: false);
-      setProgress(1.0);
+      updateLoadingUi(1.0, forceNotify: true);
     } catch (e, stackTrace) {
       debugPrint('Error loading model: $e');
       debugPrint(stackTrace.toString());

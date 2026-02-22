@@ -22,14 +22,13 @@ Future<void> showToolDeclarationsDialog(
   var mode = _ToolDeclarationEditorMode.code;
   var errorText = provider.toolDeclarationsError;
   final visualTools = <_EditableToolDeclaration>[];
+  final allToolEditors = <_EditableToolDeclaration>[];
 
   void replaceVisualTools(List<_EditableToolDeclaration> nextTools) {
-    for (final item in visualTools) {
-      item.dispose();
-    }
     visualTools
       ..clear()
       ..addAll(nextTools);
+    allToolEditors.addAll(nextTools);
   }
 
   void loadVisualFromCode(void Function(void Function()) setState) {
@@ -64,7 +63,11 @@ Future<void> showToolDeclarationsDialog(
   }
 
   try {
-    visualTools.addAll(_parseEditableToolDeclarations(codeController.text));
+    final initialVisualTools = _parseEditableToolDeclarations(
+      codeController.text,
+    );
+    visualTools.addAll(initialVisualTools);
+    allToolEditors.addAll(initialVisualTools);
   } on FormatException {
     // Keep visual list empty until the code content becomes valid JSON.
   }
@@ -171,13 +174,13 @@ Future<void> showToolDeclarationsDialog(
                             : _VisualToolDeclarationsEditor(
                                 tools: visualTools,
                                 onAdd: () {
-                                  visualTools.add(
-                                    _EditableToolDeclaration.empty(),
-                                  );
+                                  final editor =
+                                      _EditableToolDeclaration.empty();
+                                  visualTools.add(editor);
+                                  allToolEditors.add(editor);
                                   setState(() {});
                                 },
                                 onRemove: (index) {
-                                  visualTools[index].dispose();
                                   visualTools.removeAt(index);
                                   setState(() {});
                                 },
@@ -264,7 +267,7 @@ Future<void> showToolDeclarationsDialog(
   );
 
   codeController.dispose();
-  for (final item in visualTools) {
+  for (final item in allToolEditors) {
     item.dispose();
   }
 }
@@ -323,6 +326,7 @@ class _VisualToolDeclarationsEditor extends StatelessWidget {
                   itemBuilder: (context, index) {
                     final tool = tools[index];
                     return Container(
+                      key: ValueKey<int>(tool.id),
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: colorScheme.surface,
@@ -392,6 +396,9 @@ class _VisualToolDeclarationsEditor extends StatelessWidget {
 }
 
 class _EditableToolDeclaration {
+  static int _nextId = 1;
+
+  final int id;
   final TextEditingController nameController;
   final TextEditingController descriptionController;
   final TextEditingController parametersController;
@@ -400,7 +407,8 @@ class _EditableToolDeclaration {
     required String name,
     required String description,
     required String parametersJson,
-  }) : nameController = TextEditingController(text: name),
+  }) : id = _nextId++,
+       nameController = TextEditingController(text: name),
        descriptionController = TextEditingController(text: description),
        parametersController = TextEditingController(text: parametersJson);
 

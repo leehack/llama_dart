@@ -378,11 +378,7 @@ class ModelCard extends StatelessWidget {
                         size: 18,
                       ),
                       label: Text(
-                        progress > 0
-                            ? 'Resume Download'
-                            : (isWeb
-                                  ? 'Download to Browser Cache'
-                                  : 'Download to Device'),
+                        progress > 0 ? 'Resume Download' : 'Download',
                       ),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),

@@ -30,37 +30,54 @@ class ChatService {
       await _engine.unloadModel();
     }
 
-    if (settings.modelPath!.startsWith('http')) {
-      await _engine.loadModelFromUrl(
-        settings.modelPath!,
-        modelParams: ModelParams(
-          gpuLayers: settings.gpuLayers,
-          preferredBackend: settings.preferredBackend,
-          contextSize: settings.contextSize,
-          numberOfThreads: settings.numberOfThreads,
-          numberOfThreadsBatch: settings.numberOfThreadsBatch,
-        ),
-        onProgress: onProgress,
-      );
-    } else {
-      Timer? syntheticProgressTimer;
-      var syntheticProgress = 0.0;
+    Timer? syntheticProgressTimer;
+    var syntheticProgress = 0.0;
+    var emittedProgress = 0.0;
 
-      if (onProgress != null) {
-        syntheticProgressTimer = Timer.periodic(
-          const Duration(milliseconds: 140),
-          (_) {
-            syntheticProgress =
-                (syntheticProgress + (1 - syntheticProgress) * 0.14).clamp(
-                  0.0,
-                  0.92,
-                );
-            onProgress(syntheticProgress);
-          },
-        );
+    void emitProgress(double value) {
+      if (onProgress == null) {
+        return;
       }
+      final clamped = value.clamp(0.0, 1.0);
+      if (clamped <= emittedProgress) {
+        return;
+      }
+      emittedProgress = clamped;
+      onProgress(clamped);
+    }
 
-      try {
+    if (onProgress != null) {
+      syntheticProgressTimer = Timer.periodic(
+        const Duration(milliseconds: 160),
+        (_) {
+          syntheticProgress =
+              (syntheticProgress + (1 - syntheticProgress) * 0.1).clamp(
+                0.0,
+                0.9,
+              );
+          emitProgress(syntheticProgress);
+        },
+      );
+    }
+
+    try {
+      if (settings.modelPath!.startsWith('http')) {
+        await _engine.loadModelFromUrl(
+          settings.modelPath!,
+          modelParams: ModelParams(
+            gpuLayers: settings.gpuLayers,
+            preferredBackend: settings.preferredBackend,
+            contextSize: settings.contextSize,
+            numberOfThreads: settings.numberOfThreads,
+            numberOfThreadsBatch: settings.numberOfThreadsBatch,
+          ),
+          onProgress: onProgress == null
+              ? null
+              : (progress) {
+                  emitProgress(progress);
+                },
+        );
+      } else {
         await _engine.loadModel(
           settings.modelPath!,
           modelParams: ModelParams(
@@ -71,10 +88,11 @@ class ChatService {
             numberOfThreadsBatch: settings.numberOfThreadsBatch,
           ),
         );
-        onProgress?.call(1.0);
-      } finally {
-        syntheticProgressTimer?.cancel();
       }
+
+      emitProgress(1.0);
+    } finally {
+      syntheticProgressTimer?.cancel();
     }
 
     if (settings.mmprojPath != null && settings.mmprojPath!.isNotEmpty) {
