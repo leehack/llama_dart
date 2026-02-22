@@ -6,6 +6,13 @@ For canonical full release notes, use:
 
 - [`CHANGELOG.md`](https://github.com/leehack/llamadart/blob/main/CHANGELOG.md)
 
+## 0.6.2
+
+- Native inference performance improvements (request overhead, stream batching,
+  and prompt-prefix reuse with parity-safe fallback).
+- Added native benchmark and prompt-reuse parity tooling, plus CI parity
+  coverage.
+
 ## 0.6.1
 
 - Publishing compatibility fix for hook backend-config code paths.
